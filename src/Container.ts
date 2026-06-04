@@ -33,6 +33,7 @@ import {
 
 export type ContainerProtocol = "unknown_protocol" | "http1" | "h2c";
 export type ContainerPrivacy = "public" | "private";
+const CONTAINER_NAME_MAX_LENGTH = 34;
 
 export interface ContainerScalingOption {
   concurrentRequestsThreshold?: number;
@@ -246,7 +247,17 @@ export const ContainerProvider = () =>
     Container,
     Effect.gen(function* () {
       const clients = yield* makeScalewayClients;
-      const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 63 });
+      const nameOf = (id: string, name?: string) =>
+        Effect.gen(function* () {
+          if (name && [...name].length > CONTAINER_NAME_MAX_LENGTH) {
+            return yield* Effect.fail(
+              new Error(
+                `Scaleway container name must be ${CONTAINER_NAME_MAX_LENGTH} characters or fewer`,
+              ),
+            );
+          }
+          return yield* physicalName(id, name, { maxLength: CONTAINER_NAME_MAX_LENGTH });
+        });
       const toAttributes = (record: ScalewayContainerRecord): Container["Attributes"] =>
         omitUndefined({
           containerId: record.id,

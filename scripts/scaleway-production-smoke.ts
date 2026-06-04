@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import { Buffer } from "node:buffer";
-import { makeScalewayClients } from "../src/Clients.ts";
+import { makeScalewayClients, type ScalewayContainerRecord } from "../src/Clients.ts";
 import { ScalewayCredentials } from "../src/Credentials.ts";
 
 const required = (name: string) => {
@@ -23,6 +23,7 @@ const projectId = required("SCW_DEFAULT_PROJECT_ID");
 const apiUrl = process.env.SCW_API_URL || "https://api.scaleway.com";
 const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const prefix = `alchemy-smoke-${suffix}`;
+const containerName = `alchemy-smoke-${Date.now().toString(36).slice(-8)}-${crypto.randomUUID().slice(0, 7)}-ctr`;
 const bucketName = `${prefix}-bucket`;
 
 const credentialsLayer = Layer.succeed(
@@ -39,6 +40,7 @@ const credentialsLayer = Layer.succeed(
 const clients = await Effect.runPromise(makeScalewayClients.pipe(Effect.provide(credentialsLayer)));
 const created: {
   namespaceId?: string;
+  containerId?: string;
   registryNamespaceId?: string;
   secretId?: string;
   bucketName?: string;
@@ -83,6 +85,43 @@ async function deleteBucket(name: string) {
   console.error(`failed deleting bucket ${name}: ${response.status} ${body}`);
 }
 
+const sleep = (milliseconds: number) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function waitForContainerReady(containerId: string) {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const container = await runEffect(clients.containers.getContainer(containerId));
+    const status = container.status?.toLowerCase();
+    if (status === "error" || status === "failed") {
+      throw new Error(`container ${containerId} entered ${container.status} status`);
+    }
+    if (container.public_endpoint || status === "ready") return container;
+    await sleep(2000);
+  }
+  throw new Error(`timed out waiting for container ${containerId}`);
+}
+
+async function waitForNamespaceReady(namespaceId: string) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const namespace = await runEffect(clients.containers.getNamespace(namespaceId));
+    const status = namespace.status?.toLowerCase();
+    if (status === "error" || status === "failed") {
+      throw new Error(`namespace ${namespaceId} entered ${namespace.status} status`);
+    }
+    console.log(`namespace status ${status ?? "unknown"}`);
+    if (status === "ready") return;
+    await sleep(1000);
+  }
+  throw new Error(`timed out waiting for namespace ${namespaceId}`);
+}
+
+function containerUrl(container: ScalewayContainerRecord) {
+  if (!container.public_endpoint) return undefined;
+  return container.public_endpoint.startsWith("http")
+    ? container.public_endpoint
+    : `https://${container.public_endpoint}`;
+}
+
 try {
   const namespace = await runEffect(
     clients.containers.createNamespace({
@@ -94,6 +133,21 @@ try {
   );
   created.namespaceId = namespace.id;
   console.log(`created namespace ${namespace.id}`);
+  await waitForNamespaceReady(namespace.id);
+
+  const container = await runEffect(
+    clients.containers.createContainer({
+      namespace_id: namespace.id,
+      name: containerName,
+      image: "docker.io/library/nginx:latest",
+      environment_variables: { ALCHEMY_SMOKE_TEST: "true" },
+    }),
+  );
+  created.containerId = container.id;
+  console.log(`created container ${container.id}`);
+
+  const readyContainer = await waitForContainerReady(container.id);
+  console.log(`container ready ${containerUrl(readyContainer) ?? readyContainer.status ?? container.id}`);
 
   const registry = await runEffect(
     clients.registry.createNamespace({
@@ -152,6 +206,12 @@ try {
     await restDelete(
       `/registry/v1/regions/${region}/namespaces/${created.registryNamespaceId}`,
       `registry namespace ${created.registryNamespaceId}`,
+    );
+  }
+  if (created.containerId) {
+    await restDelete(
+      `/containers/v1/regions/${region}/containers/${created.containerId}`,
+      `container ${created.containerId}`,
     );
   }
   if (created.namespaceId) {

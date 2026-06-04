@@ -51,7 +51,7 @@ SCW_LIVE_TEST=1 op run --environment <1password-environment-id> -- bun run smoke
 `op run --environment` requires the 1Password Environment ID, not the environment name.
 This flag requires the beta 1Password CLI version that supports Environments.
 
-The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, and `SCW_API_URL` from the environment. It creates and deletes a Containers namespace, Registry namespace, Secret Manager secret/version, and Object Storage bucket.
+The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, and `SCW_API_URL` from the environment. It creates and deletes a Containers namespace and container, Registry namespace, Secret Manager secret/version, and Object Storage bucket.
 
 ## Usage
 
