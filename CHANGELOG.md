@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `alchemy-scaleway` are documented here. The package follows the alchemy beta line — see [README › Compatibility](./README.md#compatibility).
+All notable changes to `@finnvid/alchemy-scaleway` are documented here. The package follows the alchemy beta line — see [README › Compatibility](./README.md#compatibility).
 
 ## [Unreleased]
 
@@ -25,6 +25,9 @@ All notable changes to `alchemy-scaleway` are documented here. The package follo
   when a read/update path runs. Revisit this when Alchemy exposes such an option.
 
 ### Changed
+
+- The npm package is now scoped as `@finnvid/alchemy-scaleway`, with package
+  metadata and release workflow support for public npm org publishing.
 
 - Migrated the Serverless Containers integration from the `v1beta1` API to the
   generally-available `v1` API (`/containers/v1/...`). The public resource props were

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve `alchemy-scaleway`.
+Thanks for helping improve `@finnvid/alchemy-scaleway`.
 
 ## Development
 

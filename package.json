@@ -1,5 +1,5 @@
 {
-  "name": "alchemy-scaleway",
+  "name": "@finnvid/alchemy-scaleway",
   "version": "0.1.0-beta.51",
   "description": "Scaleway providers for Alchemy v2",
   "keywords": [
@@ -28,6 +28,9 @@
     "LICENSE",
     "CHANGELOG.md"
   ],
+  "publishConfig": {
+    "access": "restricted"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {

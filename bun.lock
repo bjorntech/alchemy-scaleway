@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "alchemy-scaleway",
+      "name": "@finnvid/alchemy-scaleway",
       "dependencies": {
         "aws4fetch": "^1.0.20",
       },
