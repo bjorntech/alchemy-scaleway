@@ -1,0 +1,60 @@
+{
+  "name": "alchemy-scaleway",
+  "version": "0.1.0-beta.51",
+  "description": "Scaleway providers for Alchemy v2",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "keywords": [
+    "alchemy",
+    "alchemy-effect",
+    "scaleway",
+    "iac",
+    "infrastructure-as-code",
+    "effect",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bjorntechTobbe/alchemy-scaleway.git"
+  },
+  "homepage": "https://github.com/bjorntechTobbe/alchemy-scaleway#readme",
+  "bugs": {
+    "url": "https://github.com/bjorntechTobbe/alchemy-scaleway/issues"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "ARCHITECTURE.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "coverage": "bun test --coverage --coverage-reporter=lcov",
+    "crap": "bun run scripts/crap-index.ts --max=6",
+    "test": "bun test",
+    "format": "oxfmt .",
+    "prepublishOnly": "bun run check && bun test && bun run coverage && bun run crap"
+  },
+  "dependencies": {
+    "aws4fetch": "^1.0.20"
+  },
+  "peerDependencies": {
+    "alchemy": "2.0.0-beta.51",
+    "effect": "4.0.0-beta.74"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "alchemy": "2.0.0-beta.51",
+    "effect": "4.0.0-beta.74",
+    "oxfmt": "latest",
+    "typescript": "latest"
+  }
+}
