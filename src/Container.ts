@@ -5,35 +5,42 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients, type ScalewayContainerRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
-import { namespaceId, omitUndefined, physicalName, recordEquals, type NamedNamespace } from "./Internal.ts";
+import {
+  namespaceId,
+  omitUndefined,
+  physicalName,
+  recordEquals,
+  type NamedNamespace,
+} from "./Internal.ts";
 import type { Providers } from "./Providers.ts";
 
 export type ContainerProtocol = "unknown_protocol" | "http1" | "h2c";
 export type ContainerPrivacy = "public" | "private";
-export type ContainerHttpOption = "enabled" | "redirected";
 
-export interface SecretEnvironmentVariable {
-  key: string;
-  value: string;
+export interface ContainerScalingOption {
+  concurrentRequestsThreshold?: number;
+  cpuUsageThreshold?: number;
+  memoryUsageThreshold?: number;
 }
 
 export interface ContainerProps {
   namespace: NamedNamespace;
   name?: string;
-  registryImage: string;
+  image: string;
   environmentVariables?: Record<string, string>;
-  secretEnvironmentVariables?: ReadonlyArray<SecretEnvironmentVariable>;
+  secretEnvironmentVariables?: Record<string, string>;
   minScale?: number;
   maxScale?: number;
-  memoryLimit?: number;
-  cpuLimit?: number;
-  timeout?: number;
+  memoryLimitBytes?: number;
+  mvcpuLimit?: number;
+  /** Max request duration before the container is stopped, as a duration string (e.g. "300s"). */
+  timeout?: string;
   privacy?: ContainerPrivacy;
   description?: string;
-  maxConcurrency?: number;
+  scalingOption?: ContainerScalingOption;
   protocol?: ContainerProtocol;
   port?: number;
-  httpOption?: ContainerHttpOption;
+  httpsConnectionsOnly?: boolean;
 }
 
 export type Container = Resource<
@@ -43,11 +50,11 @@ export type Container = Resource<
     containerId: string;
     namespaceId: string;
     name: string;
-    registryImage?: string;
+    image?: string;
     region: string;
     projectId?: string;
     url?: string;
-    domainName?: string;
+    publicEndpoint?: string;
     privacy?: string;
   },
   never,
@@ -62,17 +69,16 @@ class ContainerDeployFailed extends Data.TaggedError("Scaleway.ContainerDeployFa
 }> {}
 
 const secretsEqual = (
-  left: ReadonlyArray<SecretEnvironmentVariable> | undefined,
-  right: ReadonlyArray<SecretEnvironmentVariable> | undefined,
-) => JSON.stringify(left ?? []) === JSON.stringify(right ?? []);
+  left: Record<string, string> | undefined,
+  right: Record<string, string> | undefined,
+) => recordEquals(left, right);
 
 const containerUrl = (record: ScalewayContainerRecord) =>
-  record.endpoint ??
-  (record.domain_name
-    ? record.domain_name.startsWith("http")
-      ? record.domain_name
-      : `https://${record.domain_name}`
-    : undefined);
+  record.public_endpoint
+    ? record.public_endpoint.startsWith("http")
+      ? record.public_endpoint
+      : `https://${record.public_endpoint}`
+    : undefined;
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const ContainerProvider = () =>
@@ -86,21 +92,27 @@ export const ContainerProvider = () =>
           containerId: record.id,
           namespaceId: record.namespace_id,
           name: record.name,
-          registryImage: record.registry_image,
+          image: record.image,
           region: clients.region,
           projectId: record.project_id,
           url: containerUrl(record),
-          domainName: record.domain_name,
+          publicEndpoint: record.public_endpoint,
           privacy: record.privacy,
         }) as Container["Attributes"];
 
-      const waitForReady = (containerIdValue: string, attempts = 30): Effect.Effect<Container["Attributes"], unknown> =>
+      const waitForReady = (
+        containerIdValue: string,
+        attempts = 30,
+      ): Effect.Effect<Container["Attributes"], unknown> =>
         Effect.gen(function* () {
           for (let attempt = 0; attempt < attempts; attempt++) {
             const record = yield* clients.containers.getContainer(containerIdValue);
             const status = record.status?.toLowerCase();
             if (status === "error" || status === "failed") {
-              return yield* new ContainerDeployFailed({ containerId: containerIdValue, status: record.status ?? "unknown" });
+              return yield* new ContainerDeployFailed({
+                containerId: containerIdValue,
+                status: record.status ?? "unknown",
+              });
             }
             if (containerUrl(record) || status === "ready") return toAttributes(record);
             yield* Effect.sleep("2 seconds");
@@ -108,26 +120,36 @@ export const ContainerProvider = () =>
           throw new Error(`Timed out waiting for Scaleway container ${containerIdValue}`);
         });
 
-      const inputFor = (id: string, news: ContainerProps) =>
+      // CreateContainer takes namespace_id/name; UpdateContainer accepts neither.
+      // UpdateContainer also uses the singular `https_connection_only` key, whereas
+      // Create uses `https_connections_only`.
+      const inputFor = (id: string, news: ContainerProps, update: boolean) =>
         Effect.gen(function* () {
           const resolvedNamespaceId = yield* namespaceId(news.namespace);
+          const name = yield* nameOf(id, news.name);
           return omitUndefined({
-            namespace_id: resolvedNamespaceId,
-            name: yield* nameOf(id, news.name),
-            registry_image: news.registryImage,
+            ...(update ? {} : { namespace_id: resolvedNamespaceId, name }),
+            image: news.image,
             environment_variables: news.environmentVariables,
             secret_environment_variables: news.secretEnvironmentVariables,
             min_scale: news.minScale,
             max_scale: news.maxScale,
-            memory_limit: news.memoryLimit,
-            cpu_limit: news.cpuLimit,
+            memory_limit_bytes: news.memoryLimitBytes,
+            mvcpu_limit: news.mvcpuLimit,
             timeout: news.timeout,
             privacy: news.privacy,
             description: news.description,
-            max_concurrency: news.maxConcurrency,
             protocol: news.protocol,
             port: news.port,
-            http_option: news.httpOption,
+            [update ? "https_connection_only" : "https_connections_only"]:
+              news.httpsConnectionsOnly,
+            scaling_option: news.scalingOption
+              ? omitUndefined({
+                  concurrent_requests_threshold: news.scalingOption.concurrentRequestsThreshold,
+                  cpu_usage_threshold: news.scalingOption.cpuUsageThreshold,
+                  memory_usage_threshold: news.scalingOption.memoryUsageThreshold,
+                })
+              : undefined,
           });
         });
 
@@ -140,21 +162,22 @@ export const ContainerProvider = () =>
           const name = yield* nameOf(id, news.name);
           if (
             output.name !== name ||
-            olds.registryImage !== news.registryImage ||
+            olds.image !== news.image ||
             olds.description !== news.description ||
             olds.minScale !== news.minScale ||
             olds.maxScale !== news.maxScale ||
-            olds.memoryLimit !== news.memoryLimit ||
-            olds.cpuLimit !== news.cpuLimit ||
+            olds.memoryLimitBytes !== news.memoryLimitBytes ||
+            olds.mvcpuLimit !== news.mvcpuLimit ||
             olds.timeout !== news.timeout ||
             olds.privacy !== news.privacy ||
-            olds.maxConcurrency !== news.maxConcurrency ||
             olds.protocol !== news.protocol ||
             olds.port !== news.port ||
-            olds.httpOption !== news.httpOption ||
+            olds.httpsConnectionsOnly !== news.httpsConnectionsOnly ||
+            JSON.stringify(olds.scalingOption ?? {}) !== JSON.stringify(news.scalingOption ?? {}) ||
             !recordEquals(olds.environmentVariables, news.environmentVariables) ||
             !secretsEqual(olds.secretEnvironmentVariables, news.secretEnvironmentVariables)
-          ) return { action: "update" } as const;
+          )
+            return { action: "update" } as const;
           return undefined;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
@@ -165,24 +188,22 @@ export const ContainerProvider = () =>
           );
         }),
         reconcile: Effect.fnUntraced(function* ({ id, news, output, session }) {
-          const input = yield* inputFor(id, news);
+          // In v1, Create/Update automatically deploy the container; no separate deploy call.
           if (output?.containerId) {
+            const input = yield* inputFor(id, news, true);
             yield* clients.containers.updateContainer(output.containerId, input);
             yield* session.note(`Updated Scaleway container ${output.containerId}`);
-            yield* clients.containers.deployContainer(output.containerId);
-            yield* session.note(`Triggered deployment for Scaleway container ${output.containerId}`);
             return yield* waitForReady(output.containerId);
           }
+          const input = yield* inputFor(id, news, false);
           const created = yield* clients.containers.createContainer(input);
           yield* session.note(`Created Scaleway container ${created.id}`);
-          yield* clients.containers.deployContainer(created.id);
-          yield* session.note(`Triggered deployment for Scaleway container ${created.id}`);
           return yield* waitForReady(created.id);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
-          yield* clients.containers.deleteContainer(output.containerId).pipe(
-            Effect.catchIf(isNotFound, () => Effect.void),
-          );
+          yield* clients.containers
+            .deleteContainer(output.containerId)
+            .pipe(Effect.catchIf(isNotFound, () => Effect.void));
           yield* session.note(`Deleted Scaleway container ${output.containerId}`);
         }),
       });

@@ -14,6 +14,7 @@ permission:
 You are a read-only Scaleway API researcher.
 
 Use these sources in order:
+
 - Local implementation in `src/Clients.ts`.
 - `ARCHITECTURE.md`, `README.md`, and `AGENTS.md` for repo decisions.
 - Scaleway public API documentation when local sources are insufficient.

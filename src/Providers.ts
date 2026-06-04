@@ -6,9 +6,9 @@ import { ScalewayAuth } from "./AuthProvider.ts";
 import { Bucket, BucketProvider } from "./Bucket.ts";
 import { Container, ContainerProvider } from "./Container.ts";
 import * as Credentials from "./Credentials.ts";
-import { Cron, CronProvider } from "./Cron.ts";
 import { Domain, DomainProvider } from "./Domain.ts";
 import { Namespace, NamespaceProvider } from "./Namespace.ts";
+import { Trigger, TriggerProvider } from "./Trigger.ts";
 
 export class Providers extends Provider.ProviderCollection<Providers>()("Scaleway") {}
 
@@ -17,13 +17,13 @@ export type ProviderRequirements = Layer.Services<ReturnType<typeof providers>>;
 export const providers = () =>
   Layer.effect(
     Providers,
-    Provider.collection([Namespace, Container, Cron, Domain, Bucket]),
+    Provider.collection([Namespace, Container, Trigger, Domain, Bucket]),
   ).pipe(
     Layer.provide(
       Layer.mergeAll(
         NamespaceProvider(),
         ContainerProvider(),
-        CronProvider(),
+        TriggerProvider(),
         DomainProvider(),
         BucketProvider(),
       ),

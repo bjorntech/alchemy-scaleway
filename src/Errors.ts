@@ -1,17 +1,14 @@
 import * as Schema from "effect/Schema";
 
-export class ScalewayError extends Schema.TaggedErrorClass<ScalewayError>()(
-  "ScalewayError",
-  {
-    message: Schema.String,
-    operation: Schema.optional(Schema.String),
-    resource: Schema.optional(Schema.String),
-    statusCode: Schema.optional(Schema.Number),
-    code: Schema.optional(Schema.String),
-    retryable: Schema.optional(Schema.Boolean),
-    cause: Schema.optional(Schema.Unknown),
-  },
-) {}
+export class ScalewayError extends Schema.TaggedErrorClass<ScalewayError>()("ScalewayError", {
+  message: Schema.String,
+  operation: Schema.optional(Schema.String),
+  resource: Schema.optional(Schema.String),
+  statusCode: Schema.optional(Schema.Number),
+  code: Schema.optional(Schema.String),
+  retryable: Schema.optional(Schema.Boolean),
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -52,7 +49,9 @@ function httpStatusOf(error: unknown) {
 }
 
 function statusCodeOf(error: Error) {
-  return "statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : undefined;
+  return "statusCode" in error && typeof error.statusCode === "number"
+    ? error.statusCode
+    : undefined;
 }
 
 function statusFieldOf(error: Error) {

@@ -18,6 +18,7 @@ permission:
 You are a read-only reviewer for this `alchemy-scaleway` package.
 
 Focus on:
+
 - Alchemy v2 `Resource` plus `Provider.effect(...Provider.of({ read, reconcile, delete }))` correctness.
 - Correct `stables`, `diff`, replace-vs-update behavior, idempotent delete, and recovery reads.
 - Adoption and ownership safety, especially where Scaleway lacks tags.

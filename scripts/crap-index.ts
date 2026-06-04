@@ -13,7 +13,9 @@ interface FunctionCandidate {
   crap: number;
 }
 
-const max = Number(process.argv.find((arg) => arg.startsWith("--max="))?.slice("--max=".length) ?? 6);
+const max = Number(
+  process.argv.find((arg) => arg.startsWith("--max="))?.slice("--max=".length) ?? 6,
+);
 const lcovPath = join(process.cwd(), "coverage", "lcov.info");
 
 if (!existsSync(lcovPath)) {

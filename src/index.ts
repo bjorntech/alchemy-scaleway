@@ -10,11 +10,10 @@ export { Bucket, BucketProvider, type BucketProps } from "./Bucket.ts";
 export {
   Container,
   ContainerProvider,
-  type ContainerHttpOption,
   type ContainerPrivacy,
   type ContainerProps,
   type ContainerProtocol,
-  type SecretEnvironmentVariable,
+  type ContainerScalingOption,
 } from "./Container.ts";
 export {
   createScalewayCredentials,
@@ -22,8 +21,20 @@ export {
   ScalewayCredentials,
   type ScalewayCredentialsService,
 } from "./Credentials.ts";
-export { Cron, CronProvider, type ContainerRef, type CronProps } from "./Cron.ts";
 export { Domain, DomainProvider, type DomainContainerRef, type DomainProps } from "./Domain.ts";
 export { isNotFound, ScalewayError, scalewayError } from "./Errors.ts";
 export { Namespace, NamespaceProvider, type NamespaceProps } from "./Namespace.ts";
 export { providers, Providers, type ProviderRequirements } from "./Providers.ts";
+export {
+  type ContainerRef,
+  type CronTriggerSource,
+  type NatsTriggerSource,
+  type SqsTriggerSource,
+  Trigger,
+  type TriggerDestination,
+  type TriggerHttpMethod,
+  TriggerProvider,
+  type TriggerProps,
+  type TriggerSource,
+  type TriggerSourceType,
+} from "./Trigger.ts";

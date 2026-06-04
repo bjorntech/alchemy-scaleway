@@ -38,7 +38,7 @@ Current resources:
 
 - `Namespace` - Scaleway Serverless Containers namespace.
 - `Container` - Scaleway Serverless Container with deployment readiness polling.
-- `Cron` - container cron.
+- `Trigger` - container trigger (v1 `/triggers`): cron, SQS, or NATS source.
 - `Domain` - container custom domain.
 - `Bucket` - Scaleway Object Storage bucket via S3-compatible API.
 

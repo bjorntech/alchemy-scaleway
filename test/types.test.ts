@@ -8,7 +8,7 @@ describe("alchemy-scaleway", () => {
     expect(typeof Scaleway.providers).toBe("function");
     expect(typeof Scaleway.Namespace).toBe("function");
     expect(typeof Scaleway.Container).toBe("function");
-    expect(typeof Scaleway.Cron).toBe("function");
+    expect(typeof Scaleway.Trigger).toBe("function");
     expect(typeof Scaleway.Domain).toBe("function");
     expect(typeof Scaleway.Bucket).toBe("function");
   });
@@ -21,15 +21,15 @@ describe("alchemy-scaleway", () => {
         const namespace = yield* Scaleway.Namespace("Namespace", {});
         const container = yield* Scaleway.Container("Api", {
           namespace,
-          registryImage: "rg.fr-par.scw.cloud/example/api:latest",
+          image: "rg.fr-par.scw.cloud/example/api:latest",
           port: 3000,
         });
-        const cron = yield* Scaleway.Cron("Cron", {
+        const trigger = yield* Scaleway.Trigger("Trigger", {
           container,
-          schedule: "0 * * * *",
+          source: { type: "cron", schedule: "0 * * * *" },
         });
         const bucket = yield* Scaleway.Bucket("Bucket", { versioning: true });
-        return { container: container.url, cron: cron.cronId, bucket: bucket.bucketName };
+        return { container: container.url, trigger: trigger.triggerId, bucket: bucket.bucketName };
       }),
     );
     expect(stack).toBeDefined();
