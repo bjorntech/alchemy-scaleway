@@ -8,7 +8,7 @@
         "aws4fetch": "^1.0.20",
       },
       "devDependencies": {
-        "@effect/platform-bun": "4.0.0-beta.74",
+        "@effect/platform-bun": "4.0.0-beta.78",
         "@types/bun": "latest",
         "alchemy": "2.0.0-beta.51",
         "effect": "4.0.0-beta.74",
@@ -111,7 +111,7 @@
 
     "@distilled.cloud/planetscale": ["@distilled.cloud/planetscale@0.22.4", "", { "dependencies": { "@distilled.cloud/core": "0.22.4" }, "peerDependencies": { "effect": ">=4.0.0-beta.66 || >=4.0.0" } }, "sha512-SrMlYTnKBtZ0p6Sug4RzsSHRUPxJtjHLUmANI7q1SGDPoWZLCCfRuDdVTFBVi9WBjxlmJtDDjpHCQoEwA8qeLQ=="],
 
-    "@effect/platform-bun": ["@effect/platform-bun@4.0.0-beta.74", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-beta.74" }, "peerDependencies": { "effect": "^4.0.0-beta.74" } }, "sha512-HPozsTKom3v8uGITYX+blua0wVSk/I7ak802FoX13t4zWhHfprT8I/A8VBO4SxmcDYb/izABtHBXBgEmp612MA=="],
+    "@effect/platform-bun": ["@effect/platform-bun@4.0.0-beta.78", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-beta.78" }, "peerDependencies": { "effect": "^4.0.0-beta.78" } }, "sha512-lmPCL1G7SlkCWCguX3rDPS7kKuvJ/AN4pjS7IXb/5SoauHPd67iUdc1ZbB7o6lwTChJaIfWNNPkUWygiaUeJiA=="],
 
     "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-beta.74", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.20.0" }, "peerDependencies": { "effect": "^4.0.0-beta.74" } }, "sha512-C6C2hXixNcZXLaFF2u7B/FtOsqpdY7luaPuiGFBJza0P7EnYDkwaT3kB6lv7l/qctmkADc24qOsSCWIKRbC4jg=="],
 
