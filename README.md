@@ -40,6 +40,19 @@ SCW_API_URL=https://api.scaleway.com # optional, defaults to https://api.scalewa
 
 The `stored` auth method is configured through `alchemy login` and writes credentials under `~/.alchemy/credentials/{profile}/scaleway-stored.json`.
 
+### Live Smoke Test
+
+The production smoke test is opt-in and creates billable Scaleway resources before deleting them. Run it only with credentials for a test project:
+
+```sh
+SCW_LIVE_TEST=1 op run --environment <1password-environment-id> -- bun run smoke:scaleway
+```
+
+`op run --environment` requires the 1Password Environment ID, not the environment name.
+This flag requires the beta 1Password CLI version that supports Environments.
+
+The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, and `SCW_API_URL` from the environment. It creates and deletes a Containers namespace, Registry namespace, Secret Manager secret/version, and Object Storage bucket.
+
 ## Usage
 
 ```ts
