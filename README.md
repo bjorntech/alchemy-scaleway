@@ -1,5 +1,9 @@
 # alchemy-scaleway
 
+[![CI](https://github.com/bjorntechTobbe/alchemy-scaleway/actions/workflows/ci.yml/badge.svg)](https://github.com/bjorntechTobbe/alchemy-scaleway/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/alchemy-scaleway?style=flat-square)](https://www.npmjs.com/package/alchemy-scaleway)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](./LICENSE)
+
 Scaleway providers for [Alchemy v2](https://v2.alchemy.run/).
 
 This package follows Alchemy's custom-provider model: resources are declared with `Resource`, lifecycle implementations are registered with `Provider.effect`, credentials resolve through an `AuthProvider`, and all Scaleway providers are exposed as a single `Scaleway.providers()` layer.

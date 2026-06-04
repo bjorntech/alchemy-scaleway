@@ -1,0 +1,42 @@
+name: Feature Request
+description: Suggest a new resource, workflow, or improvement
+title: "Feature: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For new resources or major behavior changes, describe the workflow first. Keep requests concise and specific.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user workflow or gap should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should the API or behavior look like?
+    validations:
+      required: true
+  - type: input
+    id: scaleway-api
+    attributes:
+      label: Scaleway API Area
+      placeholder: Secret Manager, Messaging and Queuing, DNS, RDB, ...
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional Context
+      description: Links to Scaleway docs, related Alchemy resources, or examples.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I checked the README and existing resources for similar functionality.
+          required: true
+        - label: I included the relevant Scaleway API area or docs link when known.
+          required: false
