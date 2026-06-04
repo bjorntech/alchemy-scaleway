@@ -55,13 +55,13 @@
     "@effect/platform-bun": "4.0.0-beta.74",
     "@types/bun": "latest",
     "alchemy": "2.0.0-beta.51",
-    "effect": "4.0.0-beta.74",
+    "effect": "4.0.0-beta.78",
     "oxfmt": "latest",
     "typescript": "latest"
   },
   "peerDependencies": {
     "alchemy": "2.0.0-beta.51",
-    "effect": "4.0.0-beta.74"
+    "effect": "4.0.0-beta.78"
   },
   "overrides": {
     "@effect/platform-node-shared": "4.0.0-beta.74"
