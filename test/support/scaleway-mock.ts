@@ -8,6 +8,7 @@
 export interface MockCall {
   method: string;
   url: string;
+  headers: Headers;
 }
 
 export interface ScalewayMock {
@@ -256,7 +257,8 @@ export function installScalewayMock(): ScalewayMock {
           : (input as Request).url;
     const method = ((isRequest ? (input as Request).method : init?.method) ?? "GET").toUpperCase();
     const parsed = new URL(url);
-    calls.push({ method, url });
+    const headers = new Headers(isRequest ? (input as Request).headers : init?.headers);
+    calls.push({ method, url, headers });
     const text = isRequest
       ? await (input as Request).clone().text()
       : typeof init?.body === "string"

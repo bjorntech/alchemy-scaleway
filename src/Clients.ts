@@ -172,9 +172,14 @@ export const makeScalewayClients = Effect.gen(function* () {
 
 // @crap-ignore: factory contains many small request closures; score them separately.
 function makeObjectStorageClient(accessKey: string | undefined, secretKey: string, defaultRegion: string) {
-  const getClient = () => {
+  const clients = new Map<string, AwsClient>();
+  const getClient = (region: string) => {
     if (!accessKey) throw new Error("Missing SCW_ACCESS_KEY for Scaleway Object Storage");
-    return new AwsClient({ accessKeyId: accessKey, secretAccessKey: secretKey, service: "s3", region: defaultRegion });
+    const existing = clients.get(region);
+    if (existing) return existing;
+    const client = new AwsClient({ accessKeyId: accessKey, secretAccessKey: secretKey, service: "s3", region });
+    clients.set(region, client);
+    return client;
   };
 
   const bucketEndpoint = (region: string) => `https://s3.${region}.scw.cloud`;
@@ -182,7 +187,7 @@ function makeObjectStorageClient(accessKey: string | undefined, secretKey: strin
   const bucketPath = (bucket: string, path: string) => `/${bucket}${path}`;
   const request = (bucket: string, region: string, method: "GET" | "PUT" | "HEAD" | "DELETE", path: string, init?: { body?: string; headers?: Record<string, string> }) =>
     Effect.tryPromise({
-      try: () => getClient().fetch(`${bucketEndpoint(region)}${bucketPath(bucket, path)}`, { method, ...(init?.headers ? { headers: init.headers } : {}), ...(init?.body ? { body: init.body } : {}) }),
+      try: () => getClient(region).fetch(`${bucketEndpoint(region)}${bucketPath(bucket, path)}`, { method, ...(init?.headers ? { headers: init.headers } : {}), ...(init?.body ? { body: init.body } : {}) }),
       catch: (cause) => scalewayError({ operation: `${method} Object Storage ${path}`, resource: bucket, cause }),
     });
 

@@ -19,6 +19,12 @@ afterEach(() => {
 const requests = (method: string, fragment: string) =>
   mock.calls.filter((c) => c.method === method && c.url.includes(fragment));
 
+const bucketRootRequests = (method: string, bucket: string) =>
+  mock.calls.filter((c) => {
+    const url = new URL(c.url);
+    return c.method === method && url.pathname === `/${bucket}/` && url.search === "";
+  });
+
 describe("Namespace", () => {
   test.provider("create then update mutates in place", (stack) =>
     Effect.gen(function* () {
@@ -177,6 +183,8 @@ describe("Bucket", () => {
       expect(second.region).toBe("nl-ams");
       expect(second.endpoint).toContain(".s3.nl-ams.scw.cloud");
       expect(first.region).toBe("fr-par");
+      const nlAmsPut = bucketRootRequests("PUT", second.bucketName).at(0);
+      expect(nlAmsPut?.headers.get("authorization")).toContain("/nl-ams/s3/aws4_request");
     }),
   );
 });
@@ -191,6 +199,7 @@ describe("adoption (read path)", () => {
       expect(out.tags?.["alchemy:logical-id"]).toBe("Bucket");
       // read() found it -> no second create PUT for the bucket root.
       expect(requests("HEAD", "/owned-bucket/").length).toBeGreaterThan(0);
+      expect(bucketRootRequests("PUT", "owned-bucket")).toHaveLength(0);
     }),
   );
 });
