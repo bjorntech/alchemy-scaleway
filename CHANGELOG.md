@@ -4,6 +4,13 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## [Unreleased]
 
+## [0.1.2-beta.51] - 2026-06-04
+
+### Fixed
+
+- Pin `@effect/vitest` to `4.0.0-beta.74` in the install command so root installs
+  with `alchemy@2.0.0-beta.51` stay on the Effect beta.74 line.
+
 ## [0.1.1-beta.51] - 2026-06-04
 
 ### Added

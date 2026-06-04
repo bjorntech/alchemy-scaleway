@@ -30,7 +30,7 @@ body:
     attributes:
       label: Versions
       description: alchemy-scaleway, alchemy, effect, Bun, and TypeScript versions.
-      placeholder: alchemy-scaleway 0.1.1-beta.51, alchemy 2.0.0-beta.51, effect 4.0.0-beta.74
+      placeholder: alchemy-scaleway 0.1.2-beta.51, alchemy 2.0.0-beta.51, effect 4.0.0-beta.74
     validations:
       required: true
   - type: dropdown
