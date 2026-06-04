@@ -13,17 +13,7 @@ export class ScalewayError extends Schema.TaggedErrorClass<ScalewayError>()(
   },
 ) {}
 
-interface HttpLikeError extends Error {
-  statusCode?: number;
-  status?: number;
-  code?: string;
-}
-
-export function isScalewaySdkError(error: unknown): error is HttpLikeError {
-  return error instanceof Error && (statusOf(error) !== undefined || codeOf(error) !== undefined);
-}
-
-export function errorMessage(error: unknown): string {
+function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -49,10 +39,6 @@ export function scalewayError(input: {
 
 export function isNotFound(error: unknown): boolean {
   return statusOf(error) === 404;
-}
-
-export function isAlreadyExists(error: unknown): boolean {
-  return statusOf(error) === 409 || codeOf(error) === "Conflict" || errorMessage(error).includes("already exists");
 }
 
 function statusOf(error: unknown) {

@@ -53,7 +53,7 @@ bun run coverage
 bun run crap
 ```
 
-`bun run crap` enforces approximate CRAP score `<=6` using `scripts/crap-index.ts` and the latest `coverage/lcov.info`. Run `bun run coverage` before `bun run crap` so the report is fresh.
+`bun run crap` enforces approximate CRAP score `<=6` using `scripts/crap-index.ts` and the latest `coverage/lcov.info`. Run `bun run coverage` before `bun run crap` so the report is fresh. Treat this as a guardrail for scored functions, not as a substitute for provider-level tests; provider lifecycle closures in ignored factories still need focused tests around diff, reconcile, polling, and client request behavior.
 
 The CRAP script supports `// @crap-ignore` only for wrapper/factory functions that the approximate parser cannot score usefully, such as provider factories containing many lifecycle closures. Do not use it to hide ordinary business logic.
 

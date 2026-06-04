@@ -29,7 +29,7 @@ SCW_SECRET_KEY=...
 SCW_ACCESS_KEY=...              # optional, required for Object Storage
 SCW_DEFAULT_PROJECT_ID=...      # optional, required for Containers unless set per resource
 SCW_DEFAULT_REGION=fr-par       # optional, defaults to fr-par
-SCW_API_URL=https://api.scaleway.com
+SCW_API_URL=https://api.scaleway.com # optional, defaults to https://api.scaleway.com
 ```
 
 The `stored` auth method is configured through `alchemy login` and writes credentials under `~/.alchemy/credentials/{profile}/scaleway-stored.json`.

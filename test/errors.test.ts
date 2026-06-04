@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import {
-  isAlreadyExists,
   isNotFound,
   ScalewayError,
   scalewayError,
@@ -18,8 +17,8 @@ describe("ScalewayError", () => {
     expect(wrapped).toBeInstanceOf(ScalewayError);
     expect(wrapped._tag).toBe("ScalewayError");
     expect(wrapped.statusCode).toBe(409);
+    expect(wrapped.code).toBeUndefined();
     expect(wrapped.resource).toBe("demo");
-    expect(isAlreadyExists(wrapped)).toBe(true);
   });
 
   test("recognizes not found", () => {
