@@ -4,6 +4,8 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## [Unreleased]
 
+## [0.1.1-beta.51] - 2026-06-04
+
 ### Added
 
 - `ContainerProps.domains` can now bind custom domains as part of the container
@@ -16,6 +18,9 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
   values are accepted as `Redacted<string>` and are never returned in outputs.
 - `ContainerProps.secretEnvironmentVariables` now accepts `Redacted<string>` values
   and unwraps them only at the Scaleway API boundary.
+- `smoke:scaleway` now performs an opt-in live smoke test for Containers namespace,
+  Container readiness, Registry namespace, Secret Manager secret/version, and Object
+  Storage bucket creation/deletion.
 
 ### Known limitations
 
@@ -28,6 +33,13 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 - The npm package is now scoped as `@finnvid/alchemy-scaleway`, with package
   metadata and release workflow support for public npm org publishing.
+- `publishConfig` and the release workflow now publish the scoped npm package with
+  public access.
+
+### Fixed
+
+- Generated `Container` physical names now respect Scaleway's 34-character name
+  limit, and explicit overlong container names fail locally before API calls.
 
 - Migrated the Serverless Containers integration from the `v1beta1` API to the
   generally-available `v1` API (`/containers/v1/...`). The public resource props were
@@ -62,7 +74,7 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 - Unused `listCrons`/`listDomains` client methods.
 
-## [0.1.0-beta.51] — Initial public beta
+## [0.1.0-beta.51] - Initial private beta
 
 Tested against `alchemy@2.0.0-beta.51`.
 
