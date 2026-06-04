@@ -11,14 +11,14 @@
     "scaleway",
     "typescript"
   ],
-  "homepage": "https://github.com/bjorntechTobbe/alchemy-scaleway#readme",
+  "homepage": "https://github.com/finnvid/alchemy-scaleway#readme",
   "bugs": {
-    "url": "https://github.com/bjorntechTobbe/alchemy-scaleway/issues"
+    "url": "https://github.com/finnvid/alchemy-scaleway/issues"
   },
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bjorntechTobbe/alchemy-scaleway.git"
+    "url": "git+https://github.com/finnvid/alchemy-scaleway.git"
   },
   "files": [
     "src",
