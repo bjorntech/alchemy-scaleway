@@ -241,6 +241,46 @@ describe("Container", () => {
     }),
   );
 
+  test.provider("generates container names within Scaleway limits", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          return yield* Scaleway.Container(
+            "VeryLongLogicalContainerNameThatWouldOtherwiseExceedScalewayLimits",
+            {
+              namespace: ns,
+              image: "rg.fr-par.scw.cloud/demo/api:latest",
+            },
+          );
+        }),
+      );
+      const create = containerCreates().at(0);
+      const body = JSON.parse(create?.body ?? "{}");
+      expect(body.name.length).toBeLessThanOrEqual(34);
+    }),
+  );
+
+  test.provider("rejects explicit container names that exceed Scaleway limits", (stack) =>
+    Effect.gen(function* () {
+      const deploy = stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          return yield* Scaleway.Container("Api", {
+            namespace: ns,
+            name: "this-container-name-is-definitely-too-long-for-scaleway",
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+          });
+        }),
+      );
+      yield* Effect.flip(deploy).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("Scaleway container name must be 34 characters or fewer");
+        }),
+      );
+    }),
+  );
+
   test.provider("updating props triggers a redeploy", (stack) =>
     Effect.gen(function* () {
       const program = (description: string) =>
