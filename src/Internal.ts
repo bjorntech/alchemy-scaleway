@@ -41,12 +41,19 @@ export const physicalName = (
   options?: Parameters<typeof defaultName>[1],
 ) => (name ? Effect.succeed(name) : defaultName(id, options));
 
-export const namespaceId = (namespace: NamedNamespace) =>
+// Read a resource attribute that may arrive as a raw id (caller passed a
+// string), an already-resolved string (inside reconcile/diff, where Alchemy
+// has resolved `news`), or an unresolved Output accessor.
+export const resolveRef = (ref: unknown): Effect.Effect<string> =>
   Effect.gen(function* () {
-    if (typeof namespace === "string") return namespace;
-    const accessor = yield* namespace.namespaceId.asEffect();
+    if (typeof ref === "string") return ref;
+    const accessor = yield* (ref as { asEffect(): Effect.Effect<Effect.Effect<string>> }).asEffect();
     return yield* accessor;
   });
+
+export const namespaceId = (namespace: NamedNamespace) => {
+  return resolveRef(typeof namespace === "string" ? namespace : namespace.namespaceId);
+};
 
 export const projectId = (explicit?: string) =>
   Effect.gen(function* () {

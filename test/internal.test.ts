@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
-import { ScalewayCredentials } from "../src/Credentials.ts";
+import { createScalewayCredentials, ScalewayCredentials } from "../src/Credentials.ts";
 import { projectId } from "../src/Internal.ts";
 
 const credentialsLayer = Layer.succeed(
@@ -24,5 +24,23 @@ describe("projectId", () => {
   test("falls back to credentials project id", async () => {
     const result = await Effect.runPromise(projectId().pipe(Effect.provide(credentialsLayer)));
     expect(result).toBe("from-credentials");
+  });
+});
+
+describe("createScalewayCredentials", () => {
+  test("projects resolved credentials into the service shape", () => {
+    const service = createScalewayCredentials({
+      method: "env",
+      accessKey: "access",
+      secretKey: Redacted.make("secret"),
+      projectId: "proj",
+      region: "nl-ams",
+      apiUrl: "https://api.scaleway.com",
+      source: { type: "env" },
+    });
+    expect(service.accessKey).toBe("access");
+    expect(service.region).toBe("nl-ams");
+    expect(service.projectId).toBe("proj");
+    expect(Redacted.value(service.secretKey)).toBe("secret");
   });
 });

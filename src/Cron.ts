@@ -4,7 +4,7 @@ import { isResolved } from "alchemy/Diff";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients, type ScalewayCronRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
-import { omitUndefined, physicalName } from "./Internal.ts";
+import { omitUndefined, physicalName, resolveRef } from "./Internal.ts";
 import type { Container } from "./Container.ts";
 import type { Providers } from "./Providers.ts";
 
@@ -36,12 +36,9 @@ export const Cron = Resource<Cron>("Scaleway.Cron");
 const argsEqual = (left: Record<string, unknown> | undefined, right: Record<string, unknown> | undefined) =>
   JSON.stringify(left ?? {}) === JSON.stringify(right ?? {});
 
-const containerId = (container: ContainerRef) =>
-  Effect.gen(function* () {
-    if (typeof container === "string") return container;
-    const accessor = yield* container.containerId.asEffect();
-    return yield* accessor;
-  });
+const containerId = (container: ContainerRef) => {
+  return resolveRef(typeof container === "string" ? container : container.containerId);
+};
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const CronProvider = () =>

@@ -4,7 +4,7 @@ import { isResolved } from "alchemy/Diff";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients, type ScalewayDomainRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
-import { omitUndefined } from "./Internal.ts";
+import { omitUndefined, resolveRef } from "./Internal.ts";
 import type { Container } from "./Container.ts";
 import type { Providers } from "./Providers.ts";
 
@@ -25,12 +25,9 @@ export type Domain = Resource<
 
 export const Domain = Resource<Domain>("Scaleway.Domain");
 
-const containerId = (container: DomainContainerRef) =>
-  Effect.gen(function* () {
-    if (typeof container === "string") return container;
-    const accessor = yield* container.containerId.asEffect();
-    return yield* accessor;
-  });
+const containerId = (container: DomainContainerRef) => {
+  return resolveRef(typeof container === "string" ? container : container.containerId);
+};
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const DomainProvider = () =>
