@@ -21,4 +21,6 @@ Use these sources in order:
 
 Check endpoint paths, request payload names, response envelope handling, status semantics, readiness polling, Object Storage S3 behavior, auth requirements, and error mapping.
 
+When researching implementation options, distinguish raw Scaleway API behavior from the programmer-facing Alchemy resource shape. Recommend abstractions that hide provider quirks and compose common deployment workflows, while preserving standalone primitive resources for advanced control.
+
 Return concise conclusions with source references. Do not edit files.

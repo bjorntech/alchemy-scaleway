@@ -4,6 +4,8 @@ Scaleway providers for [Alchemy v2](https://v2.alchemy.run/).
 
 This package follows Alchemy's custom-provider model: resources are declared with `Resource`, lifecycle implementations are registered with `Provider.effect`, credentials resolve through an `AuthProvider`, and all Scaleway providers are exposed as a single `Scaleway.providers()` layer.
 
+Resources are designed around useful deployment workflows rather than raw Scaleway API endpoints. Low-level resources remain available, while higher-level resources may hide provider quirks, apply defaults, wait for readiness, and return application-useful outputs such as URLs.
+
 ## Compatibility
 
 | `alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
@@ -55,6 +57,8 @@ export default Alchemy.Stack(
       port: 3000,
       protocol: "http1",
       privacy: "public",
+      domains: ["api.example.com"],
+      crons: [{ schedule: "0 * * * *", destination: { httpPath: "/jobs/hourly" } }],
     });
 
     const bucket = yield* Scaleway.Bucket("Uploads", {
@@ -72,7 +76,7 @@ export default Alchemy.Stack(
 ## Resources
 
 - `Namespace` - Scaleway Serverless Containers namespace lifecycle.
-- `Container` - Scaleway Serverless Container lifecycle with deployment readiness polling.
+- `Container` - Scaleway Serverless Container lifecycle with deployment readiness polling, optional custom domains, and optional cron triggers.
 - `Trigger` - Container trigger lifecycle (cron, SQS, or NATS source).
 - `Domain` - Container custom domain lifecycle.
 - `Bucket` - Scaleway Object Storage bucket lifecycle via the S3-compatible API.

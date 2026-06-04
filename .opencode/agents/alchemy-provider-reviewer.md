@@ -20,7 +20,10 @@ You are a read-only reviewer for this `alchemy-scaleway` package.
 Focus on:
 
 - Alchemy v2 `Resource` plus `Provider.effect(...Provider.of({ read, reconcile, delete }))` correctness.
+- Whether resource props and outputs model a useful programmer workflow rather than unnecessarily mirroring raw cloud API payloads.
+- Whether multi-operation orchestration is justified and keeps primitive resources available for explicit control.
 - Correct `stables`, `diff`, replace-vs-update behavior, idempotent delete, and recovery reads.
+- Whether any drift-recovery expectation incorrectly assumes `alwaysUpdate`/read-on-noop support; this Alchemy beta does not expose that option.
 - Adoption and ownership safety, especially where Scaleway lacks tags.
 - Dependency compatibility with `alchemy@2.0.0-beta.51` and `effect@4.0.0-beta.74`.
 - Documentation updates in `README.md`, `ARCHITECTURE.md`, `CHANGELOG.md`, and `AGENTS.md`.

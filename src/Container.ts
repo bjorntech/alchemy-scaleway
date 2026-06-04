@@ -3,7 +3,12 @@ import * as Provider from "alchemy/Provider";
 import { isResolved } from "alchemy/Diff";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import { makeScalewayClients, type ScalewayContainerRecord } from "./Clients.ts";
+import {
+  makeScalewayClients,
+  type ScalewayContainerRecord,
+  type ScalewayDomainRecord,
+  type ScalewayTriggerRecord,
+} from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
 import {
   namespaceId,
@@ -12,7 +17,18 @@ import {
   recordEquals,
   type NamedNamespace,
 } from "./Internal.ts";
+import type { Domain as DomainResource } from "./Domain.ts";
 import type { Providers } from "./Providers.ts";
+import {
+  type CronTriggerSource,
+  type Trigger as TriggerResource,
+  type TriggerDestination,
+  destinationConfig,
+  destinationNeedsReplace,
+  removed,
+  sourceConfig,
+  sourceNeedsReplace,
+} from "./Trigger.ts";
 
 export type ContainerProtocol = "unknown_protocol" | "http1" | "h2c";
 export type ContainerPrivacy = "public" | "private";
@@ -22,6 +38,17 @@ export interface ContainerScalingOption {
   cpuUsageThreshold?: number;
   memoryUsageThreshold?: number;
 }
+
+export type ContainerDomain = string | { hostname: string };
+
+export type ContainerCron =
+  | string
+  | (Omit<CronTriggerSource, "type" | "schedule"> & {
+      schedule: string;
+      name?: string;
+      description?: string;
+      destination?: TriggerDestination;
+    });
 
 export interface ContainerProps {
   namespace: NamedNamespace;
@@ -41,6 +68,10 @@ export interface ContainerProps {
   protocol?: ContainerProtocol;
   port?: number;
   httpsConnectionsOnly?: boolean;
+  /** Custom domains to bind to this container. Standalone `Domain` remains available for explicit control. */
+  domains?: ContainerDomain[];
+  /** Cron triggers that invoke this container. Standalone `Trigger` remains available for explicit control. */
+  crons?: ContainerCron[];
 }
 
 export type Container = Resource<
@@ -56,6 +87,8 @@ export type Container = Resource<
     url?: string;
     publicEndpoint?: string;
     privacy?: string;
+    domains?: DomainResource["Attributes"][];
+    cronTriggers?: TriggerResource["Attributes"][];
   },
   never,
   Providers
@@ -80,6 +113,122 @@ const containerUrl = (record: ScalewayContainerRecord) =>
       : `https://${record.public_endpoint}`
     : undefined;
 
+function domainHostname(domain: ContainerDomain) {
+  if (typeof domain === "string") return domain;
+  return domain.hostname;
+}
+
+function cronSource(cron: ContainerCron): CronTriggerSource {
+  if (typeof cron === "string") return { type: "cron", schedule: cron };
+  return { ...cron, type: "cron" };
+}
+
+function cronName(cron: ContainerCron) {
+  if (typeof cron === "string") return undefined;
+  return cron.name;
+}
+
+function cronDescription(cron: ContainerCron) {
+  if (typeof cron === "string") return undefined;
+  return cron.description;
+}
+
+function cronDestination(cron: ContainerCron) {
+  if (typeof cron === "string") return undefined;
+  return cron.destination;
+}
+
+function containerPropsEqual(olds: ContainerProps, news: ContainerProps) {
+  return containerShapeEqual(olds, news) && containerConfigEqual(olds, news);
+}
+
+function containerShapeEqual(olds: ContainerProps, news: ContainerProps) {
+  return (
+    olds.image === news.image &&
+    olds.description === news.description &&
+    olds.privacy === news.privacy &&
+    olds.protocol === news.protocol &&
+    olds.port === news.port &&
+    olds.httpsConnectionsOnly === news.httpsConnectionsOnly
+  );
+}
+
+function containerConfigEqual(olds: ContainerProps, news: ContainerProps) {
+  return scalingEqual(olds, news) && environmentEqual(olds, news);
+}
+
+function scalingEqual(olds: ContainerProps, news: ContainerProps) {
+  return (
+    olds.minScale === news.minScale &&
+    olds.maxScale === news.maxScale &&
+    olds.memoryLimitBytes === news.memoryLimitBytes &&
+    olds.mvcpuLimit === news.mvcpuLimit &&
+    olds.timeout === news.timeout &&
+    JSON.stringify(olds.scalingOption ?? {}) === JSON.stringify(news.scalingOption ?? {})
+  );
+}
+
+function environmentEqual(olds: ContainerProps, news: ContainerProps) {
+  return (
+    recordEquals(olds.environmentVariables, news.environmentVariables) &&
+    secretsEqual(olds.secretEnvironmentVariables, news.secretEnvironmentVariables)
+  );
+}
+
+function companionPropsEqual(olds: ContainerProps, news: ContainerProps) {
+  return (
+    JSON.stringify(olds.domains ?? []) === JSON.stringify(news.domains ?? []) &&
+    JSON.stringify(olds.crons ?? []) === JSON.stringify(news.crons ?? [])
+  );
+}
+
+function companionsPresent(output: Container["Attributes"], news: ContainerProps) {
+  return (
+    (output.domains?.length ?? 0) === (news.domains?.length ?? 0) &&
+    (output.cronTriggers?.length ?? 0) === (news.crons?.length ?? 0)
+  );
+}
+
+function cronKey(cron: ContainerCron) {
+  return JSON.stringify(cron);
+}
+
+function domainKey(domain: ContainerDomain) {
+  return domainHostname(domain).toLowerCase();
+}
+
+function compact<T>(items: Array<T | undefined>) {
+  return items.filter((item): item is T => item !== undefined);
+}
+
+function assertUnique(keys: string[], label: string) {
+  const duplicates = keys.filter((key, index) => keys.indexOf(key) !== index);
+  if (duplicates.length > 0) throw new Error(`Duplicate ${label}: ${duplicates.join(", ")}`);
+}
+
+function matchCronIndex(
+  olds: ContainerProps | undefined,
+  cron: ContainerCron,
+  fallbackIndex: number,
+  consumedIndexes: Set<number>,
+) {
+  const exactIndex = olds?.crons?.findIndex(
+    (oldCron, index) => !consumedIndexes.has(index) && cronKey(oldCron) === cronKey(cron),
+  );
+  if (exactIndex !== undefined && exactIndex >= 0) return exactIndex;
+  if (!consumedIndexes.has(fallbackIndex)) return fallbackIndex;
+  return -1;
+}
+
+function cronNeedsReplace(oldCron: ContainerCron | undefined, newCron: ContainerCron) {
+  if (!oldCron) return false;
+  return (
+    removed(cronDescription(oldCron), cronDescription(newCron)) ||
+    destinationNeedsReplace(cronDestination(oldCron), cronDestination(newCron)) ||
+    sourceNeedsReplace(cronSource(oldCron), cronSource(newCron))
+  );
+}
+
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const ContainerProvider = () =>
   Provider.effect(
@@ -99,6 +248,23 @@ export const ContainerProvider = () =>
           publicEndpoint: record.public_endpoint,
           privacy: record.privacy,
         }) as Container["Attributes"];
+      const toDomainAttributes = (record: ScalewayDomainRecord): DomainResource["Attributes"] =>
+        omitUndefined({
+          domainId: record.id,
+          containerId: record.container_id,
+          hostname: record.hostname,
+          url: `https://${record.hostname}`,
+        }) as DomainResource["Attributes"];
+      const toTriggerAttributes = (record: ScalewayTriggerRecord): TriggerResource["Attributes"] =>
+        omitUndefined({
+          triggerId: record.id,
+          containerId: record.container_id,
+          sourceType: record.source_type,
+          name: record.name,
+          status: record.status,
+          schedule: record.cron_config?.schedule,
+          timezone: record.cron_config?.timezone,
+        }) as TriggerResource["Attributes"];
 
       const waitForReady = (
         containerIdValue: string,
@@ -118,6 +284,32 @@ export const ContainerProvider = () =>
             yield* Effect.sleep("2 seconds");
           }
           throw new Error(`Timed out waiting for Scaleway container ${containerIdValue}`);
+        });
+
+      const waitForDomainReady = (domainIdValue: string, attempts = 40) =>
+        Effect.gen(function* () {
+          for (let attempt = 0; attempt < attempts; attempt++) {
+            const record = yield* clients.containers.getDomain(domainIdValue);
+            const status = record.status?.toLowerCase();
+            if (!status || status === "ready") return toDomainAttributes(record);
+            if (status === "error")
+              throw new Error(record.error_message ?? `Scaleway domain ${domainIdValue} entered error state`);
+            yield* Effect.sleep("3 seconds");
+          }
+          throw new Error(`Timed out waiting for Scaleway domain ${domainIdValue}`);
+        });
+
+      const waitForTriggerReady = (triggerIdValue: string, attempts = 20) =>
+        Effect.gen(function* () {
+          for (let attempt = 0; attempt < attempts; attempt++) {
+            const record = yield* clients.containers.getTrigger(triggerIdValue);
+            const status = record.status?.toLowerCase();
+            if (!status || status === "ready") return toTriggerAttributes(record);
+            if (status === "error")
+              throw new Error(`Scaleway trigger ${triggerIdValue} entered error state`);
+            yield* Effect.sleep("1 second");
+          }
+          throw new Error(`Timed out waiting for Scaleway trigger ${triggerIdValue}`);
         });
 
       // CreateContainer takes namespace_id/name; UpdateContainer accepts neither.
@@ -153,6 +345,90 @@ export const ContainerProvider = () =>
           });
         });
 
+      const provisionCompanions = (
+        container: Container["Attributes"],
+        olds: ContainerProps | undefined,
+        news: ContainerProps,
+      ) =>
+        Effect.gen(function* () {
+          assertUnique((news.domains ?? []).map(domainKey), "container domain");
+          assertUnique((news.crons ?? []).map(cronKey), "container cron");
+          const domains = yield* Effect.all(
+            (news.domains ?? []).map((domain) =>
+              Effect.gen(function* () {
+                const hostname = domainHostname(domain);
+                const existing = container.domains?.find(
+                  (item) => item.hostname.toLowerCase() === hostname.toLowerCase(),
+                );
+                if (existing?.domainId) return existing;
+                const created = yield* clients.containers.createDomain({
+                  container_id: container.containerId,
+                  hostname,
+                });
+                return yield* waitForDomainReady(created.id);
+              }),
+            ),
+          );
+          yield* Effect.all(
+            (container.domains ?? [])
+              .filter((domain) => !(news.domains ?? []).some((desired) => domainKey(desired) === domain.hostname.toLowerCase()))
+              .map((domain) =>
+                clients.containers
+                  .deleteDomain(domain.domainId)
+                  .pipe(Effect.catchIf(isNotFound, () => Effect.void)),
+              ),
+          );
+          const keptCronIndexes = new Set<number>();
+          const cronTriggers = yield* Effect.all(
+            (news.crons ?? []).map((cron, index) =>
+              Effect.gen(function* () {
+                const common = omitUndefined({ name: cronName(cron), description: cronDescription(cron) });
+                const input = {
+                  ...common,
+                  ...destinationConfig(cronDestination(cron)),
+                  ...sourceConfig(cronSource(cron)),
+                };
+                const matchedIndex = matchCronIndex(olds, cron, index, keptCronIndexes);
+                const existing = container.cronTriggers?.[matchedIndex];
+                const oldCron = olds?.crons?.[matchedIndex];
+                if (matchedIndex >= 0) keptCronIndexes.add(matchedIndex);
+                const replace = existing?.triggerId && cronNeedsReplace(oldCron, cron);
+                if (replace) {
+                  yield* clients.containers
+                    .deleteTrigger(existing.triggerId)
+                    .pipe(Effect.catchIf(isNotFound, () => Effect.void));
+                } else if (existing?.triggerId) {
+                  const updated = yield* clients.containers.updateTrigger(existing.triggerId, input);
+                  return updated.status?.toLowerCase() === "ready"
+                    ? toTriggerAttributes(updated)
+                    : yield* waitForTriggerReady(existing.triggerId);
+                }
+                const created = yield* clients.containers.createTrigger({
+                  container_id: container.containerId,
+                  ...input,
+                });
+                return created.status?.toLowerCase() === "ready"
+                  ? toTriggerAttributes(created)
+                  : yield* waitForTriggerReady(created.id);
+              }),
+            ),
+          );
+          yield* Effect.all(
+            (container.cronTriggers ?? [])
+              .filter((_, index) => !keptCronIndexes.has(index))
+              .map((trigger) =>
+                clients.containers
+                  .deleteTrigger(trigger.triggerId)
+                  .pipe(Effect.catchIf(isNotFound, () => Effect.void)),
+              ),
+          );
+          return omitUndefined({
+            ...container,
+            domains: domains.length > 0 ? domains : undefined,
+            cronTriggers: cronTriggers.length > 0 ? cronTriggers : undefined,
+          }) as Container["Attributes"];
+        });
+
       return Container.Provider.of({
         stables: ["containerId", "namespaceId", "region", "projectId"],
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
@@ -162,45 +438,82 @@ export const ContainerProvider = () =>
           const name = yield* nameOf(id, news.name);
           if (
             output.name !== name ||
-            olds.image !== news.image ||
-            olds.description !== news.description ||
-            olds.minScale !== news.minScale ||
-            olds.maxScale !== news.maxScale ||
-            olds.memoryLimitBytes !== news.memoryLimitBytes ||
-            olds.mvcpuLimit !== news.mvcpuLimit ||
-            olds.timeout !== news.timeout ||
-            olds.privacy !== news.privacy ||
-            olds.protocol !== news.protocol ||
-            olds.port !== news.port ||
-            olds.httpsConnectionsOnly !== news.httpsConnectionsOnly ||
-            JSON.stringify(olds.scalingOption ?? {}) !== JSON.stringify(news.scalingOption ?? {}) ||
-            !recordEquals(olds.environmentVariables, news.environmentVariables) ||
-            !secretsEqual(olds.secretEnvironmentVariables, news.secretEnvironmentVariables)
+            !containerPropsEqual(olds, news) ||
+            !companionPropsEqual(olds, news) ||
+            !companionsPresent(output, news)
           )
             return { action: "update" } as const;
           return undefined;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.containerId) return undefined;
-          return yield* clients.containers.getContainer(output.containerId).pipe(
+          const container = yield* clients.containers.getContainer(output.containerId).pipe(
             Effect.map(toAttributes),
             Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
           );
+          if (!container) return undefined;
+          const domains = compact(
+            yield* Effect.all(
+              (output.domains ?? []).map((domain) =>
+                clients.containers
+                  .getDomain(domain.domainId)
+                  .pipe(Effect.map(toDomainAttributes), Effect.catchIf(isNotFound, () => Effect.succeed(undefined))),
+              ),
+            ),
+          );
+          const cronTriggers = compact(
+            yield* Effect.all(
+              (output.cronTriggers ?? []).map((trigger) =>
+                clients.containers
+                  .getTrigger(trigger.triggerId)
+                  .pipe(Effect.map(toTriggerAttributes), Effect.catchIf(isNotFound, () => Effect.succeed(undefined))),
+              ),
+            ),
+          );
+          return omitUndefined({
+            ...container,
+            domains: domains.length > 0 ? domains : undefined,
+            cronTriggers: cronTriggers.length > 0 ? cronTriggers : undefined,
+          }) as Container["Attributes"];
         }),
-        reconcile: Effect.fnUntraced(function* ({ id, news, output, session }) {
+        reconcile: Effect.fnUntraced(function* ({ id, news, olds, output, session }) {
           // In v1, Create/Update automatically deploy the container; no separate deploy call.
           if (output?.containerId) {
-            const input = yield* inputFor(id, news, true);
-            yield* clients.containers.updateContainer(output.containerId, input);
-            yield* session.note(`Updated Scaleway container ${output.containerId}`);
-            return yield* waitForReady(output.containerId);
+            const ready = yield* Effect.gen(function* () {
+              if (olds && containerPropsEqual(olds, news))
+                return toAttributes(yield* clients.containers.getContainer(output.containerId));
+              const input = yield* inputFor(id, news, true);
+              yield* clients.containers.updateContainer(output.containerId, input);
+              yield* session.note(`Updated Scaleway container ${output.containerId}`);
+              return yield* waitForReady(output.containerId);
+            });
+            return yield* provisionCompanions(
+              { ...ready, domains: output.domains, cronTriggers: output.cronTriggers },
+              olds,
+              news,
+            );
           }
           const input = yield* inputFor(id, news, false);
           const created = yield* clients.containers.createContainer(input);
           yield* session.note(`Created Scaleway container ${created.id}`);
-          return yield* waitForReady(created.id);
+          const ready = yield* waitForReady(created.id);
+          return yield* provisionCompanions(ready, undefined, news);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
+          yield* Effect.all(
+            (output.cronTriggers ?? []).map((trigger) =>
+              clients.containers
+                .deleteTrigger(trigger.triggerId)
+                .pipe(Effect.catchIf(isNotFound, () => Effect.void)),
+            ),
+          );
+          yield* Effect.all(
+            (output.domains ?? []).map((domain) =>
+              clients.containers
+                .deleteDomain(domain.domainId)
+                .pipe(Effect.catchIf(isNotFound, () => Effect.void)),
+            ),
+          );
           yield* clients.containers
             .deleteContainer(output.containerId)
             .pipe(Effect.catchIf(isNotFound, () => Effect.void));

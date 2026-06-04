@@ -31,6 +31,12 @@ const containerCreates = () =>
     return c.method === "POST" && url.pathname.endsWith("/containers");
   });
 
+const containerPatches = () =>
+  mock.calls.filter((c) => {
+    const url = new URL(c.url);
+    return c.method === "PATCH" && /\/containers\/v1\/regions\/[^/]+\/containers\/[^/]+$/.test(url.pathname);
+  });
+
 describe("Namespace", () => {
   test.provider("create then update mutates in place", (stack) =>
     Effect.gen(function* () {
@@ -122,6 +128,121 @@ describe("Container", () => {
       expect(requests("PATCH", "/containers/").length).toBeGreaterThan(0);
     }),
   );
+
+  test.provider("can provision domains and cron triggers from container props", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          return yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+            domains: ["api.example.com"],
+            crons: [
+              {
+                schedule: "0 * * * *",
+                name: "hourly",
+                destination: { httpPath: "/jobs/hourly", httpMethod: "post" },
+              },
+            ],
+          });
+        }),
+      );
+
+      expect(created.domains?.at(0)?.hostname).toBe("api.example.com");
+      expect(created.domains?.at(0)?.url).toBe("https://api.example.com");
+      expect(created.cronTriggers?.at(0)?.schedule).toBe("0 * * * *");
+      expect(created.cronTriggers?.at(0)?.name).toBe("hourly");
+      expect(requests("POST", "/domains")).toHaveLength(1);
+      expect(requests("POST", "/triggers")).toHaveLength(1);
+      expect(requests("POST", "/triggers").at(0)?.body).toContain("/jobs/hourly");
+    }),
+  );
+
+  test.provider("updates and removes container companion resources", (stack) =>
+    Effect.gen(function* () {
+      const program = (schedule?: string) =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          return yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+            domains: schedule ? ["api.example.com"] : [],
+            crons: schedule ? [schedule] : [],
+          });
+        });
+
+      const created = yield* stack.deploy(program("0 * * * *"));
+      const updated = yield* stack.deploy(program("0 0 * * *"));
+      expect(updated.containerId).toBe(created.containerId);
+      expect(updated.cronTriggers?.at(0)?.triggerId).toBe(
+        created.cronTriggers?.at(0)?.triggerId,
+      );
+      expect(updated.cronTriggers?.at(0)?.schedule).toBe("0 0 * * *");
+
+      const removed = yield* stack.deploy(program());
+      expect(removed.containerId).toBe(created.containerId);
+      expect(removed.domains).toBeUndefined();
+      expect(removed.cronTriggers).toBeUndefined();
+      expect(requests("PATCH", "/triggers/").length).toBeGreaterThan(0);
+      expect(requests("DELETE", "/domains/").length).toBeGreaterThan(0);
+      expect(requests("DELETE", "/triggers/").length).toBeGreaterThan(0);
+      expect(containerPatches()).toHaveLength(0);
+    }),
+  );
+
+  test.provider("replaces container cron when removing non-clearable fields", (stack) =>
+    Effect.gen(function* () {
+      const program = (withBody: boolean) =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          return yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+            crons: [
+              withBody
+                ? {
+                    schedule: "0 * * * *",
+                    body: "payload",
+                    destination: { httpPath: "/jobs/hourly" },
+                  }
+                : { schedule: "0 * * * *" },
+            ],
+          });
+        });
+
+      const created = yield* stack.deploy(program(true));
+      const replaced = yield* stack.deploy(program(false));
+      expect(replaced.cronTriggers?.at(0)?.triggerId).not.toBe(
+        created.cronTriggers?.at(0)?.triggerId,
+      );
+      expect(requests("DELETE", "/triggers/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("keeps moved container crons when adding and removing others", (stack) =>
+    Effect.gen(function* () {
+      const program = (crons: string[]) =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          return yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+            crons,
+          });
+        });
+
+      const created = yield* stack.deploy(program(["0 * * * *", "0 0 * * *"]));
+      const kept = created.cronTriggers?.at(1)?.triggerId;
+      const updated = yield* stack.deploy(program(["0 0 * * *", "30 0 * * *"]));
+
+      expect(updated.cronTriggers?.at(0)?.triggerId).toBe(kept);
+      expect(updated.cronTriggers?.at(1)?.triggerId).not.toBe(kept);
+      expect(requests("DELETE", "/triggers/").length).toBeGreaterThan(0);
+      expect(requests("POST", "/triggers")).toHaveLength(3);
+    }),
+  );
+
 });
 
 describe("Trigger", () => {
