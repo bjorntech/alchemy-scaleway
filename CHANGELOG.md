@@ -4,6 +4,20 @@ All notable changes to `alchemy-scaleway` are documented here. The package follo
 
 ## [Unreleased]
 
+### Added
+
+- `ContainerProps.domains` can now bind custom domains as part of the container
+  workflow while keeping standalone `Domain` available for explicit control.
+- `ContainerProps.crons` can now create cron triggers as part of the container
+  workflow while keeping standalone `Trigger` available for explicit control.
+
+### Known limitations
+
+- Current Alchemy v2 beta resource options do not include `alwaysUpdate` or an
+  equivalent read-on-noop hook. Same-props deploys cannot detect external deletion
+  of `Container`-managed companion domains/triggers; those companions are verified
+  when a read/update path runs. Revisit this when Alchemy exposes such an option.
+
 ### Changed
 
 - Migrated the Serverless Containers integration from the `v1beta1` API to the

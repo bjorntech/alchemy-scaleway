@@ -32,12 +32,22 @@ The package should keep a flat Alchemy v2 provider layout and avoid nested provi
 - Use `AuthProvider.ts` and `Credentials.ts` for profile/env credential integration.
 - Use `ScalewayError` for typed cloud/API errors.
 
+## Resource Design Philosophy
+
+- Follow Alchemy's programmer-facing resource style rather than a strict one-resource-per-cloud-endpoint mapping.
+- Resources may orchestrate multiple Scaleway operations when that better represents an application workflow, such as a container plus domains, triggers, readiness polling, and derived URLs.
+- Keep standalone primitive resources available for advanced control even when higher-level convenience props exist.
+- Prefer intent-shaped props and useful defaults over raw API payload shapes when the abstraction is clearer for users.
+- Hide provider quirks, sequencing, stabilization waits, and retry behavior inside resource reconciliation.
+- Return application-useful outputs such as URLs, resolved physical names, IDs, regions, and deployment metadata.
+- Do not add adoption behavior unless ownership is reliable; Containers resources currently lack a safe ownership tag surface.
+
 ## Resource Scope
 
 Current resources:
 
 - `Namespace` - Scaleway Serverless Containers namespace.
-- `Container` - Scaleway Serverless Container with deployment readiness polling.
+- `Container` - Scaleway Serverless Container with deployment readiness polling and optional companion domains/cron triggers.
 - `Trigger` - container trigger (v1 `/triggers`): cron, SQS, or NATS source.
 - `Domain` - container custom domain.
 - `Bucket` - Scaleway Object Storage bucket via S3-compatible API.
@@ -70,6 +80,7 @@ The CRAP script supports `// @crap-ignore` only for wrapper/factory functions th
 - Keep readiness polling behavior internal to resource reconciliation.
 - Preserve clear update-vs-replace rules in each resource's `diff` implementation.
 - Do not introduce nested package layout or old `create/update/delete` provider methods.
+- Track the current Alchemy v2 limitation: `ResourceOptions` lack `alwaysUpdate`/read-on-noop. Same-props deploys cannot detect external deletion of `Container`-managed companion domains/triggers; revisit when Alchemy exposes an equivalent option.
 
 ## Safety Notes
 

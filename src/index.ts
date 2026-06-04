@@ -9,6 +9,8 @@ export {
 export { Bucket, BucketProvider, type BucketProps } from "./Bucket.ts";
 export {
   Container,
+  type ContainerCron,
+  type ContainerDomain,
   ContainerProvider,
   type ContainerPrivacy,
   type ContainerProps,

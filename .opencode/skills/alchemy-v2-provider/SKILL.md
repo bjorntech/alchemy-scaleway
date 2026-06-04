@@ -20,6 +20,14 @@ Use this skill for resource/provider changes in `alchemy-scaleway`.
 - Resource declaration with `Resource<Type, Props, Attributes, never, Providers>`.
 - Lifecycle with `Provider.effect(Resource, Effect.gen(... Resource.Provider.of({ read, reconcile, delete })))`.
 
+## Resource Design
+
+- Model programmer-facing workflows, not a strict one-to-one mapping of cloud API endpoints.
+- A resource may orchestrate multiple provider operations when that is the useful abstraction, similar to Alchemy AWS Lambda and Cloudflare Worker resources.
+- Prefer intent-shaped props, safe defaults, readiness/stabilization handling, and derived outputs over exposing raw provider payload shape.
+- Keep standalone primitive resources available when callers need explicit control.
+- Keep provider quirks, retries, sequencing, and readiness polling inside lifecycle reconciliation.
+
 ## Lifecycle Rules
 
 - `read` recovers from persisted IDs and returns `undefined` on 404.
@@ -27,6 +35,7 @@ Use this skill for resource/provider changes in `alchemy-scaleway`.
 - `delete` must be idempotent and tolerate already-missing resources.
 - `diff` should return `replace` only for identity changes and `update` for mutable changes.
 - `stables` should list durable identity outputs only.
+- Current Alchemy v2 beta resource options do not include `alwaysUpdate`/read-on-noop. Do not assume unchanged-props deploys can detect external drift for orchestrated child resources; revisit this limitation when Alchemy exposes such an option.
 
 ## Ownership
 

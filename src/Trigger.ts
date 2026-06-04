@@ -97,7 +97,7 @@ const containerId = (container: ContainerRef) => {
   return resolveRef(typeof container === "string" ? container : container.containerId);
 };
 
-const destinationConfig = (destination: TriggerDestination | undefined) =>
+export const destinationConfig = (destination: TriggerDestination | undefined) =>
   destination
     ? {
         destination_config: omitUndefined({
@@ -107,7 +107,7 @@ const destinationConfig = (destination: TriggerDestination | undefined) =>
       }
     : {};
 
-const sourceConfig = (source: TriggerSource): Partial<ScalewayCreateTriggerInput> => {
+export const sourceConfig = (source: TriggerSource): Partial<ScalewayCreateTriggerInput> => {
   switch (source.type) {
     case "cron":
       return {
@@ -139,7 +139,7 @@ const sourceConfig = (source: TriggerSource): Partial<ScalewayCreateTriggerInput
   }
 };
 
-function removed(oldValue: unknown, newValue: unknown) {
+export function removed(oldValue: unknown, newValue: unknown) {
   if (newValue !== undefined) return false;
   return oldValue !== undefined;
 }
@@ -147,14 +147,14 @@ function removed(oldValue: unknown, newValue: unknown) {
 const anyRemoved = (pairs: ReadonlyArray<readonly [unknown, unknown]>) =>
   pairs.some(([oldValue, newValue]) => removed(oldValue, newValue));
 
-const destinationNeedsReplace = (olds: TriggerDestination | undefined, news: TriggerDestination | undefined) =>
+export const destinationNeedsReplace = (olds: TriggerDestination | undefined, news: TriggerDestination | undefined) =>
   anyRemoved([
     [olds, news],
     [olds?.httpPath, news?.httpPath],
     [olds?.httpMethod, news?.httpMethod],
   ]);
 
-const sourceNeedsReplace = (olds: TriggerSource, news: TriggerSource) => {
+export const sourceNeedsReplace = (olds: TriggerSource, news: TriggerSource) => {
   if (olds.type !== news.type) return true;
   switch (olds.type) {
     case "cron":

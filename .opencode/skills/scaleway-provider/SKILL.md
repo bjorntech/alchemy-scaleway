@@ -15,10 +15,19 @@ Use this skill for Scaleway-specific API and resource behavior.
 ## Current Scope
 
 - `Namespace`: Serverless Containers namespace.
-- `Container`: Serverless Container plus deployment readiness polling.
-- `Cron`: container cron.
+- `Container`: Serverless Container plus deployment readiness polling and optional companion domains/cron triggers.
+- `Trigger`: container trigger (cron, SQS, or NATS source).
 - `Domain`: container custom domain.
 - `Bucket`: Object Storage bucket via S3-compatible API.
+
+## Resource Ergonomics
+
+- Scaleway resources should be useful application abstractions, not raw endpoint wrappers.
+- It is acceptable for `Container` or a future higher-level resource to compose domains, triggers, readiness waits, and derived URLs when that matches common deployment workflows.
+- Preserve standalone `Trigger`, `Domain`, and other primitive resources for advanced or explicit wiring.
+- Prefer user intent in props (`env`, `secrets`, `domains`, `crons`, HTTP settings) when clearer than Scaleway's raw API field names, while keeping update/replace semantics explicit.
+- Do not add name-based adoption for Containers resources unless Scaleway exposes reliable ownership metadata.
+- Current Alchemy v2 beta cannot force read/reconcile on otherwise no-op `Container` deploys. `Container`-managed companion drift is verified when read/update paths run, but unchanged props cannot recover externally deleted domains/triggers until Alchemy provides an always-update/read-on-noop option.
 
 ## Credentials
 
