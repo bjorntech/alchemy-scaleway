@@ -36,14 +36,26 @@ export const DomainProvider = () =>
     Effect.gen(function* () {
       const clients = yield* makeScalewayClients;
       const toAttributes = (record: ScalewayDomainRecord): Domain["Attributes"] =>
-        omitUndefined({ domainId: record.id, containerId: record.container_id, hostname: record.hostname, url: record.url }) as Domain["Attributes"];
-      const waitForReady = (domainIdValue: string, attempts = 40): Effect.Effect<Domain["Attributes"], unknown> =>
+        omitUndefined({
+          domainId: record.id,
+          containerId: record.container_id,
+          hostname: record.hostname,
+          // v1 no longer returns a `url`; the public URL is always https on the hostname.
+          url: `https://${record.hostname}`,
+        }) as Domain["Attributes"];
+      const waitForReady = (
+        domainIdValue: string,
+        attempts = 40,
+      ): Effect.Effect<Domain["Attributes"], unknown> =>
         Effect.gen(function* () {
           for (let attempt = 0; attempt < attempts; attempt++) {
             const record = yield* clients.containers.getDomain(domainIdValue);
             const status = record.status?.toLowerCase();
             if (!status || status === "ready") return toAttributes(record);
-            if (status === "error") throw new Error(record.error_message ?? `Scaleway domain ${domainIdValue} entered error state`);
+            if (status === "error")
+              throw new Error(
+                record.error_message ?? `Scaleway domain ${domainIdValue} entered error state`,
+              );
             yield* Effect.sleep("3 seconds");
           }
           throw new Error(`Timed out waiting for Scaleway domain ${domainIdValue}`);
@@ -54,7 +66,8 @@ export const DomainProvider = () =>
         diff: Effect.fnUntraced(function* ({ news, output }) {
           if (!isResolved(news) || !output) return undefined;
           const resolvedContainerId = yield* containerId(news.container);
-          if (resolvedContainerId !== output.containerId || news.hostname !== output.hostname) return { action: "replace" } as const;
+          if (resolvedContainerId !== output.containerId || news.hostname !== output.hostname)
+            return { action: "replace" } as const;
           return undefined;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
@@ -66,12 +79,17 @@ export const DomainProvider = () =>
         }),
         reconcile: Effect.fnUntraced(function* ({ news, output, session }) {
           if (output?.domainId) return output;
-          const created = yield* clients.containers.createDomain({ container_id: yield* containerId(news.container), hostname: news.hostname });
+          const created = yield* clients.containers.createDomain({
+            container_id: yield* containerId(news.container),
+            hostname: news.hostname,
+          });
           yield* session.note(`Created Scaleway domain ${created.id}`);
           return yield* waitForReady(created.id);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
-          yield* clients.containers.deleteDomain(output.domainId).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+          yield* clients.containers
+            .deleteDomain(output.domainId)
+            .pipe(Effect.catchIf(isNotFound, () => Effect.void));
           yield* session.note(`Deleted Scaleway domain ${output.domainId}`);
         }),
       });

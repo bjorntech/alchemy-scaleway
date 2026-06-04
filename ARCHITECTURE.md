@@ -16,7 +16,7 @@ src/
 
   Namespace.ts      Serverless Containers namespace resource
   Container.ts      Serverless Container resource
-  Cron.ts           Container cron resource
+  Trigger.ts        Container trigger resource (cron/sqs/nats)
   Domain.ts         Container custom domain resource
   Bucket.ts         Object Storage bucket resource
 
@@ -34,7 +34,7 @@ Resources use Alchemy v2's `Provider.effect(...Provider.of({ read, reconcile, de
 - `Bucket` stores `alchemy:logical-id` in S3 tags and returns `Unowned(attrs)` for foreign buckets found by name.
 - Containers and namespaces are read by persisted IDs only. Scaleway's Containers API does not expose a reliable ownership tag surface, so name-based adoption is intentionally avoided for those resources.
 - Deletes are idempotent and ignore 404 responses.
-- Container, cron, and domain readiness waits use Effect sleeps inside provider reconciliation.
+- Container, trigger, and domain readiness waits use Effect sleeps inside provider reconciliation.
 
 ## Adding A Resource
 

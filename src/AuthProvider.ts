@@ -2,11 +2,7 @@ import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Redacted from "effect/Redacted";
-import {
-  AuthError,
-  AuthProviderLayer,
-  type ConfigureContext,
-} from "alchemy/Auth/AuthProvider";
+import { AuthError, AuthProviderLayer, type ConfigureContext } from "alchemy/Auth/AuthProvider";
 import { CredentialsStore, displayRedacted } from "alchemy/Auth/Credentials";
 import { getEnv, getEnvRedacted, retryOnce } from "alchemy/Auth/Env";
 import * as Clank from "alchemy/Util/Clank";
@@ -97,10 +93,7 @@ export const resolveFromStored = (
     };
   });
 
-export const ScalewayAuth = AuthProviderLayer<
-  ScalewayAuthConfig,
-  ScalewayResolvedCredentials
->()(
+export const ScalewayAuth = AuthProviderLayer<ScalewayAuthConfig, ScalewayResolvedCredentials>()(
   SCALEWAY_AUTH_PROVIDER_NAME,
   Effect.gen(function* () {
     const store = yield* CredentialsStore;
@@ -115,13 +108,15 @@ export const ScalewayAuth = AuthProviderLayer<
         placeholder: (yield* getEnv("SCW_ACCESS_KEY")) ?? "",
       }).pipe(retryOnce);
       const projectId = yield* Clank.text({
-        message: "Scaleway Project ID (optional, required for Containers unless passed per resource)",
+        message:
+          "Scaleway Project ID (optional, required for Containers unless passed per resource)",
         placeholder: (yield* getEnv("SCW_DEFAULT_PROJECT_ID")) ?? "",
       }).pipe(retryOnce);
       const region = yield* Clank.text({
         message: "Scaleway Region",
         placeholder: (yield* getEnv("SCW_DEFAULT_REGION")) ?? DEFAULT_REGION,
-        validate: (value) => (value.length === 0 || isRegion(value) ? undefined : "Expected a region slug like fr-par"),
+        validate: (value) =>
+          value.length === 0 || isRegion(value) ? undefined : "Expected a region slug like fr-par",
       }).pipe(retryOnce);
 
       yield* store.write<ScalewayStoredCredentials>(profileName, SCALEWAY_AUTH_STORAGE_KEY, {
@@ -140,8 +135,16 @@ export const ScalewayAuth = AuthProviderLayer<
         const method = yield* Clank.select({
           message: "Scaleway authentication method",
           options: [
-            { value: "env" as const, label: "Environment Variables", hint: "SCW_SECRET_KEY + optional SCW_ACCESS_KEY/PROJECT_ID/REGION" },
-            { value: "stored" as const, label: "Stored Credentials", hint: "enter interactively, stored in ~/.alchemy/credentials" },
+            {
+              value: "env" as const,
+              label: "Environment Variables",
+              hint: "SCW_SECRET_KEY + optional SCW_ACCESS_KEY/PROJECT_ID/REGION",
+            },
+            {
+              value: "stored" as const,
+              label: "Stored Credentials",
+              hint: "enter interactively, stored in ~/.alchemy/credentials",
+            },
           ],
         }).pipe(retryOnce);
         return yield* Match.value(method).pipe(
@@ -162,10 +165,12 @@ export const ScalewayAuth = AuthProviderLayer<
       Match.value(config).pipe(
         Match.when({ method: "env" }, () => resolveFromEnv()),
         Match.when({ method: "stored" }, () =>
-          store.read<ScalewayStoredCredentials>(profileName, SCALEWAY_AUTH_STORAGE_KEY).pipe(
-            Effect.mapError(toAuthError("Failed to read Scaleway stored credentials")),
-            Effect.flatMap(resolveFromStored),
-          ),
+          store
+            .read<ScalewayStoredCredentials>(profileName, SCALEWAY_AUTH_STORAGE_KEY)
+            .pipe(
+              Effect.mapError(toAuthError("Failed to read Scaleway stored credentials")),
+              Effect.flatMap(resolveFromStored),
+            ),
         ),
         Match.exhaustive,
       );
@@ -177,34 +182,50 @@ export const ScalewayAuth = AuthProviderLayer<
           Match.when({ method: "stored" }, () =>
             store.read<ScalewayStoredCredentials>(profileName, SCALEWAY_AUTH_STORAGE_KEY).pipe(
               Effect.mapError(toAuthError("Failed to read Scaleway stored credentials")),
-              Effect.flatMap((creds) => (creds ? Effect.void : promptStored(profileName).pipe(Effect.asVoid))),
+              Effect.flatMap((creds) =>
+                creds ? Effect.void : promptStored(profileName).pipe(Effect.asVoid),
+              ),
             ),
           ),
           Match.exhaustive,
         )
-        .pipe(Effect.mapError((error) => (error instanceof AuthError ? error : toAuthError("Scaleway login failed")(error))));
+        .pipe(
+          Effect.mapError((error) =>
+            error instanceof AuthError ? error : toAuthError("Scaleway login failed")(error),
+          ),
+        );
 
     const logout = (profileName: string, config: ScalewayAuthConfig) =>
       Match.value(config)
         .pipe(
           Match.when({ method: "env" }, () => Effect.void),
           Match.when({ method: "stored" }, () =>
-            store.delete(profileName, SCALEWAY_AUTH_STORAGE_KEY).pipe(
-              Effect.mapError(toAuthError("Failed to delete Scaleway stored credentials")),
-              Effect.andThen(Clank.success("Scaleway: stored credentials removed")),
-            ),
+            store
+              .delete(profileName, SCALEWAY_AUTH_STORAGE_KEY)
+              .pipe(
+                Effect.mapError(toAuthError("Failed to delete Scaleway stored credentials")),
+                Effect.andThen(Clank.success("Scaleway: stored credentials removed")),
+              ),
           ),
           Match.exhaustive,
         )
-        .pipe(Effect.mapError((error) => (error instanceof AuthError ? error : toAuthError("Scaleway logout failed")(error))));
+        .pipe(
+          Effect.mapError((error) =>
+            error instanceof AuthError ? error : toAuthError("Scaleway logout failed")(error),
+          ),
+        );
 
     const prettyPrint = (profileName: string, config: ScalewayAuthConfig) =>
       read(profileName, config).pipe(
         Effect.tap((credentials) =>
           Effect.all([
             Console.log(`  region: ${credentials.region}`),
-            credentials.projectId ? Console.log(`  projectId: ${credentials.projectId}`) : Effect.void,
-            credentials.accessKey ? Console.log(`  accessKey: ${credentials.accessKey}`) : Effect.void,
+            credentials.projectId
+              ? Console.log(`  projectId: ${credentials.projectId}`)
+              : Effect.void,
+            credentials.accessKey
+              ? Console.log(`  accessKey: ${credentials.accessKey}`)
+              : Effect.void,
             Console.log(`  secretKey: ${displayRedacted(credentials.secretKey)}`),
           ]),
         ),

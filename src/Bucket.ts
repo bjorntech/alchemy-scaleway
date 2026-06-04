@@ -18,7 +18,13 @@ export interface BucketProps {
 export type Bucket = Resource<
   "Scaleway.Bucket",
   BucketProps,
-  { bucketName: string; region: string; endpoint: string; tags?: Record<string, string>; versioning?: boolean },
+  {
+    bucketName: string;
+    region: string;
+    endpoint: string;
+    tags?: Record<string, string>;
+    versioning?: boolean;
+  },
   never,
   Providers
 >;
@@ -46,16 +52,18 @@ export const BucketProvider = () =>
           if (!isResolved(news) || !output) return undefined;
           const name = yield* nameOf(id, news.name);
           const region = news.region ?? clients.region;
-          if (output.bucketName !== name || output.region !== region) return { action: "replace" } as const;
-          if (olds.versioning !== news.versioning || !recordEquals(olds.tags, news.tags)) return { action: "update" } as const;
+          if (output.bucketName !== name || output.region !== region)
+            return { action: "replace" } as const;
+          if (olds.versioning !== news.versioning || !recordEquals(olds.tags, news.tags))
+            return { action: "update" } as const;
           return undefined;
         }),
         read: Effect.fnUntraced(function* ({ id, olds, output }) {
           const name = output?.bucketName ?? (yield* nameOf(id, olds?.name));
           const region = output?.region ?? olds?.region ?? clients.region;
-          const bucket = yield* clients.objectStorage.getBucket({ name, region }).pipe(
-            Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
-          );
+          const bucket = yield* clients.objectStorage
+            .getBucket({ name, region })
+            .pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
           if (!bucket) return undefined;
           const attrs = toAttributes(bucket);
           return output || hasAlchemyTags(id, bucket.tags) ? attrs : Unowned(attrs);
@@ -65,18 +73,28 @@ export const BucketProvider = () =>
           const region = output?.region ?? news.region ?? clients.region;
           const tags = withAlchemyTags(id, news.tags);
           if (output?.bucketName) {
-            const updated = yield* clients.objectStorage.updateBucket({ name, region, tags, versioning: news.versioning });
+            const updated = yield* clients.objectStorage.updateBucket({
+              name,
+              region,
+              tags,
+              versioning: news.versioning,
+            });
             yield* session.note(`Updated Scaleway bucket ${name}`);
             return toAttributes(updated);
           }
-          const created = yield* clients.objectStorage.createBucket({ name, region, tags, versioning: news.versioning });
+          const created = yield* clients.objectStorage.createBucket({
+            name,
+            region,
+            tags,
+            versioning: news.versioning,
+          });
           yield* session.note(`Created Scaleway bucket ${name}`);
           return toAttributes(created);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
-          yield* clients.objectStorage.deleteBucket({ name: output.bucketName, region: output.region }).pipe(
-            Effect.catchIf(isNotFound, () => Effect.void),
-          );
+          yield* clients.objectStorage
+            .deleteBucket({ name: output.bucketName, region: output.region })
+            .pipe(Effect.catchIf(isNotFound, () => Effect.void));
           yield* session.note(`Deleted Scaleway bucket ${output.bucketName}`);
         }),
       });

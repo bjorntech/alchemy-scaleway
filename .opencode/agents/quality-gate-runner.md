@@ -17,6 +17,7 @@ permission:
 You run and diagnose quality gates for `alchemy-scaleway`.
 
 Always run, in order:
+
 1. `bun run check`
 2. `bun test`
 3. `bun run coverage`

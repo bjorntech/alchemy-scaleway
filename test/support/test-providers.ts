@@ -7,10 +7,10 @@ import * as Provider from "alchemy/Provider";
 import { Bucket, BucketProvider } from "../../src/Bucket.ts";
 import { Container, ContainerProvider } from "../../src/Container.ts";
 import { ScalewayCredentials } from "../../src/Credentials.ts";
-import { Cron, CronProvider } from "../../src/Cron.ts";
 import { Domain, DomainProvider } from "../../src/Domain.ts";
 import { Namespace, NamespaceProvider } from "../../src/Namespace.ts";
 import { Providers } from "../../src/Providers.ts";
+import { Trigger, TriggerProvider } from "../../src/Trigger.ts";
 
 const credentialsLayer = Layer.succeed(
   ScalewayCredentials,
@@ -24,12 +24,15 @@ const credentialsLayer = Layer.succeed(
 );
 
 export const testProviders = () =>
-  Layer.effect(Providers, Provider.collection([Namespace, Container, Cron, Domain, Bucket])).pipe(
+  Layer.effect(
+    Providers,
+    Provider.collection([Namespace, Container, Trigger, Domain, Bucket]),
+  ).pipe(
     Layer.provide(
       Layer.mergeAll(
         NamespaceProvider(),
         ContainerProvider(),
-        CronProvider(),
+        TriggerProvider(),
         DomainProvider(),
         BucketProvider(),
       ),

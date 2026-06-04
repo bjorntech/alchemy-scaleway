@@ -6,8 +6,8 @@ This package follows Alchemy's custom-provider model: resources are declared wit
 
 ## Compatibility
 
-| `alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes |
-| ------------------ | ---------------- | --------------- | ----- |
+| `alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
+| ------------------ | ---------------- | --------------- | ------------- |
 | `0.1.0-beta.51`    | `2.0.0-beta.51`  | `4.0.0-beta.74` | Initial beta. |
 
 ## Install
@@ -51,7 +51,7 @@ export default Alchemy.Stack(
 
     const api = yield* Scaleway.Container("Api", {
       namespace,
-      registryImage: "rg.fr-par.scw.cloud/my-registry/api:latest",
+      image: "rg.fr-par.scw.cloud/my-registry/api:latest",
       port: 3000,
       protocol: "http1",
       privacy: "public",
@@ -73,7 +73,7 @@ export default Alchemy.Stack(
 
 - `Namespace` - Scaleway Serverless Containers namespace lifecycle.
 - `Container` - Scaleway Serverless Container lifecycle with deployment readiness polling.
-- `Cron` - Container cron lifecycle.
+- `Trigger` - Container trigger lifecycle (cron, SQS, or NATS source).
 - `Domain` - Container custom domain lifecycle.
 - `Bucket` - Scaleway Object Storage bucket lifecycle via the S3-compatible API.
 

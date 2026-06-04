@@ -6,7 +6,9 @@ import { ScalewayCredentials } from "./Credentials.ts";
 export type NamedNamespace = string | Namespace;
 
 export const omitUndefined = <T extends Record<string, unknown>>(value: T) =>
-  Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined)) as Partial<T>;
+  Object.fromEntries(
+    Object.entries(value).filter(([, field]) => field !== undefined),
+  ) as Partial<T>;
 
 export const recordEquals = (
   left: Record<string, string> | undefined,
@@ -47,7 +49,9 @@ export const physicalName = (
 export const resolveRef = (ref: unknown): Effect.Effect<string> =>
   Effect.gen(function* () {
     if (typeof ref === "string") return ref;
-    const accessor = yield* (ref as { asEffect(): Effect.Effect<Effect.Effect<string>> }).asEffect();
+    const accessor = yield* (
+      ref as { asEffect(): Effect.Effect<Effect.Effect<string>> }
+    ).asEffect();
     return yield* accessor;
   });
 
@@ -59,7 +63,8 @@ export const projectId = (explicit?: string) =>
   Effect.gen(function* () {
     if (explicit) return explicit;
     const credentials = yield* ScalewayCredentials;
-    if (!credentials.projectId) throw new Error("Scaleway projectId is required for this resource.");
+    if (!credentials.projectId)
+      throw new Error("Scaleway projectId is required for this resource.");
     return credentials.projectId;
   });
 

@@ -25,6 +25,12 @@ const bucketRootRequests = (method: string, bucket: string) =>
     return c.method === method && url.pathname === `/${bucket}/` && url.search === "";
   });
 
+const containerCreates = () =>
+  mock.calls.filter((c) => {
+    const url = new URL(c.url);
+    return c.method === "POST" && url.pathname.endsWith("/containers");
+  });
+
 describe("Namespace", () => {
   test.provider("create then update mutates in place", (stack) =>
     Effect.gen(function* () {
@@ -63,7 +69,7 @@ describe("Container", () => {
           const ns = yield* Scaleway.Namespace("Ns", {});
           const api = yield* Scaleway.Container("Api", {
             namespace: ns,
-            registryImage: "rg.fr-par.scw.cloud/demo/api:latest",
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
             port: 3000,
             privacy: "public",
           });
@@ -73,8 +79,28 @@ describe("Container", () => {
       expect(out.container.namespaceId).toBe(out.namespaceId);
       expect(out.container.url).toContain(".functions.fnc.fr-par.scw.cloud");
       expect(out.container.privacy).toBe("public");
-      // create -> deploy -> poll readiness
-      expect(requests("POST", "/containers/").some((c) => c.url.endsWith("/deploy"))).toBe(true);
+      // v1: create auto-deploys (no separate /deploy call) -> poll readiness
+      expect(requests("POST", "/containers/").length).toBeGreaterThan(0);
+      expect(requests("POST", "/deploy").length).toBe(0);
+    }),
+  );
+
+  test.provider("sends secret environment variables as a v1 map", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          return yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+            secretEnvironmentVariables: { TOKEN: "secret" },
+          });
+        }),
+      );
+      const create = containerCreates().at(0);
+      expect(JSON.parse(create?.body ?? "{}").secret_environment_variables).toEqual({
+        TOKEN: "secret",
+      });
     }),
   );
 
@@ -85,7 +111,7 @@ describe("Container", () => {
           const ns = yield* Scaleway.Namespace("Ns", {});
           const api = yield* Scaleway.Container("Api", {
             namespace: ns,
-            registryImage: "rg.fr-par.scw.cloud/demo/api:latest",
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
             description,
           });
           return api;
@@ -98,29 +124,160 @@ describe("Container", () => {
   );
 });
 
-describe("Cron", () => {
-  test.provider("create, update schedule, then delete", (stack) =>
+describe("Trigger", () => {
+  test.provider("cron: create, update schedule, then delete", (stack) =>
     Effect.gen(function* () {
       const program = (schedule: string) =>
         Effect.gen(function* () {
           const ns = yield* Scaleway.Namespace("Ns", {});
           const api = yield* Scaleway.Container("Api", {
             namespace: ns,
-            registryImage: "rg.fr-par.scw.cloud/demo/api:latest",
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
           });
-          return yield* Scaleway.Cron("Cron", { container: api, schedule });
+          return yield* Scaleway.Trigger("Trigger", {
+            container: api,
+            source: { type: "cron", schedule },
+          });
         });
       const created = yield* stack.deploy(program("0 * * * *"));
-      expect(created.cronId).toMatch(/^cron-/);
+      expect(created.triggerId).toMatch(/^trigger-/);
+      expect(created.sourceType).toBe("cron");
       expect(created.schedule).toBe("0 * * * *");
 
       const updated = yield* stack.deploy(program("0 0 * * *"));
-      expect(updated.cronId).toBe(created.cronId);
+      expect(updated.triggerId).toBe(created.triggerId);
       expect(updated.schedule).toBe("0 0 * * *");
-      expect(requests("PATCH", "/crons/").length).toBeGreaterThan(0);
+      expect(requests("PATCH", "/triggers/").length).toBeGreaterThan(0);
 
       yield* stack.destroy();
-      expect(requests("DELETE", "/crons/").length).toBeGreaterThan(0);
+      expect(requests("DELETE", "/triggers/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("sqs: creates a queue-sourced trigger without leaking the secret", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          const api = yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+          });
+          return yield* Scaleway.Trigger("Queue", {
+            container: api,
+            source: {
+              type: "sqs",
+              queueUrl: "https://sqs.fr-par.scw.cloud/123/my-queue",
+              accessKeyId: "SCWACCESSKEYEXAMPLE",
+              secretAccessKey: "super-secret-value",
+              region: "fr-par",
+            },
+          });
+        }),
+      );
+      expect(created.sourceType).toBe("sqs");
+      expect(created.queueUrl).toBe("https://sqs.fr-par.scw.cloud/123/my-queue");
+      // The secret is sent on create but never echoed back by the API.
+      expect(requests("POST", "/triggers").at(0)?.body).toContain("super-secret-value");
+      expect(JSON.stringify(created)).not.toContain("super-secret-value");
+    }),
+  );
+
+  test.provider("nats: creates a subject-sourced trigger with a custom destination", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          const api = yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+          });
+          return yield* Scaleway.Trigger("Subject", {
+            container: api,
+            source: {
+              type: "nats",
+              serverUrls: ["nats://nats.fr-par.scw.cloud:4222"],
+              subject: "events.>",
+              credentialsFileContent: "BEGIN-NATS-CREDS",
+            },
+            destination: { httpPath: "/ingest", httpMethod: "post" },
+          });
+        }),
+      );
+      expect(created.sourceType).toBe("nats");
+      expect(created.subject).toBe("events.>");
+      const body = requests("POST", "/triggers").at(0)?.body;
+      expect(body).toContain("/ingest");
+      expect(body).toContain("BEGIN-NATS-CREDS");
+      expect(JSON.stringify(created)).not.toContain("BEGIN-NATS-CREDS");
+    }),
+  );
+
+  test.provider("replaces when removing destination config", (stack) =>
+    Effect.gen(function* () {
+      const program = (destination?: Scaleway.TriggerDestination) =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          const api = yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+          });
+          return yield* Scaleway.Trigger("Trigger", {
+            container: api,
+            source: { type: "cron", schedule: "0 * * * *" },
+            destination,
+          });
+        });
+      const created = yield* stack.deploy(program({ httpPath: "/ingest" }));
+      const replaced = yield* stack.deploy(program());
+      expect(replaced.triggerId).not.toBe(created.triggerId);
+      expect(requests("DELETE", "/triggers/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("replaces when removing cron body", (stack) =>
+    Effect.gen(function* () {
+      const program = (body?: string) =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          const api = yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+          });
+          return yield* Scaleway.Trigger("Trigger", {
+            container: api,
+            source: { type: "cron", schedule: "0 * * * *", body },
+          });
+        });
+      const created = yield* stack.deploy(program("payload"));
+      const replaced = yield* stack.deploy(program());
+      expect(replaced.triggerId).not.toBe(created.triggerId);
+    }),
+  );
+
+  test.provider("replaces when removing sqs endpoint", (stack) =>
+    Effect.gen(function* () {
+      const program = (endpoint?: string) =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          const api = yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+          });
+          return yield* Scaleway.Trigger("Queue", {
+            container: api,
+            source: {
+              type: "sqs",
+              queueUrl: "https://sqs.fr-par.scw.cloud/123/my-queue",
+              accessKeyId: "SCWACCESSKEYEXAMPLE",
+              secretAccessKey: "super-secret-value",
+              endpoint,
+            },
+          });
+        });
+      const created = yield* stack.deploy(program("https://sqs.fr-par.scw.cloud"));
+      const replaced = yield* stack.deploy(program());
+      expect(replaced.triggerId).not.toBe(created.triggerId);
     }),
   );
 });
@@ -133,7 +290,7 @@ describe("Domain", () => {
           const ns = yield* Scaleway.Namespace("Ns", {});
           const api = yield* Scaleway.Container("Api", {
             namespace: ns,
-            registryImage: "rg.fr-par.scw.cloud/demo/api:latest",
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
           });
           return yield* Scaleway.Domain("Domain", { container: api, hostname });
         });
@@ -217,17 +374,20 @@ describe("error handling", () => {
 });
 
 describe("full stack", () => {
-  test.provider("deploys namespace -> container -> cron -> domain, then destroys", (stack) =>
+  test.provider("deploys namespace -> container -> trigger -> domain, then destroys", (stack) =>
     Effect.gen(function* () {
       const out = yield* stack.deploy(
         Effect.gen(function* () {
           const ns = yield* Scaleway.Namespace("Ns", { description: "demo" });
           const api = yield* Scaleway.Container("Api", {
             namespace: ns,
-            registryImage: "rg.fr-par.scw.cloud/demo/api:latest",
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
             port: 3000,
           });
-          const cron = yield* Scaleway.Cron("Cron", { container: api, schedule: "0 * * * *" });
+          const trigger = yield* Scaleway.Trigger("Trigger", {
+            container: api,
+            source: { type: "cron", schedule: "0 * * * *" },
+          });
           const domain = yield* Scaleway.Domain("Domain", {
             container: api,
             hostname: "api.example.com",
@@ -235,20 +395,20 @@ describe("full stack", () => {
           return {
             namespaceId: ns.namespaceId,
             containerId: api.containerId,
-            cronId: cron.cronId,
+            triggerId: trigger.triggerId,
             domainId: domain.domainId,
           };
         }),
       );
       expect(out.namespaceId).toMatch(/^ns-/);
       expect(out.containerId).toMatch(/^ctr-/);
-      expect(out.cronId).toMatch(/^cron-/);
+      expect(out.triggerId).toMatch(/^trigger-/);
       expect(out.domainId).toMatch(/^dom-/);
 
       yield* stack.destroy();
       expect(requests("DELETE", "/namespaces/").length).toBeGreaterThan(0);
       expect(requests("DELETE", "/containers/").length).toBeGreaterThan(0);
-      expect(requests("DELETE", "/crons/").length).toBeGreaterThan(0);
+      expect(requests("DELETE", "/triggers/").length).toBeGreaterThan(0);
       expect(requests("DELETE", "/domains/").length).toBeGreaterThan(0);
     }),
   );

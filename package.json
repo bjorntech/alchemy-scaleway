@@ -2,25 +2,23 @@
   "name": "alchemy-scaleway",
   "version": "0.1.0-beta.51",
   "description": "Scaleway providers for Alchemy v2",
-  "license": "Apache-2.0",
-  "type": "module",
-  "sideEffects": false,
   "keywords": [
     "alchemy",
     "alchemy-effect",
-    "scaleway",
+    "effect",
     "iac",
     "infrastructure-as-code",
-    "effect",
+    "scaleway",
     "typescript"
   ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/bjorntechTobbe/alchemy-scaleway.git"
-  },
   "homepage": "https://github.com/bjorntechTobbe/alchemy-scaleway#readme",
   "bugs": {
     "url": "https://github.com/bjorntechTobbe/alchemy-scaleway/issues"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bjorntechTobbe/alchemy-scaleway.git"
   },
   "files": [
     "src",
@@ -29,6 +27,8 @@
     "LICENSE",
     "CHANGELOG.md"
   ],
+  "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -46,10 +46,6 @@
   "dependencies": {
     "aws4fetch": "^1.0.20"
   },
-  "peerDependencies": {
-    "alchemy": "2.0.0-beta.51",
-    "effect": "4.0.0-beta.74"
-  },
   "devDependencies": {
     "@effect/platform-bun": "4.0.0-beta.74",
     "@types/bun": "latest",
@@ -57,6 +53,10 @@
     "effect": "4.0.0-beta.74",
     "oxfmt": "latest",
     "typescript": "latest"
+  },
+  "peerDependencies": {
+    "alchemy": "2.0.0-beta.51",
+    "effect": "4.0.0-beta.74"
   },
   "overrides": {
     "@effect/platform-node-shared": "4.0.0-beta.74"

@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
-import {
-  isNotFound,
-  ScalewayError,
-  scalewayError,
-} from "../src/Errors.ts";
+import { isNotFound, ScalewayError, scalewayError } from "../src/Errors.ts";
 
 describe("ScalewayError", () => {
   test("wraps HTTP-like errors", () => {
@@ -22,7 +18,14 @@ describe("ScalewayError", () => {
   });
 
   test("recognizes not found", () => {
-    expect(isNotFound(scalewayError({ operation: "get", cause: Object.assign(new Error("missing"), { statusCode: 404 }) }))).toBe(true);
+    expect(
+      isNotFound(
+        scalewayError({
+          operation: "get",
+          cause: Object.assign(new Error("missing"), { statusCode: 404 }),
+        }),
+      ),
+    ).toBe(true);
   });
 
   test("can be matched with Effect.catchTag", async () => {

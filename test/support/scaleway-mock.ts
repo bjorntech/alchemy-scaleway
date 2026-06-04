@@ -9,6 +9,7 @@ export interface MockCall {
   method: string;
   url: string;
   headers: Headers;
+  body: string;
 }
 
 export interface ScalewayMock {
@@ -65,7 +66,7 @@ export function installScalewayMock(): ScalewayMock {
 
   const namespaces = new Map<string, Record<string, unknown>>();
   const containers = new Map<string, Record<string, unknown>>();
-  const crons = new Map<string, Record<string, unknown>>();
+  const triggers = new Map<string, Record<string, unknown>>();
   const domains = new Map<string, Record<string, unknown>>();
   const buckets = new Map<string, BucketState>();
   let counter = 0;
@@ -73,25 +74,25 @@ export function installScalewayMock(): ScalewayMock {
   const forcedErrors: Array<{ fragment: string; status: number; message: string }> = [];
 
   const containersHandler = (method: string, pathname: string, body: unknown): Response => {
-    const segments = pathname.split("/").filter(Boolean); // [containers, v1beta1, regions, fr-par, <kind>, <id?>, <sub?>]
+    // The v1 API returns resource objects flat (no envelope), e.g. {"id": ..., "name": ...}.
+    const segments = pathname.split("/").filter(Boolean); // [containers, v1, regions, fr-par, <kind>, <id?>]
     const kind = segments[4];
     const id = segments[5];
-    const sub = segments[6];
     const input = (body ?? {}) as Record<string, unknown>;
 
     if (kind === "namespaces") {
       if (method === "POST") {
         const record = { id: nextId("ns"), region: "fr-par", status: "ready", ...input };
         namespaces.set(record.id as string, record);
-        return json({ namespace: record });
+        return json(record);
       }
       const existing = namespaces.get(id);
       if (!existing) return json({ message: "namespace not found" }, 404);
-      if (method === "GET") return json({ namespace: existing });
+      if (method === "GET") return json(existing);
       if (method === "PATCH") {
         const updated = { ...existing, ...input };
         namespaces.set(id, updated);
-        return json({ namespace: updated });
+        return json(updated);
       }
       if (method === "DELETE") {
         namespaces.delete(id);
@@ -100,26 +101,26 @@ export function installScalewayMock(): ScalewayMock {
     }
 
     if (kind === "containers") {
-      if (sub === "deploy" && method === "POST") return json({});
+      // v1 has no separate deploy endpoint; Create/Update auto-deploy.
       if (method === "POST") {
         const record = {
           id: nextId("ctr"),
           region: "fr-par",
           status: "ready",
-          endpoint: `https://${nextId("ep")}.functions.fnc.fr-par.scw.cloud`,
+          public_endpoint: `https://${nextId("ep")}.functions.fnc.fr-par.scw.cloud`,
           project_id: "proj-test",
           ...input,
         };
         containers.set(record.id as string, record);
-        return json({ container: record });
+        return json(record);
       }
       const existing = containers.get(id);
       if (!existing) return json({ message: "container not found" }, 404);
-      if (method === "GET") return json({ container: existing });
+      if (method === "GET") return json(existing);
       if (method === "PATCH") {
         const updated = { ...existing, ...input, status: "ready" };
         containers.set(id, updated);
-        return json({ container: updated });
+        return json(updated);
       }
       if (method === "DELETE") {
         containers.delete(id);
@@ -127,36 +128,73 @@ export function installScalewayMock(): ScalewayMock {
       }
     }
 
-    if (kind === "crons") {
+    if (kind === "triggers") {
+      const configKeys = ["cron_config", "sqs_config", "nats_config", "destination_config"];
+      const sourceTypeOf = (cfg: Record<string, unknown>) =>
+        cfg.cron_config
+          ? "cron"
+          : cfg.sqs_config
+            ? "sqs"
+            : cfg.nats_config
+              ? "nats"
+              : "unknown_source_type";
+      // The API persists but never returns write-only secrets.
+      const stripSecrets = (rec: Record<string, unknown>) => {
+        const out = { ...rec };
+        for (const [key, secret] of [
+          ["sqs_config", "secret_access_key"],
+          ["nats_config", "credentials_file_content"],
+        ] as const) {
+          if (out[key]) {
+            const { [secret]: _omit, ...rest } = out[key] as Record<string, unknown>;
+            out[key] = rest;
+          }
+        }
+        return out;
+      };
       if (method === "POST") {
-        const record = { id: nextId("cron"), status: "ready", ...input };
-        crons.set(record.id as string, record);
-        return json({ cron: record });
+        const record = stripSecrets({
+          id: nextId("trigger"),
+          status: "ready",
+          source_type: sourceTypeOf(input),
+          ...input,
+        });
+        triggers.set(record.id as string, record);
+        return json(record);
       }
-      const existing = crons.get(id);
-      if (!existing) return json({ message: "cron not found" }, 404);
-      if (method === "GET") return json({ cron: existing });
+      const existing = triggers.get(id);
+      if (!existing) return json({ message: "trigger not found" }, 404);
+      if (method === "GET") return json(existing);
       if (method === "PATCH") {
-        const updated = { ...existing, ...input, status: "ready" };
-        crons.set(id, updated);
-        return json({ cron: updated });
+        const updated: Record<string, unknown> = { ...existing, ...input, status: "ready" };
+        // config blocks are patched field-by-field, not wholesale-replaced.
+        for (const key of configKeys) {
+          if (input[key]) {
+            updated[key] = {
+              ...((existing[key] as Record<string, unknown>) ?? {}),
+              ...(input[key] as Record<string, unknown>),
+            };
+          }
+        }
+        const result = stripSecrets(updated);
+        triggers.set(id, result);
+        return json(result);
       }
       if (method === "DELETE") {
-        crons.delete(id);
+        triggers.delete(id);
         return noContent();
       }
     }
 
     if (kind === "domains") {
       if (method === "POST") {
-        const hostname = input.hostname as string;
-        const record = { id: nextId("dom"), status: "ready", url: `https://${hostname}`, ...input };
+        const record = { id: nextId("dom"), status: "ready", ...input };
         domains.set(record.id as string, record);
-        return json({ domain: record });
+        return json(record);
       }
       const existing = domains.get(id);
       if (!existing) return json({ message: "domain not found" }, 404);
-      if (method === "GET") return json({ domain: existing });
+      if (method === "GET") return json(existing);
       if (method === "DELETE") {
         domains.delete(id);
         return noContent();
@@ -258,12 +296,12 @@ export function installScalewayMock(): ScalewayMock {
     const method = ((isRequest ? (input as Request).method : init?.method) ?? "GET").toUpperCase();
     const parsed = new URL(url);
     const headers = new Headers(isRequest ? (input as Request).headers : init?.headers);
-    calls.push({ method, url, headers });
     const text = isRequest
       ? await (input as Request).clone().text()
       : typeof init?.body === "string"
         ? init.body
         : "";
+    calls.push({ method, url, headers, body: text });
 
     const forcedIndex = forcedErrors.findIndex((e) => url.includes(e.fragment));
     if (forcedIndex >= 0) {

@@ -17,7 +17,9 @@ const credentialsLayer = Layer.succeed(
 
 describe("projectId", () => {
   test("uses explicit project id first", async () => {
-    const result = await Effect.runPromise(projectId("explicit").pipe(Effect.provide(credentialsLayer)));
+    const result = await Effect.runPromise(
+      projectId("explicit").pipe(Effect.provide(credentialsLayer)),
+    );
     expect(result).toBe("explicit");
   });
 

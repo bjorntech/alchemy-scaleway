@@ -100,9 +100,9 @@ export const NamespaceProvider = () =>
           return toAttributes(created);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
-          yield* clients.containers.deleteNamespace(output.namespaceId).pipe(
-            Effect.catchIf(isNotFound, () => Effect.void),
-          );
+          yield* clients.containers
+            .deleteNamespace(output.namespaceId)
+            .pipe(Effect.catchIf(isNotFound, () => Effect.void));
           yield* session.note(`Deleted Scaleway namespace ${output.namespaceId}`);
         }),
       });
