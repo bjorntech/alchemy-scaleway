@@ -34,7 +34,10 @@ const containerCreates = () =>
 const containerPatches = () =>
   mock.calls.filter((c) => {
     const url = new URL(c.url);
-    return c.method === "PATCH" && /\/containers\/v1\/regions\/[^/]+\/containers\/[^/]+$/.test(url.pathname);
+    return (
+      c.method === "PATCH" &&
+      /\/containers\/v1\/regions\/[^/]+\/containers\/[^/]+$/.test(url.pathname)
+    );
   });
 
 describe("Namespace", () => {
@@ -63,6 +66,51 @@ describe("Namespace", () => {
       expect(second.projectId).toBe("proj-b");
       expect(second.namespaceId).not.toBe(first.namespaceId);
       expect(requests("DELETE", "/namespaces/").length).toBeGreaterThan(0);
+    }),
+  );
+});
+
+describe("RegistryNamespace", () => {
+  test.provider("creates then updates registry namespace in place", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.RegistryNamespace("Registry", {
+          description: "first",
+          public: false,
+        }),
+      );
+      expect(created.registryNamespaceId).toMatch(/^regns-/);
+      expect(created.region).toBe("fr-par");
+      expect(created.projectId).toBe("proj-test");
+      expect(created.endpoint).toBe(`rg.fr-par.scw.cloud/${created.name}`);
+      expect(created.imagePrefix).toBe(created.endpoint);
+
+      const updated = yield* stack.deploy(
+        Scaleway.RegistryNamespace("Registry", {
+          description: "second",
+          public: true,
+        }),
+      );
+      expect(updated.registryNamespaceId).toBe(created.registryNamespaceId);
+      expect(updated.description).toBe("second");
+      expect(updated.public).toBe(true);
+      expect(requests("PATCH", "/registry/v1/regions/fr-par/namespaces/")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("changing projectId forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(
+        Scaleway.RegistryNamespace("Registry", { projectId: "proj-a" }),
+      );
+      const second = yield* stack.deploy(
+        Scaleway.RegistryNamespace("Registry", { projectId: "proj-b" }),
+      );
+      expect(second.projectId).toBe("proj-b");
+      expect(second.registryNamespaceId).not.toBe(first.registryNamespaceId);
+      expect(requests("DELETE", "/registry/v1/regions/fr-par/namespaces/").length).toBeGreaterThan(
+        0,
+      );
     }),
   );
 });
@@ -175,9 +223,7 @@ describe("Container", () => {
       const created = yield* stack.deploy(program("0 * * * *"));
       const updated = yield* stack.deploy(program("0 0 * * *"));
       expect(updated.containerId).toBe(created.containerId);
-      expect(updated.cronTriggers?.at(0)?.triggerId).toBe(
-        created.cronTriggers?.at(0)?.triggerId,
-      );
+      expect(updated.cronTriggers?.at(0)?.triggerId).toBe(created.cronTriggers?.at(0)?.triggerId);
       expect(updated.cronTriggers?.at(0)?.schedule).toBe("0 0 * * *");
 
       const removed = yield* stack.deploy(program());
@@ -242,7 +288,6 @@ describe("Container", () => {
       expect(requests("POST", "/triggers")).toHaveLength(3);
     }),
   );
-
 });
 
 describe("Trigger", () => {

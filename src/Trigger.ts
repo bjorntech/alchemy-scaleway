@@ -147,7 +147,10 @@ export function removed(oldValue: unknown, newValue: unknown) {
 const anyRemoved = (pairs: ReadonlyArray<readonly [unknown, unknown]>) =>
   pairs.some(([oldValue, newValue]) => removed(oldValue, newValue));
 
-export const destinationNeedsReplace = (olds: TriggerDestination | undefined, news: TriggerDestination | undefined) =>
+export const destinationNeedsReplace = (
+  olds: TriggerDestination | undefined,
+  news: TriggerDestination | undefined,
+) =>
   anyRemoved([
     [olds, news],
     [olds?.httpPath, news?.httpPath],
@@ -168,7 +171,10 @@ export const sourceNeedsReplace = (olds: TriggerSource, news: TriggerSource) => 
         [olds.endpoint, (news as SqsTriggerSource).endpoint],
       ]);
     case "nats":
-      return removed(olds.credentialsFileContent, (news as NatsTriggerSource).credentialsFileContent);
+      return removed(
+        olds.credentialsFileContent,
+        (news as NatsTriggerSource).credentialsFileContent,
+      );
   }
 };
 

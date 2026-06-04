@@ -293,7 +293,9 @@ export const ContainerProvider = () =>
             const status = record.status?.toLowerCase();
             if (!status || status === "ready") return toDomainAttributes(record);
             if (status === "error")
-              throw new Error(record.error_message ?? `Scaleway domain ${domainIdValue} entered error state`);
+              throw new Error(
+                record.error_message ?? `Scaleway domain ${domainIdValue} entered error state`,
+              );
             yield* Effect.sleep("3 seconds");
           }
           throw new Error(`Timed out waiting for Scaleway domain ${domainIdValue}`);
@@ -371,7 +373,12 @@ export const ContainerProvider = () =>
           );
           yield* Effect.all(
             (container.domains ?? [])
-              .filter((domain) => !(news.domains ?? []).some((desired) => domainKey(desired) === domain.hostname.toLowerCase()))
+              .filter(
+                (domain) =>
+                  !(news.domains ?? []).some(
+                    (desired) => domainKey(desired) === domain.hostname.toLowerCase(),
+                  ),
+              )
               .map((domain) =>
                 clients.containers
                   .deleteDomain(domain.domainId)
@@ -382,7 +389,10 @@ export const ContainerProvider = () =>
           const cronTriggers = yield* Effect.all(
             (news.crons ?? []).map((cron, index) =>
               Effect.gen(function* () {
-                const common = omitUndefined({ name: cronName(cron), description: cronDescription(cron) });
+                const common = omitUndefined({
+                  name: cronName(cron),
+                  description: cronDescription(cron),
+                });
                 const input = {
                   ...common,
                   ...destinationConfig(cronDestination(cron)),
@@ -398,7 +408,10 @@ export const ContainerProvider = () =>
                     .deleteTrigger(existing.triggerId)
                     .pipe(Effect.catchIf(isNotFound, () => Effect.void));
                 } else if (existing?.triggerId) {
-                  const updated = yield* clients.containers.updateTrigger(existing.triggerId, input);
+                  const updated = yield* clients.containers.updateTrigger(
+                    existing.triggerId,
+                    input,
+                  );
                   return updated.status?.toLowerCase() === "ready"
                     ? toTriggerAttributes(updated)
                     : yield* waitForTriggerReady(existing.triggerId);
@@ -455,18 +468,20 @@ export const ContainerProvider = () =>
           const domains = compact(
             yield* Effect.all(
               (output.domains ?? []).map((domain) =>
-                clients.containers
-                  .getDomain(domain.domainId)
-                  .pipe(Effect.map(toDomainAttributes), Effect.catchIf(isNotFound, () => Effect.succeed(undefined))),
+                clients.containers.getDomain(domain.domainId).pipe(
+                  Effect.map(toDomainAttributes),
+                  Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+                ),
               ),
             ),
           );
           const cronTriggers = compact(
             yield* Effect.all(
               (output.cronTriggers ?? []).map((trigger) =>
-                clients.containers
-                  .getTrigger(trigger.triggerId)
-                  .pipe(Effect.map(toTriggerAttributes), Effect.catchIf(isNotFound, () => Effect.succeed(undefined))),
+                clients.containers.getTrigger(trigger.triggerId).pipe(
+                  Effect.map(toTriggerAttributes),
+                  Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+                ),
               ),
             ),
           );

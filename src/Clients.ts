@@ -104,6 +104,17 @@ export interface ScalewayDomainRecord {
   error_message?: string;
 }
 
+export interface ScalewayRegistryNamespaceRecord {
+  id: string;
+  name: string;
+  project_id: string;
+  region?: string;
+  description?: string;
+  is_public?: boolean;
+  endpoint?: string;
+  status?: string;
+}
+
 export interface ObjectStorageBucketRecord {
   name: string;
   region: string;
@@ -157,6 +168,25 @@ export interface ScalewayClients {
     getDomain(domainId: string): Effect.Effect<ScalewayDomainRecord, ScalewayError>;
     deleteDomain(domainId: string): Effect.Effect<void, ScalewayError>;
   };
+  registry: {
+    createNamespace(input: {
+      name: string;
+      project_id: string;
+      description?: string;
+      is_public?: boolean;
+    }): Effect.Effect<ScalewayRegistryNamespaceRecord, ScalewayError>;
+    getNamespace(
+      namespaceId: string,
+    ): Effect.Effect<ScalewayRegistryNamespaceRecord, ScalewayError>;
+    updateNamespace(
+      namespaceId: string,
+      input: {
+        description?: string;
+        is_public?: boolean;
+      },
+    ): Effect.Effect<ScalewayRegistryNamespaceRecord, ScalewayError>;
+    deleteNamespace(namespaceId: string): Effect.Effect<void, ScalewayError>;
+  };
   objectStorage: {
     createBucket(input: {
       name: string;
@@ -183,6 +213,7 @@ export const makeScalewayClients = Effect.gen(function* () {
   const { apiUrl, region, projectId } = credentials;
   const secretKey = Redacted.value(credentials.secretKey);
   const base = `/containers/v1/regions/${region}`;
+  const registryBase = `/registry/v1/regions/${region}`;
 
   const request = <T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown) =>
     Effect.tryPromise({
@@ -246,6 +277,21 @@ export const makeScalewayClients = Effect.gen(function* () {
         request("POST", `${base}/domains`, input).pipe(Effect.map(decodeDomain)),
       getDomain: (id) => request("GET", `${base}/domains/${id}`).pipe(Effect.map(decodeDomain)),
       deleteDomain: (id) => request<void>("DELETE", `${base}/domains/${id}`),
+    },
+    registry: {
+      createNamespace: (input) =>
+        request("POST", `${registryBase}/namespaces`, input).pipe(
+          Effect.map(decodeRegistryNamespace),
+        ),
+      getNamespace: (id) =>
+        request("GET", `${registryBase}/namespaces/${id}`).pipe(
+          Effect.map(decodeRegistryNamespace),
+        ),
+      updateNamespace: (id, input) =>
+        request("PATCH", `${registryBase}/namespaces/${id}`, input).pipe(
+          Effect.map(decodeRegistryNamespace),
+        ),
+      deleteNamespace: (id) => request<void>("DELETE", `${registryBase}/namespaces/${id}`),
     },
     objectStorage,
   } satisfies ScalewayClients;
@@ -482,3 +528,4 @@ const decodeNamespace = (value: unknown) => value as ScalewayNamespaceRecord;
 const decodeContainer = (value: unknown) => value as ScalewayContainerRecord;
 const decodeTrigger = (value: unknown) => value as ScalewayTriggerRecord;
 const decodeDomain = (value: unknown) => value as ScalewayDomainRecord;
+const decodeRegistryNamespace = (value: unknown) => value as ScalewayRegistryNamespaceRecord;
