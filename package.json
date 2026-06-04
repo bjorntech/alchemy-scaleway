@@ -23,6 +23,7 @@
   "files": [
     "src",
     "README.md",
+    "env.example",
     "ARCHITECTURE.md",
     "LICENSE",
     "CHANGELOG.md"

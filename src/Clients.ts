@@ -115,6 +115,37 @@ export interface ScalewayRegistryNamespaceRecord {
   status?: string;
 }
 
+export interface ScalewaySecretEphemeralPolicy {
+  time_to_live?: string | null;
+  expires_once_accessed?: boolean | null;
+  action?: "delete" | "disable";
+}
+
+export interface ScalewaySecretRecord {
+  id: string;
+  project_id: string;
+  name: string;
+  status?: string;
+  tags?: string[];
+  version_count?: number;
+  description?: string | null;
+  protected?: boolean;
+  type?: string;
+  path?: string;
+  region?: string;
+  ephemeral_policy?: ScalewaySecretEphemeralPolicy;
+  key_id?: string | null;
+}
+
+export interface ScalewaySecretVersionRecord {
+  revision: number;
+  secret_id: string;
+  status?: string;
+  description?: string | null;
+  latest?: boolean;
+  region?: string;
+}
+
 export interface ObjectStorageBucketRecord {
   name: string;
   region: string;
@@ -187,6 +218,27 @@ export interface ScalewayClients {
     ): Effect.Effect<ScalewayRegistryNamespaceRecord, ScalewayError>;
     deleteNamespace(namespaceId: string): Effect.Effect<void, ScalewayError>;
   };
+  secretManager: {
+    createSecret(
+      input: Record<string, unknown>,
+    ): Effect.Effect<ScalewaySecretRecord, ScalewayError>;
+    getSecret(secretId: string): Effect.Effect<ScalewaySecretRecord, ScalewayError>;
+    updateSecret(
+      secretId: string,
+      input: Record<string, unknown>,
+    ): Effect.Effect<ScalewaySecretRecord, ScalewayError>;
+    protectSecret(secretId: string): Effect.Effect<ScalewaySecretRecord, ScalewayError>;
+    unprotectSecret(secretId: string): Effect.Effect<ScalewaySecretRecord, ScalewayError>;
+    deleteSecret(secretId: string): Effect.Effect<void, ScalewayError>;
+    createVersion(
+      secretId: string,
+      input: Record<string, unknown>,
+    ): Effect.Effect<ScalewaySecretVersionRecord, ScalewayError>;
+    getVersion(
+      secretId: string,
+      revision: string | number,
+    ): Effect.Effect<ScalewaySecretVersionRecord, ScalewayError>;
+  };
   objectStorage: {
     createBucket(input: {
       name: string;
@@ -214,6 +266,7 @@ export const makeScalewayClients = Effect.gen(function* () {
   const secretKey = Redacted.value(credentials.secretKey);
   const base = `/containers/v1/regions/${region}`;
   const registryBase = `/registry/v1/regions/${region}`;
+  const secretManagerBase = `/secret-manager/v1beta1/regions/${region}`;
 
   const request = <T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown) =>
     Effect.tryPromise({
@@ -292,6 +345,33 @@ export const makeScalewayClients = Effect.gen(function* () {
           Effect.map(decodeRegistryNamespace),
         ),
       deleteNamespace: (id) => request<void>("DELETE", `${registryBase}/namespaces/${id}`),
+    },
+    secretManager: {
+      createSecret: (input) =>
+        request("POST", `${secretManagerBase}/secrets`, input).pipe(Effect.map(decodeSecret)),
+      getSecret: (id) =>
+        request("GET", `${secretManagerBase}/secrets/${id}`).pipe(Effect.map(decodeSecret)),
+      updateSecret: (id, input) =>
+        request("PATCH", `${secretManagerBase}/secrets/${id}`, input).pipe(
+          Effect.map(decodeSecret),
+        ),
+      protectSecret: (id) =>
+        request("POST", `${secretManagerBase}/secrets/${id}/protect`, {}).pipe(
+          Effect.map(decodeSecret),
+        ),
+      unprotectSecret: (id) =>
+        request("POST", `${secretManagerBase}/secrets/${id}/unprotect`, {}).pipe(
+          Effect.map(decodeSecret),
+        ),
+      deleteSecret: (id) => request<void>("DELETE", `${secretManagerBase}/secrets/${id}`),
+      createVersion: (id, input) =>
+        request("POST", `${secretManagerBase}/secrets/${id}/versions`, input).pipe(
+          Effect.map(decodeSecretVersion),
+        ),
+      getVersion: (id, revision) =>
+        request("GET", `${secretManagerBase}/secrets/${id}/versions/${revision}`).pipe(
+          Effect.map(decodeSecretVersion),
+        ),
     },
     objectStorage,
   } satisfies ScalewayClients;
@@ -529,3 +609,5 @@ const decodeContainer = (value: unknown) => value as ScalewayContainerRecord;
 const decodeTrigger = (value: unknown) => value as ScalewayTriggerRecord;
 const decodeDomain = (value: unknown) => value as ScalewayDomainRecord;
 const decodeRegistryNamespace = (value: unknown) => value as ScalewayRegistryNamespaceRecord;
+const decodeSecret = (value: unknown) => value as ScalewaySecretRecord;
+const decodeSecretVersion = (value: unknown) => value as ScalewaySecretVersionRecord;

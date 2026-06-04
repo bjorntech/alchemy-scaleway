@@ -3,6 +3,7 @@ import * as Provider from "alchemy/Provider";
 import { isResolved } from "alchemy/Diff";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Redacted from "effect/Redacted";
 import {
   makeScalewayClients,
   type ScalewayContainerRecord,
@@ -55,7 +56,7 @@ export interface ContainerProps {
   name?: string;
   image: string;
   environmentVariables?: Record<string, string>;
-  secretEnvironmentVariables?: Record<string, string>;
+  secretEnvironmentVariables?: Record<string, string | Redacted.Redacted<string>>;
   minScale?: number;
   maxScale?: number;
   memoryLimitBytes?: number;
@@ -102,9 +103,19 @@ class ContainerDeployFailed extends Data.TaggedError("Scaleway.ContainerDeployFa
 }> {}
 
 const secretsEqual = (
-  left: Record<string, string> | undefined,
-  right: Record<string, string> | undefined,
-) => recordEquals(left, right);
+  left: ContainerProps["secretEnvironmentVariables"],
+  right: ContainerProps["secretEnvironmentVariables"],
+) => recordEquals(unredactSecrets(left), unredactSecrets(right));
+
+const unredactSecrets = (secrets: ContainerProps["secretEnvironmentVariables"]) =>
+  secrets
+    ? Object.fromEntries(
+        Object.entries(secrets).map(([key, value]) => [
+          key,
+          Redacted.isRedacted(value) ? Redacted.value(value) : value,
+        ]),
+      )
+    : undefined;
 
 const containerUrl = (record: ScalewayContainerRecord) =>
   record.public_endpoint
@@ -325,7 +336,7 @@ export const ContainerProvider = () =>
             ...(update ? {} : { namespace_id: resolvedNamespaceId, name }),
             image: news.image,
             environment_variables: news.environmentVariables,
-            secret_environment_variables: news.secretEnvironmentVariables,
+            secret_environment_variables: unredactSecrets(news.secretEnvironmentVariables),
             min_scale: news.minScale,
             max_scale: news.maxScale,
             memory_limit_bytes: news.memoryLimitBytes,

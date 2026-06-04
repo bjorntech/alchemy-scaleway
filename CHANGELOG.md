@@ -12,6 +12,10 @@ All notable changes to `alchemy-scaleway` are documented here. The package follo
   workflow while keeping standalone `Trigger` available for explicit control.
 - `RegistryNamespace` provisions Scaleway Container Registry namespaces and returns
   the registry endpoint plus an `imagePrefix` for container image names.
+- `Secret` provisions Scaleway Secret Manager secrets and value versions. Secret
+  values are accepted as `Redacted<string>` and are never returned in outputs.
+- `ContainerProps.secretEnvironmentVariables` now accepts `Redacted<string>` values
+  and unwraps them only at the Scaleway API boundary.
 
 ### Known limitations
 

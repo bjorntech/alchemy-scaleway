@@ -11,6 +11,7 @@ import { Domain, DomainProvider } from "../../src/Domain.ts";
 import { Namespace, NamespaceProvider } from "../../src/Namespace.ts";
 import { Providers } from "../../src/Providers.ts";
 import { RegistryNamespace, RegistryNamespaceProvider } from "../../src/RegistryNamespace.ts";
+import { Secret, SecretProvider } from "../../src/Secret.ts";
 import { Trigger, TriggerProvider } from "../../src/Trigger.ts";
 
 const credentialsLayer = Layer.succeed(
@@ -27,7 +28,7 @@ const credentialsLayer = Layer.succeed(
 export const testProviders = () =>
   Layer.effect(
     Providers,
-    Provider.collection([Namespace, Container, Trigger, Domain, RegistryNamespace, Bucket]),
+    Provider.collection([Namespace, Container, Trigger, Domain, RegistryNamespace, Secret, Bucket]),
   ).pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -36,6 +37,7 @@ export const testProviders = () =>
         TriggerProvider(),
         DomainProvider(),
         RegistryNamespaceProvider(),
+        SecretProvider(),
         BucketProvider(),
       ),
     ),

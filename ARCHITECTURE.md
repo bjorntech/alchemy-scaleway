@@ -19,6 +19,7 @@ src/
   Trigger.ts        Container trigger resource (cron/sqs/nats)
   Domain.ts         Container custom domain resource
   RegistryNamespace.ts Container Registry namespace resource
+  Secret.ts         Secret Manager secret resource
   Bucket.ts         Object Storage bucket resource
 
 test/
@@ -52,6 +53,7 @@ Apply the same rule to Scaleway:
 - Container, trigger, and domain readiness waits use Effect sleeps inside provider reconciliation.
 - `Container` may orchestrate custom domains and cron triggers from `domains`/`crons` props for the common service deployment workflow. Standalone `Domain` and `Trigger` resources remain available for explicit control.
 - `RegistryNamespace` provisions the Container Registry namespace needed to host images consumed by `Container.image`; image/tag pushes remain an external CI/build concern.
+- `Secret` provisions Secret Manager metadata and current value versions. Secret values use `Redacted<string>` and are never returned in resource attributes.
 - Current Alchemy v2 beta `ResourceOptions` do not expose an `alwaysUpdate` or equivalent read-on-noop option. Because of that, same-props deploys cannot detect external deletion of `Container`-managed companion domains/triggers. The `Container` read path verifies persisted companion IDs when a read/update path runs, but no-op plans will not recover missing companions until a prop change triggers reconciliation. Revisit this if Alchemy adds an always-update/read-on-noop resource option.
 
 ## Adding A Resource

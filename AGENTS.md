@@ -51,6 +51,7 @@ Current resources:
 - `Trigger` - container trigger (v1 `/triggers`): cron, SQS, or NATS source.
 - `Domain` - container custom domain.
 - `RegistryNamespace` - Scaleway Container Registry namespace.
+- `Secret` - Scaleway Secret Manager secret and value version lifecycle.
 - `Bucket` - Scaleway Object Storage bucket via S3-compatible API.
 
 ## Quality Gates
@@ -89,3 +90,4 @@ The CRAP script supports `// @crap-ignore` only for wrapper/factory functions th
 - Live Scaleway tests, if added later, must be opt-in and gated by explicit environment variables.
 - Object Storage requires `SCW_ACCESS_KEY` and `SCW_SECRET_KEY`.
 - Containers require `SCW_SECRET_KEY`, region, and a project id from credentials or resource props.
+- Secret Manager requires `SCW_SECRET_KEY`, region, and a project id from credentials or resource props.
