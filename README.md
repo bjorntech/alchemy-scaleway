@@ -1,6 +1,6 @@
 # alchemy-scaleway
 
-[![CI](https://github.com/bjorntechTobbe/alchemy-scaleway/actions/workflows/ci.yml/badge.svg)](https://github.com/bjorntechTobbe/alchemy-scaleway/actions/workflows/ci.yml)
+[![CI](https://github.com/finnvid/alchemy-scaleway/actions/workflows/ci.yml/badge.svg)](https://github.com/finnvid/alchemy-scaleway/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/alchemy-scaleway?style=flat-square)](https://www.npmjs.com/package/alchemy-scaleway)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](./LICENSE)
 
