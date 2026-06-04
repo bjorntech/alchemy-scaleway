@@ -41,6 +41,7 @@ The `stored` auth method is configured through `alchemy login` and writes creden
 ```ts
 import * as Alchemy from "alchemy";
 import * as Effect from "effect/Effect";
+import * as Redacted from "effect/Redacted";
 import * as Scaleway from "alchemy-scaleway";
 
 export default Alchemy.Stack(
@@ -56,9 +57,15 @@ export default Alchemy.Stack(
       public: false,
     });
 
+    const apiToken = yield* Scaleway.Secret("ApiToken", {
+      description: "Token used by the API",
+      value: Redacted.make(process.env.API_TOKEN!),
+    });
+
     const api = yield* Scaleway.Container("Api", {
       namespace,
       image: "rg.fr-par.scw.cloud/my-registry/api:latest",
+      secretEnvironmentVariables: { API_TOKEN: Redacted.make(process.env.API_TOKEN!) },
       port: 3000,
       protocol: "http1",
       privacy: "public",
@@ -73,6 +80,7 @@ export default Alchemy.Stack(
     return {
       apiUrl: api.url,
       imagePrefix: registry.imagePrefix,
+      secretId: apiToken.secretId,
       bucket: bucket.bucketName,
     };
   }),
@@ -86,6 +94,7 @@ export default Alchemy.Stack(
 - `Trigger` - Container trigger lifecycle (cron, SQS, or NATS source).
 - `Domain` - Container custom domain lifecycle.
 - `RegistryNamespace` - Scaleway Container Registry namespace lifecycle with ready-to-use image prefix output.
+- `Secret` - Scaleway Secret Manager secret metadata and version lifecycle. Secret values are accepted as `Redacted<string>` and are never returned in outputs.
 - `Bucket` - Scaleway Object Storage bucket lifecycle via the S3-compatible API.
 
 For contributor details, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).

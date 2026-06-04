@@ -9,6 +9,7 @@ import * as Credentials from "./Credentials.ts";
 import { Domain, DomainProvider } from "./Domain.ts";
 import { Namespace, NamespaceProvider } from "./Namespace.ts";
 import { RegistryNamespace, RegistryNamespaceProvider } from "./RegistryNamespace.ts";
+import { Secret, SecretProvider } from "./Secret.ts";
 import { Trigger, TriggerProvider } from "./Trigger.ts";
 
 export class Providers extends Provider.ProviderCollection<Providers>()("Scaleway") {}
@@ -18,7 +19,7 @@ export type ProviderRequirements = Layer.Services<ReturnType<typeof providers>>;
 export const providers = () =>
   Layer.effect(
     Providers,
-    Provider.collection([Namespace, Container, Trigger, Domain, RegistryNamespace, Bucket]),
+    Provider.collection([Namespace, Container, Trigger, Domain, RegistryNamespace, Secret, Bucket]),
   ).pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -27,6 +28,7 @@ export const providers = () =>
         TriggerProvider(),
         DomainProvider(),
         RegistryNamespaceProvider(),
+        SecretProvider(),
         BucketProvider(),
       ),
     ),

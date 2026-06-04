@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Redacted from "effect/Redacted";
 import * as Test from "alchemy/Test/Bun";
 import * as Scaleway from "../src/index.ts";
 import { installScalewayMock, type ScalewayMock } from "./support/scaleway-mock.ts";
@@ -115,6 +116,88 @@ describe("RegistryNamespace", () => {
   );
 });
 
+describe("Secret", () => {
+  test.provider("creates metadata and a redacted value version", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.Secret("ApiSecret", {
+          description: "api token",
+          tags: ["app", "api"],
+          value: Redacted.make("super-secret"),
+        }),
+      );
+
+      expect(created.secretId).toMatch(/^secret-/);
+      expect(created.projectId).toBe("proj-test");
+      expect(created.region).toBe("fr-par");
+      expect(created.versionCount).toBe(1);
+      expect(created.latestRevision).toBe(1);
+      expect(created.latestVersionStatus).toBe("enabled");
+      expect(JSON.stringify(created)).not.toContain("super-secret");
+
+      const versionCreate = requests("POST", "/secret-manager/v1beta1/regions/fr-par/secrets/")
+        .filter((call) => call.url.includes("/versions"))
+        .at(0);
+      expect(JSON.parse(versionCreate?.body ?? "{}").data).toBe("c3VwZXItc2VjcmV0");
+    }),
+  );
+
+  test.provider("updates metadata and creates a new version when value changes", (stack) =>
+    Effect.gen(function* () {
+      const program = (description: string, value: string, protect: boolean) =>
+        Scaleway.Secret("ApiSecret", {
+          description,
+          value: Redacted.make(value),
+          protected: protect,
+        });
+
+      const created = yield* stack.deploy(program("first", "v1", false));
+      const updated = yield* stack.deploy(program("second", "v2", true));
+
+      expect(updated.secretId).toBe(created.secretId);
+      expect(updated.description).toBe("second");
+      expect(updated.versionCount).toBe(2);
+      expect(updated.latestRevision).toBe(2);
+      expect(updated.protected).toBe(true);
+      expect(
+        requests("PATCH", "/secret-manager/v1beta1/regions/fr-par/secrets/").length,
+      ).toBeGreaterThan(0);
+      expect(requests("POST", "/protect").length).toBeGreaterThan(0);
+      expect(requests("POST", "/versions")).toHaveLength(2);
+    }),
+  );
+
+  test.provider("omitting an existing value keeps latest version outputs", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.Secret("ApiSecret", { value: Redacted.make("v1") }),
+      );
+      const updated = yield* stack.deploy(
+        Scaleway.Secret("ApiSecret", { description: "metadata" }),
+      );
+
+      expect(updated.secretId).toBe(created.secretId);
+      expect(updated.versionCount).toBe(1);
+      expect(updated.latestRevision).toBe(1);
+      expect(updated.latestVersionStatus).toBe("enabled");
+      expect(requests("POST", "/versions")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("changing projectId forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(Scaleway.Secret("ApiSecret", { projectId: "proj-a" }));
+      const second = yield* stack.deploy(Scaleway.Secret("ApiSecret", { projectId: "proj-b" }));
+
+      expect(second.projectId).toBe("proj-b");
+      expect(second.secretId).not.toBe(first.secretId);
+      expect(
+        requests("DELETE", "/secret-manager/v1beta1/regions/fr-par/secrets/").length,
+      ).toBeGreaterThan(0);
+    }),
+  );
+});
+
 describe("Container", () => {
   test.provider("creates with a namespace dependency and resolves its url", (stack) =>
     Effect.gen(function* () {
@@ -147,7 +230,7 @@ describe("Container", () => {
           return yield* Scaleway.Container("Api", {
             namespace: ns,
             image: "rg.fr-par.scw.cloud/demo/api:latest",
-            secretEnvironmentVariables: { TOKEN: "secret" },
+            secretEnvironmentVariables: { TOKEN: Redacted.make("secret") },
           });
         }),
       );

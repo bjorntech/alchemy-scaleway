@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as Alchemy from "alchemy";
 import * as Effect from "effect/Effect";
+import * as Redacted from "effect/Redacted";
 import * as Scaleway from "../src/index.ts";
 
 describe("alchemy-scaleway", () => {
@@ -11,6 +12,7 @@ describe("alchemy-scaleway", () => {
     expect(typeof Scaleway.Trigger).toBe("function");
     expect(typeof Scaleway.Domain).toBe("function");
     expect(typeof Scaleway.RegistryNamespace).toBe("function");
+    expect(typeof Scaleway.Secret).toBe("function");
     expect(typeof Scaleway.Bucket).toBe("function");
   });
 
@@ -30,11 +32,13 @@ describe("alchemy-scaleway", () => {
           source: { type: "cron", schedule: "0 * * * *" },
         });
         const registry = yield* Scaleway.RegistryNamespace("Registry", { public: false });
+        const secret = yield* Scaleway.Secret("Secret", { value: Redacted.make("secret") });
         const bucket = yield* Scaleway.Bucket("Bucket", { versioning: true });
         return {
           container: container.url,
           trigger: trigger.triggerId,
           registry: registry.imagePrefix,
+          secret: secret.secretId,
           bucket: bucket.bucketName,
         };
       }),

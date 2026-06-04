@@ -66,6 +66,8 @@ export function installScalewayMock(): ScalewayMock {
 
   const namespaces = new Map<string, Record<string, unknown>>();
   const registryNamespaces = new Map<string, Record<string, unknown>>();
+  const secrets = new Map<string, Record<string, unknown>>();
+  const secretVersions = new Map<string, Array<Record<string, unknown>>>();
   const containers = new Map<string, Record<string, unknown>>();
   const triggers = new Map<string, Record<string, unknown>>();
   const domains = new Map<string, Record<string, unknown>>();
@@ -240,6 +242,87 @@ export function installScalewayMock(): ScalewayMock {
     return json({ message: `unhandled registry request ${method} ${pathname}` }, 400);
   };
 
+  const secretManagerHandler = (method: string, pathname: string, body: unknown): Response => {
+    const segments = pathname.split("/").filter(Boolean);
+    const kind = segments[4];
+    const secretId = segments[5];
+    const subresource = segments[6];
+    const revision = segments[7];
+    const action = segments[8] ?? segments[6];
+    const input = (body ?? {}) as Record<string, unknown>;
+
+    if (kind === "secrets" && !secretId && method === "POST") {
+      const record = {
+        id: nextId("secret"),
+        region: "fr-par",
+        status: "ready",
+        tags: [],
+        version_count: 0,
+        type: "opaque",
+        path: "/",
+        protected: false,
+        ...input,
+      };
+      secrets.set(record.id as string, record);
+      secretVersions.set(record.id as string, []);
+      return json(record);
+    }
+
+    const existing = secrets.get(secretId);
+    if (!existing) return json({ message: "secret not found" }, 404);
+
+    if (kind === "secrets" && !subresource) {
+      if (method === "GET") return json(existing);
+      if (method === "PATCH") {
+        const updated = { ...existing, ...input };
+        secrets.set(secretId, updated);
+        return json(updated);
+      }
+      if (method === "DELETE") {
+        secrets.delete(secretId);
+        secretVersions.delete(secretId);
+        return noContent();
+      }
+    }
+
+    if (kind === "secrets" && action === "protect" && method === "POST") {
+      const updated = { ...existing, protected: true };
+      secrets.set(secretId, updated);
+      return json(updated);
+    }
+    if (kind === "secrets" && action === "unprotect" && method === "POST") {
+      const updated = { ...existing, protected: false };
+      secrets.set(secretId, updated);
+      return json(updated);
+    }
+
+    if (kind === "secrets" && subresource === "versions") {
+      const versions = secretVersions.get(secretId) ?? [];
+      if (!revision && method === "POST") {
+        const version = {
+          revision: versions.length + 1,
+          secret_id: secretId,
+          status: "enabled",
+          latest: true,
+          region: "fr-par",
+          description: input.description,
+        };
+        versions.forEach((item) => (item.latest = false));
+        versions.push(version);
+        secretVersions.set(secretId, versions);
+        secrets.set(secretId, { ...existing, version_count: versions.length });
+        return json(version);
+      }
+      if (method === "GET") {
+        const version = revision === "latest" ? versions.at(-1) : versions[Number(revision) - 1];
+        if (!version) return json({ message: "secret version not found" }, 404);
+        return json(version);
+      }
+    }
+
+    return json({ message: `unhandled secret manager request ${method} ${pathname}` }, 400);
+  };
+
   const parseTagBody = (body: string): Record<string, string> => {
     const tags: Record<string, string> = {};
     for (const [, key, value] of body.matchAll(/<Key>([^<]+)<\/Key><Value>([^<]*)<\/Value>/g)) {
@@ -349,6 +432,9 @@ export function installScalewayMock(): ScalewayMock {
       const parsedBody = text.length > 0 ? JSON.parse(text) : undefined;
       if (parsed.pathname.startsWith("/registry/")) {
         return registryHandler(method, parsed.pathname, parsedBody);
+      }
+      if (parsed.pathname.startsWith("/secret-manager/")) {
+        return secretManagerHandler(method, parsed.pathname, parsedBody);
       }
       return containersHandler(method, parsed.pathname, parsedBody);
     }

@@ -33,6 +33,13 @@ export {
   type RegistryNamespaceProps,
 } from "./RegistryNamespace.ts";
 export {
+  Secret,
+  type SecretEphemeralPolicy,
+  SecretProvider,
+  type SecretProps,
+  type SecretType,
+} from "./Secret.ts";
+export {
   type ContainerRef,
   type CronTriggerSource,
   type NatsTriggerSource,
