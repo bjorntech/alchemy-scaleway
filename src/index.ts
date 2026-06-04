@@ -28,6 +28,11 @@ export { isNotFound, ScalewayError, scalewayError } from "./Errors.ts";
 export { Namespace, NamespaceProvider, type NamespaceProps } from "./Namespace.ts";
 export { providers, Providers, type ProviderRequirements } from "./Providers.ts";
 export {
+  RegistryNamespace,
+  RegistryNamespaceProvider,
+  type RegistryNamespaceProps,
+} from "./RegistryNamespace.ts";
+export {
   type ContainerRef,
   type CronTriggerSource,
   type NatsTriggerSource,

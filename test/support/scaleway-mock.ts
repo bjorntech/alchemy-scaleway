@@ -65,6 +65,7 @@ export function installScalewayMock(): ScalewayMock {
   const calls: MockCall[] = [];
 
   const namespaces = new Map<string, Record<string, unknown>>();
+  const registryNamespaces = new Map<string, Record<string, unknown>>();
   const containers = new Map<string, Record<string, unknown>>();
   const triggers = new Map<string, Record<string, unknown>>();
   const domains = new Map<string, Record<string, unknown>>();
@@ -204,6 +205,41 @@ export function installScalewayMock(): ScalewayMock {
     return json({ message: `unhandled containers request ${method} ${pathname}` }, 400);
   };
 
+  const registryHandler = (method: string, pathname: string, body: unknown): Response => {
+    const segments = pathname.split("/").filter(Boolean); // [registry, v1, regions, fr-par, namespaces, id?]
+    const kind = segments[4];
+    const id = segments[5];
+    const input = (body ?? {}) as Record<string, unknown>;
+
+    if (kind === "namespaces") {
+      if (method === "POST") {
+        const record = {
+          id: nextId("regns"),
+          region: "fr-par",
+          status: "ready",
+          endpoint: `rg.fr-par.scw.cloud/${input.name}`,
+          ...input,
+        };
+        registryNamespaces.set(record.id as string, record);
+        return json(record);
+      }
+      const existing = registryNamespaces.get(id);
+      if (!existing) return json({ message: "registry namespace not found" }, 404);
+      if (method === "GET") return json(existing);
+      if (method === "PATCH") {
+        const updated = { ...existing, ...input };
+        registryNamespaces.set(id, updated);
+        return json(updated);
+      }
+      if (method === "DELETE") {
+        registryNamespaces.delete(id);
+        return noContent();
+      }
+    }
+
+    return json({ message: `unhandled registry request ${method} ${pathname}` }, 400);
+  };
+
   const parseTagBody = (body: string): Record<string, string> => {
     const tags: Record<string, string> = {};
     for (const [, key, value] of body.matchAll(/<Key>([^<]+)<\/Key><Value>([^<]*)<\/Value>/g)) {
@@ -311,6 +347,9 @@ export function installScalewayMock(): ScalewayMock {
 
     if (parsed.host === "api.scaleway.com") {
       const parsedBody = text.length > 0 ? JSON.parse(text) : undefined;
+      if (parsed.pathname.startsWith("/registry/")) {
+        return registryHandler(method, parsed.pathname, parsedBody);
+      }
       return containersHandler(method, parsed.pathname, parsedBody);
     }
     if (parsed.host.endsWith(".scw.cloud")) {

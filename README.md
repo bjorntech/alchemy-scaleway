@@ -51,6 +51,11 @@ export default Alchemy.Stack(
       description: "Demo namespace",
     });
 
+    const registry = yield* Scaleway.RegistryNamespace("Registry", {
+      description: "Demo container images",
+      public: false,
+    });
+
     const api = yield* Scaleway.Container("Api", {
       namespace,
       image: "rg.fr-par.scw.cloud/my-registry/api:latest",
@@ -67,6 +72,7 @@ export default Alchemy.Stack(
 
     return {
       apiUrl: api.url,
+      imagePrefix: registry.imagePrefix,
       bucket: bucket.bucketName,
     };
   }),
@@ -79,6 +85,7 @@ export default Alchemy.Stack(
 - `Container` - Scaleway Serverless Container lifecycle with deployment readiness polling, optional custom domains, and optional cron triggers.
 - `Trigger` - Container trigger lifecycle (cron, SQS, or NATS source).
 - `Domain` - Container custom domain lifecycle.
+- `RegistryNamespace` - Scaleway Container Registry namespace lifecycle with ready-to-use image prefix output.
 - `Bucket` - Scaleway Object Storage bucket lifecycle via the S3-compatible API.
 
 For contributor details, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).

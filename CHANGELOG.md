@@ -10,6 +10,8 @@ All notable changes to `alchemy-scaleway` are documented here. The package follo
   workflow while keeping standalone `Domain` available for explicit control.
 - `ContainerProps.crons` can now create cron triggers as part of the container
   workflow while keeping standalone `Trigger` available for explicit control.
+- `RegistryNamespace` provisions Scaleway Container Registry namespaces and returns
+  the registry endpoint plus an `imagePrefix` for container image names.
 
 ### Known limitations
 
@@ -43,7 +45,9 @@ All notable changes to `alchemy-scaleway` are documented here. The package follo
     create/update and never read back. New exported types: `TriggerSource`,
     `CronTriggerSource`, `SqsTriggerSource`, `NatsTriggerSource`, `TriggerDestination`,
     `TriggerSourceType`, `TriggerHttpMethod`.
+
   - `Domain` derives its `url` from the hostname (v1 no longer returns `url`).
+
 - The in-memory test mock now returns flat (non-enveloped) Containers responses to
   match the real v1 API, and serves `/triggers` instead of `/crons`.
 

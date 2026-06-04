@@ -10,6 +10,7 @@ describe("alchemy-scaleway", () => {
     expect(typeof Scaleway.Container).toBe("function");
     expect(typeof Scaleway.Trigger).toBe("function");
     expect(typeof Scaleway.Domain).toBe("function");
+    expect(typeof Scaleway.RegistryNamespace).toBe("function");
     expect(typeof Scaleway.Bucket).toBe("function");
   });
 
@@ -28,8 +29,14 @@ describe("alchemy-scaleway", () => {
           container,
           source: { type: "cron", schedule: "0 * * * *" },
         });
+        const registry = yield* Scaleway.RegistryNamespace("Registry", { public: false });
         const bucket = yield* Scaleway.Bucket("Bucket", { versioning: true });
-        return { container: container.url, trigger: trigger.triggerId, bucket: bucket.bucketName };
+        return {
+          container: container.url,
+          trigger: trigger.triggerId,
+          registry: registry.imagePrefix,
+          bucket: bucket.bucketName,
+        };
       }),
     );
     expect(stack).toBeDefined();
