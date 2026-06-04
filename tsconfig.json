@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "types": ["bun"],
+    "lib": ["ESNext", "DOM"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitThis": true
+  },
+  "include": ["src", "test"]
+}
