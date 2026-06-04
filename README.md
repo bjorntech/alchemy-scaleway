@@ -1,7 +1,7 @@
 # alchemy-scaleway
 
 [![CI](https://github.com/finnvid/alchemy-scaleway/actions/workflows/ci.yml/badge.svg)](https://github.com/finnvid/alchemy-scaleway/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/alchemy-scaleway?style=flat-square)](https://www.npmjs.com/package/alchemy-scaleway)
+[![npm](https://img.shields.io/npm/v/%40finnvid%2Falchemy-scaleway?style=flat-square)](https://www.npmjs.com/package/@finnvid/alchemy-scaleway)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](./LICENSE)
 
 Scaleway providers for [Alchemy v2](https://v2.alchemy.run/).
@@ -12,17 +12,17 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 ## Compatibility
 
-| `alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
-| ------------------ | ---------------- | --------------- | ------------- |
-| `0.1.0-beta.51`    | `2.0.0-beta.51`  | `4.0.0-beta.74` | Initial beta. |
+| `@finnvid/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
+| --------------------------- | ---------------- | --------------- | ------------- |
+| `0.1.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Initial beta. |
 
 ## Install
 
 ```sh
-bun add alchemy@2.0.0-beta.51 effect@4.0.0-beta.74 alchemy-scaleway
+bun add alchemy@2.0.0-beta.51 effect@4.0.0-beta.74 @finnvid/alchemy-scaleway
 ```
 
-`alchemy-scaleway` ships raw TypeScript and uses `.ts` import suffixes internally. Your `tsconfig.json` needs `"moduleResolution": "Bundler"` and `"allowImportingTsExtensions": true`.
+`@finnvid/alchemy-scaleway` ships raw TypeScript and uses `.ts` import suffixes internally. Your `tsconfig.json` needs `"moduleResolution": "Bundler"` and `"allowImportingTsExtensions": true`.
 
 `alchemy@2.0.0-beta.51` is pinned with `effect@4.0.0-beta.74`. Effect beta.76 changed `Schema.Defect` from a schema value to a function; Alchemy has fixed that on `main`, but the fix is not published to npm yet. Bump both dependencies together when the next Alchemy v2 beta is published.
 
@@ -46,7 +46,7 @@ The `stored` auth method is configured through `alchemy login` and writes creden
 import * as Alchemy from "alchemy";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
-import * as Scaleway from "alchemy-scaleway";
+import * as Scaleway from "@finnvid/alchemy-scaleway";
 
 export default Alchemy.Stack(
   "scaleway-demo",

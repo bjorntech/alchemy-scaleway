@@ -21,7 +21,7 @@ Never include real `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, Secret Manager values, co
 
 ## Threat Model
 
-`alchemy-scaleway` is an infrastructure provider package. It runs locally during deployment and uses the credentials you provide to create, update, and delete Scaleway resources.
+`@finnvid/alchemy-scaleway` is an infrastructure provider package. It runs locally during deployment and uses the credentials you provide to create, update, and delete Scaleway resources.
 
 In scope:
 
