@@ -1,7 +1,7 @@
 # alchemy-scaleway
 
 [![CI](https://github.com/finnvid/alchemy-scaleway/actions/workflows/ci.yml/badge.svg)](https://github.com/finnvid/alchemy-scaleway/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/%40finnvid%2Falchemy-scaleway?style=flat-square)](https://www.npmjs.com/package/@finnvid/alchemy-scaleway)
+[![npm](https://img.shields.io/npm/v/%40finnvid%2Falchemy-scaleway/next?style=flat-square)](https://www.npmjs.com/package/@finnvid/alchemy-scaleway)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](./LICENSE)
 
 Scaleway providers for [Alchemy v2](https://v2.alchemy.run/).
@@ -20,7 +20,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 ## Install
 
 ```sh
-bun add alchemy@2.0.0-beta.51 effect@4.0.0-beta.74 @finnvid/alchemy-scaleway
+bun add alchemy@2.0.0-beta.51 effect@4.0.0-beta.74 @finnvid/alchemy-scaleway@next
 ```
 
 `@finnvid/alchemy-scaleway` ships raw TypeScript and uses `.ts` import suffixes internally. Your `tsconfig.json` needs `"moduleResolution": "Bundler"` and `"allowImportingTsExtensions": true`.
