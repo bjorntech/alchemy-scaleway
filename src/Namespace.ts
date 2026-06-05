@@ -1,6 +1,7 @@
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
 import { isResolved } from "alchemy/Diff";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
@@ -31,6 +32,11 @@ export type Namespace = Resource<
 
 export const Namespace = Resource<Namespace>("Scaleway.Namespace");
 
+class NamespaceFailed extends Data.TaggedError("Scaleway.NamespaceFailed")<{
+  namespaceId: string;
+  status: string;
+}> {}
+
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const NamespaceProvider = () =>
   Provider.effect(
@@ -54,6 +60,32 @@ export const NamespaceProvider = () =>
           description: record.description,
           environmentVariables: record.environment_variables,
         }) as Namespace["Attributes"];
+
+      const waitForReady = (namespaceId: string, attempts = 30) =>
+        Effect.gen(function* () {
+          for (let attempt = 0; attempt < attempts; attempt++) {
+            const record = yield* clients.containers.getNamespace(namespaceId);
+            const status = record.status?.toLowerCase();
+            if (!status || status === "ready") return toAttributes(record);
+            if (status === "error" || status === "failed") {
+              return yield* new NamespaceFailed({
+                namespaceId,
+                status: record.status ?? "unknown",
+              });
+            }
+            yield* Effect.sleep("1 second");
+          }
+          throw new Error(`Timed out waiting for Scaleway namespace ${namespaceId}`);
+        });
+
+      const readyAttributes = (record: {
+        id: string;
+        name: string;
+        project_id: string;
+        description?: string;
+        environment_variables?: Record<string, string>;
+        status?: string;
+      }) => (record.status?.toLowerCase() === "ready" ? Effect.succeed(toAttributes(record)) : waitForReady(record.id));
 
       return Namespace.Provider.of({
         stables: ["namespaceId", "projectId", "region"],
@@ -89,7 +121,7 @@ export const NamespaceProvider = () =>
           if (output?.namespaceId) {
             const updated = yield* clients.containers.updateNamespace(output.namespaceId, body);
             yield* session.note(`Updated Scaleway namespace ${output.namespaceId}`);
-            return toAttributes(updated);
+            return yield* readyAttributes(updated);
           }
           const created = yield* clients.containers.createNamespace({
             ...body,
@@ -97,7 +129,7 @@ export const NamespaceProvider = () =>
             project_id: resolvedProjectId,
           });
           yield* session.note(`Created Scaleway namespace ${created.id}`);
-          return toAttributes(created);
+          return yield* readyAttributes(created);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
           yield* clients.containers

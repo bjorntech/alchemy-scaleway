@@ -73,7 +73,7 @@ const ruleInput = (rule: SecurityGroupRule, position: number): ScalewaySecurityG
     position,
   }) as ScalewaySecurityGroupRuleRecord;
 };
-const rulesInput = (rules: SecurityGroupRule[] = []) => rules.map(ruleInput);
+const rulesInput = (rules: SecurityGroupRule[] = []) => rules.map((rule, index) => ruleInput(rule, index + 1));
 function comparableRule(rule: ScalewaySecurityGroupRuleRecord) {
   const destPortTo = rule.dest_port_to === rule.dest_port_from ? undefined : (rule.dest_port_to ?? undefined);
   return omitUndefined({
@@ -87,7 +87,7 @@ function comparableRule(rule: ScalewaySecurityGroupRuleRecord) {
   }) as ScalewaySecurityGroupRuleRecord;
 }
 function rulesKey(rules: ScalewaySecurityGroupRuleRecord[]) {
-  return JSON.stringify(rules.map(comparableRule));
+  return JSON.stringify(rules.filter((rule) => rule.editable !== false).map(comparableRule));
 }
 function rulesEqual(left: ScalewaySecurityGroupRuleRecord[] = [], right: ScalewaySecurityGroupRuleRecord[]) {
   return rulesKey(left) === rulesKey(right);
@@ -113,7 +113,7 @@ export const SecurityGroupProvider = () =>
           stateful: record.stateful,
           projectDefault: record.project_default,
           state: record.state,
-          rules,
+          rules: rules.filter((rule) => rule.editable !== false),
         }) as SecurityGroup["Attributes"];
 
       return SecurityGroup.Provider.of({

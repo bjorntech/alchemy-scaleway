@@ -112,8 +112,9 @@ const securityGroupIdOf = (securityGroup: InstanceSecurityGroupRef) => {
   return resolveRef(typeof securityGroup === "string" ? securityGroup : securityGroup.securityGroupId);
 };
 const isString = (value: string | undefined): value is string => value !== undefined;
-function publicIpIdsFromRecord(record: ScalewayInstanceRecord) {
-  return (record.public_ips ?? []).map((ip) => ip.id).filter(isString);
+const isPreconditionError = (error: unknown) => String((error as { message?: unknown })?.message ?? "").toLowerCase().includes("precondition is not respected");
+function managedPublicIpIdsFromRecord(record: ScalewayInstanceRecord) {
+  return (record.public_ips ?? []).filter((ip) => ip.dynamic !== true).map((ip) => ip.id).filter(isString);
 }
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
@@ -137,12 +138,12 @@ export const InstanceProvider = () =>
         Effect.gen(function* () {
           for (let attempt = 0; attempt < attempts; attempt++) {
             const record = yield* clients.instance.getInstance({ zone, serverId });
-            if (stringsEqual(publicIpIdsFromRecord(record), publicIps)) return record;
+            if (stringsEqual(managedPublicIpIdsFromRecord(record), publicIps)) return record;
             yield* Effect.sleep("2 seconds");
           }
           throw new Error(`Timed out waiting for Scaleway instance ${serverId} public IP attachments`);
         });
-      const toAttributes = (record: ScalewayInstanceRecord, requestedVolumes?: Record<string, InstanceVolume>): Instance["Attributes"] =>
+      const toAttributes = (record: ScalewayInstanceRecord, requestedVolumes?: Record<string, InstanceVolume>, requestedImage?: string): Instance["Attributes"] =>
         omitUndefined({
           serverId: record.id,
           name: record.name,
@@ -150,14 +151,14 @@ export const InstanceProvider = () =>
           projectId: record.project,
           commercialType: record.commercial_type,
           imageId: record.image?.id,
-          imageName: record.image?.name,
+          imageName: requestedImage ?? record.image?.name,
           state: record.state,
           tags: record.tags,
           dynamicIpRequired: record.dynamic_ip_required,
           routedIpEnabled: record.routed_ip_enabled,
           bootType: record.boot_type,
           protected: record.protected,
-          publicIpIds: record.public_ips?.map((ip) => ip.id).filter((id): id is string => id !== undefined),
+          publicIpIds: managedPublicIpIdsFromRecord(record),
           publicIpAddresses: record.public_ips?.map((ip) => ip.address).filter((address): address is string => address !== undefined),
           securityGroupId: record.security_group?.id,
           placementGroupId: record.placement_group?.id,
@@ -198,7 +199,7 @@ export const InstanceProvider = () =>
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.serverId) return undefined;
           return yield* clients.instance.getInstance({ zone: output.zone, serverId: output.serverId }).pipe(
-            Effect.map((record) => toAttributes(record, output.volumes)),
+            Effect.map((record) => toAttributes(record, output.volumes, output.imageName)),
             Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
           );
         }),
@@ -236,8 +237,13 @@ export const InstanceProvider = () =>
                 placement_group: news.placementGroupId,
                 protected: news.protected ?? false,
               });
+          const desiredState = targetState(news.desiredState);
+          if (desiredState === "stopped" && record.state !== "stopped") {
+            yield* clients.instance.instanceAction({ zone, serverId: record.id, action: "poweroff" }).pipe(Effect.catchIf(isPreconditionError, () => Effect.void));
+            record = yield* waitForState(zone, record.id, "stopped", 60);
+          }
           if (output?.serverId && publicIps !== undefined) {
-            const currentPublicIps = publicIpIdsFromRecord(record);
+            const currentPublicIps = managedPublicIpIdsFromRecord(record);
             for (const publicIp of currentPublicIps.filter((publicIp) => !publicIps.includes(publicIp))) {
               yield* clients.instance.updateFlexibleIp({ zone, ip: publicIp, server: null });
             }
@@ -246,20 +252,29 @@ export const InstanceProvider = () =>
             }
             record = yield* waitForPublicIps(zone, record.id, publicIps);
           }
-          const desiredState = targetState(news.desiredState);
           if (desiredState === "running" && record.state !== "running") {
             yield* clients.instance.instanceAction({ zone, serverId: record.id, action: "poweron" });
             record = yield* waitForState(zone, record.id, "running");
           }
-          if (desiredState === "stopped" && record.state !== "stopped") {
-            yield* clients.instance.instanceAction({ zone, serverId: record.id, action: "poweroff" });
-            record = yield* waitForState(zone, record.id, "stopped");
-          }
           yield* session.note(`${output?.serverId ? "Updated" : "Created"} Scaleway instance ${record.id}`);
-          return toAttributes(record, news.volumes);
+          return toAttributes(record, news.volumes, news.image);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
-          yield* clients.instance.updateInstance({ zone: output.zone, serverId: output.serverId, protected: false }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+          const current = yield* clients.instance.getInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
+          if (current) {
+            yield* clients.instance.updateInstance({ zone: output.zone, serverId: output.serverId, protected: false }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+            if (current.state !== "stopped") {
+              yield* clients.instance.instanceAction({ zone: output.zone, serverId: output.serverId, action: "poweroff" }).pipe(
+                Effect.catchIf(isNotFound, () => Effect.void),
+                Effect.catchIf(isPreconditionError, () => Effect.void),
+              );
+              yield* waitForState(output.zone, output.serverId, "stopped", 60).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+            }
+            const stopped = yield* clients.instance.getInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
+            for (const publicIp of stopped ? managedPublicIpIdsFromRecord(stopped) : managedPublicIpIdsFromRecord(current)) {
+              yield* clients.instance.updateFlexibleIp({ zone: output.zone, ip: publicIp, server: null }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+            }
+          }
           yield* clients.instance.deleteInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
           yield* session.note(`Deleted Scaleway instance ${output.serverId}`);
         }),
