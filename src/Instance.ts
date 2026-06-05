@@ -74,6 +74,7 @@ export type Instance = Resource<
     dns?: string;
     volumes?: Record<string, InstanceVolume>;
     cloudInitHash?: string;
+    createdVolumeIds?: string[];
   },
   never,
   Providers
@@ -110,6 +111,18 @@ const volumeOutput = (volume: ScalewayInstanceVolumeRecord): InstanceVolume =>
   }) as InstanceVolume;
 const volumesOutput = (volumes: Record<string, ScalewayInstanceVolumeRecord> | undefined, requested?: Record<string, InstanceVolume>) =>
   Object.fromEntries(Object.entries(volumes ?? {}).map(([key, volume]) => [key, { ...requested?.[key], ...volumeOutput(volume) }]));
+const createdVolumeIds = (volumes: Record<string, ScalewayInstanceVolumeRecord> | undefined, requested?: Record<string, InstanceVolume>, previous?: string[]) => {
+  const entries = Object.entries(volumes ?? {});
+  if (previous) {
+    const current = new Set(entries.map(([, volume]) => volume.id).filter(isString));
+    return previous.filter((id) => current.has(id));
+  }
+  return entries.flatMap(([key, volume]) => volume.id && requested?.[key]?.id === undefined ? [volume.id] : []);
+};
+const createdSbsVolumeIds = (volumes: Record<string, InstanceVolume> | undefined, createdIds: string[] | undefined) => {
+  const created = new Set(createdIds ?? []);
+  return Object.values(volumes ?? {}).flatMap((volume) => volume.id && volume.volumeType === "sbs_volume" && created.has(volume.id) ? [volume.id] : []);
+};
 const replacementVolumeFields = ["id", "boot", "name", "size", "volumeType", "projectId"] as const;
 const volumeChanged = (desired: InstanceVolume, current: InstanceVolume | undefined) =>
   desired.baseSnapshot !== current?.baseSnapshot || replacementVolumeFields.some((field) => desired[field] !== undefined && desired[field] !== current?.[field]);
@@ -158,7 +171,21 @@ export const InstanceProvider = () =>
           }
           throw new Error(`Timed out waiting for Scaleway instance ${serverId} public IP attachments`);
         });
-      const toAttributes = (record: ScalewayInstanceRecord, requestedVolumes?: Record<string, InstanceVolume>, requestedImage?: string, requestedCloudInitHash?: string): Instance["Attributes"] =>
+      const waitForDeleted = (zone: string, serverId: string, attempts = 60) =>
+        Effect.gen(function* () {
+          for (let attempt = 0; attempt < attempts; attempt++) {
+            const existing = yield* clients.instance.getInstance({ zone, serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
+            if (!existing) return;
+            yield* Effect.sleep("1 second");
+          }
+          throw new Error(`Timed out waiting for Scaleway instance ${serverId} to be deleted`);
+        });
+      const retryDeleteVolume = (zone: string, volumeId: string, attempts = 30): Effect.Effect<void, unknown> =>
+        clients.instance.deleteVolume({ zone, volumeId }).pipe(
+          Effect.catchIf(isNotFound, () => Effect.void),
+          Effect.catchIf((error) => attempts > 1 && isPreconditionError(error), () => Effect.sleep("2 seconds").pipe(Effect.flatMap(() => retryDeleteVolume(zone, volumeId, attempts - 1)))),
+        );
+      const toAttributes = (record: ScalewayInstanceRecord, requestedVolumes?: Record<string, InstanceVolume>, requestedImage?: string, requestedCloudInitHash?: string, previousCreatedVolumeIds?: string[]): Instance["Attributes"] =>
         omitUndefined({
           serverId: record.id,
           name: record.name,
@@ -180,6 +207,7 @@ export const InstanceProvider = () =>
           dns: record.dns ?? undefined,
           volumes: volumesOutput(record.volumes, requestedVolumes),
           cloudInitHash: requestedCloudInitHash,
+          createdVolumeIds: createdVolumeIds(record.volumes, requestedVolumes, previousCreatedVolumeIds),
         }) as Instance["Attributes"];
 
       return Instance.Provider.of({
@@ -216,7 +244,7 @@ export const InstanceProvider = () =>
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.serverId) return undefined;
           return yield* clients.instance.getInstance({ zone: output.zone, serverId: output.serverId }).pipe(
-            Effect.map((record) => toAttributes(record, output.volumes, output.imageName, output.cloudInitHash)),
+            Effect.map((record) => toAttributes(record, output.volumes, output.imageName, output.cloudInitHash, output.createdVolumeIds)),
             Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
           );
         }),
@@ -288,21 +316,20 @@ export const InstanceProvider = () =>
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
           const current = yield* clients.instance.getInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
+          const volumesToDelete = createdSbsVolumeIds(output.volumes, output.createdVolumeIds);
           if (current) {
             yield* clients.instance.updateInstance({ zone: output.zone, serverId: output.serverId, protected: false }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
-            if (current.state !== "stopped") {
-              yield* clients.instance.instanceAction({ zone: output.zone, serverId: output.serverId, action: "poweroff" }).pipe(
-                Effect.catchIf(isNotFound, () => Effect.void),
-                Effect.catchIf(isPreconditionError, () => Effect.void),
-              );
-              yield* waitForState(output.zone, output.serverId, "stopped", 60).pipe(Effect.catchIf(isNotFound, () => Effect.void));
-            }
-            const stopped = yield* clients.instance.getInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
-            for (const publicIp of stopped ? managedPublicIpIdsFromRecord(stopped) : managedPublicIpIdsFromRecord(current)) {
+            for (const publicIp of managedPublicIpIdsFromRecord(current)) {
               yield* clients.instance.updateFlexibleIp({ zone: output.zone, ip: publicIp, server: null }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
             }
+            yield* clients.instance.instanceAction({ zone: output.zone, serverId: output.serverId, action: "terminate" }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+            yield* waitForDeleted(output.zone, output.serverId).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+          } else {
+            yield* clients.instance.deleteInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
           }
-          yield* clients.instance.deleteInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+          for (const volumeId of volumesToDelete) {
+            yield* retryDeleteVolume(output.zone, volumeId);
+          }
           yield* session.note(`Deleted Scaleway instance ${output.serverId}`);
         }),
       });

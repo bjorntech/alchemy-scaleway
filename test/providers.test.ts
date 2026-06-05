@@ -48,6 +48,9 @@ const requests = (method: string, fragment: string) =>
 
 const sha256 = (value: string) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
+const terminateActions = () =>
+  requests("POST", "/action").filter((call) => JSON.parse(call.body).action === "terminate");
+
 const bucketRootRequests = (method: string, bucket: string) =>
   mock.calls.filter((c) => {
     const url = new URL(c.url);
@@ -1177,7 +1180,7 @@ systemctl start docker
 
       expect(second.serverId).not.toBe(first.serverId);
       expect(second.cloudInitHash).toBe(sha256("#!/bin/bash\necho second\n"));
-      expect(requests("DELETE", "/servers/").length).toBeGreaterThan(0);
+      expect(terminateActions().length).toBeGreaterThan(0);
       expect(requests("PATCH", "/user_data/cloud-init")).toHaveLength(2);
     }),
   );
@@ -1244,7 +1247,38 @@ systemctl start docker
       const second = yield* stack.deploy(Scaleway.Instance("App", { commercialType: "DEV1-S", image: "debian_bookworm" }));
       expect(second.serverId).not.toBe(first.serverId);
       expect(second.imageName).toBe("debian_bookworm");
-      expect(requests("DELETE", "/servers/").length).toBeGreaterThan(0);
+      expect(terminateActions().length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("destroy deletes Alchemy-created Block Storage volumes", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(Scaleway.Instance("App", { commercialType: "DEV1-S" }));
+      expect(created.createdVolumeIds?.length).toBeGreaterThan(0);
+
+      yield* stack.destroy();
+
+      expect(terminateActions()).toHaveLength(1);
+      expect(requests("DELETE", "/volumes/").map((call) => call.url)).toEqual(
+        expect.arrayContaining(created.createdVolumeIds!.map((id) => expect.stringContaining(`/volumes/${id}`))),
+      );
+    }),
+  );
+
+  test.provider("destroy preserves explicitly attached Block Storage volumes", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.Instance("App", {
+          commercialType: "DEV1-S",
+          volumes: { "0": { id: "vol-existing", volumeType: "sbs_volume", boot: true } },
+        }),
+      );
+      expect(created.createdVolumeIds).toEqual([]);
+
+      yield* stack.destroy();
+
+      expect(terminateActions()).toHaveLength(1);
+      expect(requests("DELETE", "/volumes/vol-existing")).toHaveLength(0);
     }),
   );
 
@@ -1263,7 +1297,7 @@ systemctl start docker
         }),
       );
       expect(second.serverId).not.toBe(first.serverId);
-      expect(requests("DELETE", "/servers/").length).toBeGreaterThan(0);
+      expect(terminateActions().length).toBeGreaterThan(0);
       const third = yield* stack.deploy(
         Scaleway.Instance("App", {
           commercialType: "DEV1-S",
@@ -1271,7 +1305,7 @@ systemctl start docker
         }),
       );
       expect(third.serverId).not.toBe(second.serverId);
-      expect(requests("DELETE", "/servers/").length).toBeGreaterThan(1);
+      expect(terminateActions().length).toBeGreaterThan(1);
     }),
   );
 
@@ -1293,7 +1327,7 @@ systemctl start docker
         }),
       );
       expect(second.serverId).not.toBe(first.serverId);
-      expect(requests("DELETE", "/servers/").length).toBeGreaterThan(0);
+      expect(terminateActions().length).toBeGreaterThan(0);
     }),
   );
 
