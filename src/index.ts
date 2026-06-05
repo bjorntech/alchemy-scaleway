@@ -25,6 +25,16 @@ export {
 } from "./Credentials.ts";
 export { Domain, DomainProvider, type DomainContainerRef, type DomainProps } from "./Domain.ts";
 export { FlexibleIp, FlexibleIpProvider, type FlexibleIpProps, type FlexibleIpType } from "./FlexibleIp.ts";
+export {
+  Instance,
+  type InstanceBootType,
+  type InstanceDesiredState,
+  InstanceProvider,
+  type InstanceProps,
+  type InstancePublicIpRef,
+  type InstanceSecurityGroupRef,
+  type InstanceVolume,
+} from "./Instance.ts";
 export { isNotFound, ScalewayError, scalewayError } from "./Errors.ts";
 export { Namespace, NamespaceProvider, type NamespaceProps } from "./Namespace.ts";
 export {

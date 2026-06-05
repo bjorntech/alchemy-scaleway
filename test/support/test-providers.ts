@@ -9,6 +9,7 @@ import { Container, ContainerProvider } from "../../src/Container.ts";
 import { ScalewayCredentials } from "../../src/Credentials.ts";
 import { Domain, DomainProvider } from "../../src/Domain.ts";
 import { FlexibleIp, FlexibleIpProvider } from "../../src/FlexibleIp.ts";
+import { Instance, InstanceProvider } from "../../src/Instance.ts";
 import { Namespace, NamespaceProvider } from "../../src/Namespace.ts";
 import { PrivateNic, PrivateNicProvider } from "../../src/PrivateNic.ts";
 import { PrivateNetwork, PrivateNetworkProvider } from "../../src/PrivateNetwork.ts";
@@ -49,6 +50,7 @@ export const testProviders = () =>
       VpcAcl,
       VpcRoute,
       VpcConnector,
+      Instance,
       SecurityGroup,
       FlexibleIp,
       PrivateNic,
@@ -68,6 +70,7 @@ export const testProviders = () =>
         VpcAclProvider(),
         VpcRouteProvider(),
         VpcConnectorProvider(),
+        InstanceProvider(),
         SecurityGroupProvider(),
         FlexibleIpProvider(),
         PrivateNicProvider(),

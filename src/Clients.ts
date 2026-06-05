@@ -286,6 +286,47 @@ export interface ScalewayPrivateNicRecord {
   ipam_ip_ids?: string[];
 }
 
+export interface ScalewayInstanceVolumeRecord {
+  id?: string;
+  name?: string | null;
+  size?: number | null;
+  volume_type?: string;
+  boot?: boolean;
+  project?: string | null;
+  zone?: string;
+}
+
+export interface ScalewayInstanceIpRecord {
+  id?: string;
+  address?: string;
+  family?: string;
+  dynamic?: boolean;
+  state?: string;
+}
+
+export interface ScalewayInstanceRecord {
+  id: string;
+  name: string;
+  project?: string;
+  tags?: string[];
+  commercial_type: string;
+  dynamic_ip_required?: boolean;
+  routed_ip_enabled?: boolean;
+  enable_ipv6?: boolean;
+  image?: { id?: string; name?: string } | null;
+  protected?: boolean;
+  public_ips?: ScalewayInstanceIpRecord[];
+  state?: string;
+  boot_type?: string;
+  volumes?: Record<string, ScalewayInstanceVolumeRecord>;
+  security_group?: { id: string; name?: string } | null;
+  placement_group?: { id: string; name?: string } | null;
+  private_nics?: ScalewayPrivateNicRecord[];
+  zone?: string;
+  dns?: string | null;
+  allowed_actions?: string[];
+}
+
 export interface ScalewayClients {
   region: string;
   projectId?: string;
@@ -481,6 +522,11 @@ export interface ScalewayClients {
     deleteVpcConnector(vpcConnectorId: string): Effect.Effect<void, ScalewayError>;
   };
   instance: {
+    createInstance(input: { zone: string } & Record<string, unknown>): Effect.Effect<ScalewayInstanceRecord, ScalewayError>;
+    getInstance(input: { zone: string; serverId: string }): Effect.Effect<ScalewayInstanceRecord, ScalewayError>;
+    updateInstance(input: { zone: string; serverId: string } & Record<string, unknown>): Effect.Effect<ScalewayInstanceRecord, ScalewayError>;
+    deleteInstance(input: { zone: string; serverId: string }): Effect.Effect<void, ScalewayError>;
+    instanceAction(input: { zone: string; serverId: string; action: string }): Effect.Effect<void, ScalewayError>;
     createSecurityGroup(input: {
       zone: string;
       name: string;
@@ -713,6 +759,15 @@ export const makeScalewayClients = Effect.gen(function* () {
       deleteVpcConnector: (id) => request<void>("DELETE", `${vpcBase}/vpc-connectors/${id}`),
     },
     instance: {
+      createInstance: ({ zone, ...input }) =>
+        request("POST", `/instance/v1/zones/${zone}/servers`, input).pipe(Effect.map(decodeInstance)),
+      getInstance: ({ zone, serverId }) =>
+        request("GET", `/instance/v1/zones/${zone}/servers/${serverId}`).pipe(Effect.map(decodeInstance)),
+      updateInstance: ({ zone, serverId, ...input }) =>
+        request("PATCH", `/instance/v1/zones/${zone}/servers/${serverId}`, input).pipe(Effect.map(decodeInstance)),
+      deleteInstance: ({ zone, serverId }) => request<void>("DELETE", `/instance/v1/zones/${zone}/servers/${serverId}`),
+      instanceAction: ({ zone, serverId, action }) =>
+        request("POST", `/instance/v1/zones/${zone}/servers/${serverId}/action`, { action }).pipe(Effect.asVoid),
       createSecurityGroup: ({ zone, ...input }) =>
         request("POST", `/instance/v1/zones/${zone}/security_groups`, input).pipe(Effect.map(decodeSecurityGroup)),
       getSecurityGroup: ({ zone, securityGroupId }) =>
@@ -1000,6 +1055,7 @@ const decodeVpcAcl = (value: unknown): ScalewayVpcAclRecord => {
 const decodeVpcRoute = (value: unknown) => envelope<ScalewayVpcRouteRecord>(value, "route");
 const decodeVpcConnector = (value: unknown) =>
   envelope<ScalewayVpcConnectorRecord>(value, "vpc_connector");
+const decodeInstance = (value: unknown) => envelope<ScalewayInstanceRecord>(value, "server");
 const decodeSecurityGroup = (value: unknown) => envelope<ScalewaySecurityGroupRecord>(value, "security_group");
 const decodeSecurityGroupRules = (value: unknown) => envelope<ScalewaySecurityGroupRuleRecord[]>(value, "rules") ?? [];
 const decodeFlexibleIp = (value: unknown) => envelope<ScalewayFlexibleIpRecord>(value, "ip");

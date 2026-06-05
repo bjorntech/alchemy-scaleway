@@ -21,6 +21,7 @@ export interface ScalewayMock {
   removePrivateNetwork(id: string): void;
   removeRoute(id: string): void;
   removeVpcConnector(id: string): void;
+  removeServer(id: string): void;
   removeSecurityGroup(id: string): void;
   removeFlexibleIp(id: string): void;
   removePrivateNic(serverId: string, id: string): void;
@@ -84,6 +85,7 @@ export function installScalewayMock(): ScalewayMock {
   const aclRules = new Map<string, Record<string, unknown>>();
   const routes = new Map<string, Record<string, unknown>>();
   const vpcConnectors = new Map<string, Record<string, unknown>>();
+  const servers = new Map<string, Record<string, unknown>>();
   const securityGroups = new Map<string, Record<string, unknown>>();
   const securityGroupRules = new Map<string, Array<Record<string, unknown>>>();
   const flexibleIps = new Map<string, Record<string, unknown>>();
@@ -598,6 +600,69 @@ export function installScalewayMock(): ScalewayMock {
     const nestedId = segments[7];
     const input = (body ?? {}) as Record<string, unknown>;
 
+    const serverPublicIps = (ids: unknown) =>
+      ((ids as string[] | undefined) ?? []).map((ipId) => {
+        const ip = flexibleIps.get(ipId);
+        return {
+          id: ipId,
+          address: (ip?.address as string | undefined) ?? `203.0.113.${counter + 1}`,
+          family: "inet",
+          dynamic: false,
+          state: "attached",
+        };
+      });
+
+    if (kind === "servers" && nested === "action") {
+      const existing = servers.get(id);
+      if (!existing) return json({ message: "server not found" }, 404);
+      const state = input.action === "poweroff" || input.action === "stop_in_place" ? "stopped" : input.action === "poweron" ? "running" : existing.state;
+      const updated = { ...existing, state };
+      servers.set(id, updated);
+      return json({ task: { id: nextId("task"), status: "success" } });
+    }
+
+    if (kind === "servers" && !nested) {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("srv"),
+          zone,
+          state: "running",
+          boot_type: input.boot_type ?? "local",
+          dynamic_ip_required: input.dynamic_ip_required,
+          routed_ip_enabled: input.routed_ip_enabled,
+          protected: input.protected ?? false,
+          tags: [],
+          ...input,
+          project: input.project ?? "proj-test",
+          image: input.image ? { id: input.image, name: input.image } : undefined,
+          public_ips: serverPublicIps(input.public_ips),
+          security_group: input.security_group ? { id: input.security_group } : undefined,
+          placement_group: input.placement_group ? { id: input.placement_group } : undefined,
+          dns: `${input.name}.test.local`,
+        };
+        servers.set(record.id as string, record);
+        return json({ server: record }, 201);
+      }
+      const existing = servers.get(id);
+      if (!existing) return json({ message: "server not found" }, 404);
+      if (method === "GET") return json({ server: existing });
+      if (method === "PATCH") {
+        const updated = {
+          ...existing,
+          ...input,
+          public_ips: input.public_ips === undefined ? existing.public_ips : serverPublicIps(input.public_ips),
+          security_group: input.security_group === null ? undefined : input.security_group ? input.security_group : existing.security_group,
+          placement_group: input.placement_group === null ? undefined : input.placement_group ? { id: input.placement_group } : existing.placement_group,
+        };
+        servers.set(id, updated);
+        return json({ server: updated });
+      }
+      if (method === "DELETE") {
+        servers.delete(id);
+        return noContent();
+      }
+    }
+
     if (kind === "security_groups") {
       if (!id && method === "POST") {
         const record = { id: nextId("sg"), zone, state: "available", tags: [], ...input };
@@ -758,6 +823,7 @@ export function installScalewayMock(): ScalewayMock {
     removePrivateNetwork: (id) => privateNetworks.delete(id),
     removeRoute: (id) => routes.delete(id),
     removeVpcConnector: (id) => vpcConnectors.delete(id),
+    removeServer: (id) => servers.delete(id),
     removeSecurityGroup: (id) => securityGroups.delete(id),
     removeFlexibleIp: (id) => flexibleIps.delete(id),
     removePrivateNic: (serverId, id) => privateNics.delete(`${serverId}:${id}`),

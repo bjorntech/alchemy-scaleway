@@ -8,6 +8,7 @@ import { Container, ContainerProvider } from "./Container.ts";
 import * as Credentials from "./Credentials.ts";
 import { Domain, DomainProvider } from "./Domain.ts";
 import { FlexibleIp, FlexibleIpProvider } from "./FlexibleIp.ts";
+import { Instance, InstanceProvider } from "./Instance.ts";
 import { Namespace, NamespaceProvider } from "./Namespace.ts";
 import { PrivateNic, PrivateNicProvider } from "./PrivateNic.ts";
 import { PrivateNetwork, PrivateNetworkProvider } from "./PrivateNetwork.ts";
@@ -40,6 +41,7 @@ export const providers = () =>
       VpcAcl,
       VpcRoute,
       VpcConnector,
+      Instance,
       SecurityGroup,
       FlexibleIp,
       PrivateNic,
@@ -59,6 +61,7 @@ export const providers = () =>
         VpcAclProvider(),
         VpcRouteProvider(),
         VpcConnectorProvider(),
+        InstanceProvider(),
         SecurityGroupProvider(),
         FlexibleIpProvider(),
         PrivateNicProvider(),
