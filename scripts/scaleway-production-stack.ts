@@ -147,14 +147,6 @@ export default Alchemy.Stack(
       tags: activeTags,
       securityGroup,
       publicIps: [],
-      volumes: {
-        "0": {
-          name: `${prefix}-root`,
-          size: 10_000_000_000,
-          volumeType: "sbs_volume",
-          boot: true,
-        },
-      },
       cloudInit: Redacted.make(`#!/bin/bash
 set -e
 

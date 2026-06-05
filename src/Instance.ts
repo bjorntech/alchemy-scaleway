@@ -283,13 +283,8 @@ export const InstanceProvider = () =>
                 security_group: typeof securityGroup === "string" ? securityGroup : undefined,
                 placement_group: news.placementGroupId,
                 protected: news.protected ?? false,
-                state: init === undefined ? undefined : "stopped",
               });
           if (!output?.serverId && init !== undefined) {
-            if (record.state !== "stopped") {
-              yield* clients.instance.instanceAction({ zone, serverId: record.id, action: "poweroff" }).pipe(Effect.catchIf(isPreconditionError, () => Effect.void));
-              record = yield* waitForState(zone, record.id, "stopped", 60);
-            }
             yield* clients.instance.setInstanceUserData({ zone, serverId: record.id, key: "cloud-init", value: init });
           }
           const desiredState = targetStateFor(news.desiredState, init);
@@ -322,7 +317,11 @@ export const InstanceProvider = () =>
             for (const publicIp of managedPublicIpIdsFromRecord(current)) {
               yield* clients.instance.updateFlexibleIp({ zone: output.zone, ip: publicIp, server: null }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
             }
-            yield* clients.instance.instanceAction({ zone: output.zone, serverId: output.serverId, action: "terminate" }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+            if (current.state === "stopped" || current.state === "stopped in place") {
+              yield* clients.instance.deleteInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+            } else {
+              yield* clients.instance.instanceAction({ zone: output.zone, serverId: output.serverId, action: "terminate" }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+            }
             yield* waitForDeleted(output.zone, output.serverId).pipe(Effect.catchIf(isNotFound, () => Effect.void));
           } else {
             yield* clients.instance.deleteInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));

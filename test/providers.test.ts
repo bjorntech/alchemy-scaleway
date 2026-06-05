@@ -51,6 +51,8 @@ const sha256 = (value: string) => `sha256:${createHash("sha256").update(value).d
 const terminateActions = () =>
   requests("POST", "/action").filter((call) => JSON.parse(call.body).action === "terminate");
 
+const instanceDeleteRequests = () => terminateActions().length + requests("DELETE", "/servers/").length;
+
 const bucketRootRequests = (method: string, bucket: string) =>
   mock.calls.filter((c) => {
     const url = new URL(c.url);
@@ -1157,7 +1159,9 @@ systemctl start docker
       expect(JSON.stringify(created)).not.toContain("apt-get install");
 
       const creates = requests("POST", "/servers");
-      expect(JSON.parse(creates[0].body).state).toBe("stopped");
+      const createBody = JSON.parse(creates[0].body);
+      expect(createBody.stopped).toBeUndefined();
+      expect(createBody.cloud_init).toBeUndefined();
 
       const userData = requests("PATCH", "/user_data/cloud-init");
       expect(userData).toHaveLength(1);
@@ -1180,8 +1184,8 @@ systemctl start docker
 
       expect(second.serverId).not.toBe(first.serverId);
       expect(second.cloudInitHash).toBe(sha256("#!/bin/bash\necho second\n"));
-      expect(terminateActions().length).toBeGreaterThan(0);
-      expect(requests("PATCH", "/user_data/cloud-init")).toHaveLength(2);
+      expect(instanceDeleteRequests()).toBeGreaterThan(0);
+      expect(requests("PATCH", "/user_data/cloud-init").map((call) => call.body)).toEqual(["#!/bin/bash\necho first\n", "#!/bin/bash\necho second\n"]);
     }),
   );
 
@@ -1247,7 +1251,7 @@ systemctl start docker
       const second = yield* stack.deploy(Scaleway.Instance("App", { commercialType: "DEV1-S", image: "debian_bookworm" }));
       expect(second.serverId).not.toBe(first.serverId);
       expect(second.imageName).toBe("debian_bookworm");
-      expect(terminateActions().length).toBeGreaterThan(0);
+      expect(instanceDeleteRequests()).toBeGreaterThan(0);
     }),
   );
 
@@ -1258,7 +1262,7 @@ systemctl start docker
 
       yield* stack.destroy();
 
-      expect(terminateActions()).toHaveLength(1);
+      expect(instanceDeleteRequests()).toBe(1);
       expect(requests("DELETE", "/volumes/").map((call) => call.url)).toEqual(
         expect.arrayContaining(created.createdVolumeIds!.map((id) => expect.stringContaining(`/volumes/${id}`))),
       );
@@ -1277,7 +1281,7 @@ systemctl start docker
 
       yield* stack.destroy();
 
-      expect(terminateActions()).toHaveLength(1);
+      expect(instanceDeleteRequests()).toBe(1);
       expect(requests("DELETE", "/volumes/vol-existing")).toHaveLength(0);
     }),
   );
@@ -1297,7 +1301,7 @@ systemctl start docker
         }),
       );
       expect(second.serverId).not.toBe(first.serverId);
-      expect(terminateActions().length).toBeGreaterThan(0);
+      expect(instanceDeleteRequests()).toBeGreaterThan(0);
       const third = yield* stack.deploy(
         Scaleway.Instance("App", {
           commercialType: "DEV1-S",
@@ -1305,7 +1309,7 @@ systemctl start docker
         }),
       );
       expect(third.serverId).not.toBe(second.serverId);
-      expect(terminateActions().length).toBeGreaterThan(1);
+      expect(instanceDeleteRequests()).toBeGreaterThan(1);
     }),
   );
 
@@ -1327,7 +1331,7 @@ systemctl start docker
         }),
       );
       expect(second.serverId).not.toBe(first.serverId);
-      expect(terminateActions().length).toBeGreaterThan(0);
+      expect(instanceDeleteRequests()).toBeGreaterThan(0);
     }),
   );
 
@@ -1338,7 +1342,7 @@ systemctl start docker
       const running = yield* stack.deploy(Scaleway.Instance("App", { commercialType: "DEV1-S", desiredState: "running" }));
       expect(running.serverId).toBe(stopped.serverId);
       expect(running.state).toBe("running");
-      expect(requests("POST", "/action")).toHaveLength(2);
+      expect(requests("POST", "/action")).toHaveLength(1);
     }),
   );
 

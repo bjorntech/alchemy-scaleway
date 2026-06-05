@@ -1057,8 +1057,21 @@ const unescapeXml = (value: string) =>
     .replaceAll("&gt;", ">")
     .replaceAll("&lt;", "<")
     .replaceAll("&amp;", "&");
-const messageFromBody = (body: unknown) =>
-  typeof body === "object" && body !== null && "message" in body ? String(body.message) : undefined;
+const validationDetails = (details: unknown) =>
+  Array.isArray(details)
+    ? details
+        .map((detail) => {
+          const record = detail as Record<string, unknown>;
+          return [record.argument_name, record.help_message].filter((value) => typeof value === "string" && value.length > 0).join(": ");
+        })
+        .filter((detail) => detail.length > 0)
+    : [];
+const messageFromBody = (body: unknown) => {
+  if (typeof body !== "object" || body === null || !("message" in body)) return undefined;
+  const message = String(body.message);
+  const details = validationDetails((body as Record<string, unknown>).details);
+  return details.length === 0 ? message : `${message}: ${details.join("; ")}`;
+};
 // The Containers v1 API returns resource objects at the top level (no envelope key).
 const decodeNamespace = (value: unknown) => value as ScalewayNamespaceRecord;
 const decodeContainer = (value: unknown) => value as ScalewayContainerRecord;

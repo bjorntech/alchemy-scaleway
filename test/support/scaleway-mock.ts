@@ -694,7 +694,7 @@ export function installScalewayMock(): ScalewayMock {
         const record: Record<string, unknown> = {
           id: nextId("srv"),
           zone,
-          state: "running",
+          state: "stopped",
           boot_type: input.boot_type ?? "local",
           dynamic_ip_required: input.dynamic_ip_required,
           routed_ip_enabled: input.routed_ip_enabled,
@@ -727,6 +727,10 @@ export function installScalewayMock(): ScalewayMock {
         return json({ server: updated });
       }
       if (method === "DELETE") {
+        for (const volume of Object.values((existing.volumes as Record<string, Record<string, unknown>> | undefined) ?? {})) {
+          if (volume.volume_type === "l_ssd" || volume.volume_type === "scratch") volumes.delete(volume.id as string);
+          else if (typeof volume.id === "string") volumes.set(volume.id, { ...volume, server: undefined, state: "available" });
+        }
         servers.delete(id);
         serverUserData.delete(id);
         return noContent();
@@ -825,6 +829,7 @@ export function installScalewayMock(): ScalewayMock {
           mac_address: "02:00:00:00:00:01",
           state: "available",
           tags: [],
+          ipam_ip_ids: input.ipam_ip_ids ?? [nextId("ipam")],
           ...input,
         };
         privateNics.set(key(record.id as string), record);

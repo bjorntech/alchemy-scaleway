@@ -14,10 +14,12 @@ required("SCW_SECRET_KEY");
 required("SCW_ACCESS_KEY");
 required("SCW_DEFAULT_PROJECT_ID");
 
-const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const stage = `smoke-${suffix}`;
-const prefix = `alchemy-smoke-${suffix}`;
+const suffix = process.env.SCW_SMOKE_RUN_ID ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const stage = process.env.SCW_SMOKE_STAGE ?? `smoke-${suffix}`;
+const prefix = process.env.SCW_SMOKE_PREFIX ?? `alchemy-smoke-${suffix}`;
 const stackFile = "scripts/scaleway-production-stack.ts";
+
+console.log(`production smoke stage=${stage} prefix=${prefix}`);
 
 function runAlchemy(command: "deploy" | "destroy", phase: "create" | "update" | "settle") {
   console.log(`alchemy ${command} ${phase}`);
