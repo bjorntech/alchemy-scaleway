@@ -14,6 +14,7 @@ const vpcLifecycleLayer = Layer.mergeAll(
   Scaleway.PrivateNetworkProvider(),
   Scaleway.VpcRouteProvider(),
   Scaleway.VpcConnectorProvider(),
+  Scaleway.InstanceProvider(),
   Scaleway.SecurityGroupProvider(),
   Scaleway.FlexibleIpProvider(),
   Scaleway.PrivateNicProvider(),
@@ -1117,6 +1118,157 @@ describe("VpcConnector", () => {
         id: "Connector",
         instanceId: "test",
         olds: { vpc: "vpc-a", targetVpc: "vpc-b" },
+        output: created,
+      });
+      expect(missing).toBeUndefined();
+    }),
+  );
+});
+
+describe("Instance", () => {
+  test.provider("creates then updates instance metadata and attachments", (stack) =>
+    Effect.gen(function* () {
+      const ip = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { zone: "fr-par-1" }));
+      const securityGroup = yield* stack.deploy(Scaleway.SecurityGroup("Firewall", { zone: "fr-par-1" }));
+      const created = yield* stack.deploy(
+        Scaleway.Instance("App", {
+          zone: "fr-par-1",
+          commercialType: "DEV1-S",
+          image: "ubuntu_noble",
+          publicIps: [ip.ipId],
+          securityGroup: securityGroup.securityGroupId,
+          tags: ["role=app"],
+          volumes: { "0": { name: "root", size: 20_000_000_000, volumeType: "sbs_volume", boot: true } },
+        }),
+      );
+      expect(created.serverId).toMatch(/^srv-/);
+      expect(created.zone).toBe("fr-par-1");
+      expect(created.projectId).toBe("proj-test");
+      expect(created.commercialType).toBe("DEV1-S");
+      expect(created.imageName).toBe("ubuntu_noble");
+      expect(created.publicIpIds).toContain(ip.ipId);
+      expect(created.securityGroupId).toBe(securityGroup.securityGroupId);
+      expect(created.tags).toContain("alchemy:logical-id=App");
+
+      const updated = yield* stack.deploy(
+        Scaleway.Instance("App", {
+          zone: "fr-par-1",
+          commercialType: "DEV1-S",
+          image: "ubuntu_noble",
+          publicIps: [],
+          tags: ["role=worker"],
+          protected: true,
+          volumes: { "0": { name: "root", size: 20_000_000_000, volumeType: "sbs_volume", boot: true } },
+        }),
+      );
+      expect(updated.serverId).toBe(created.serverId);
+      expect(updated.publicIpIds).toEqual([]);
+      expect(updated.securityGroupId).toBe(securityGroup.securityGroupId);
+      expect(updated.protected).toBe(true);
+      expect(requests("PATCH", "/servers/")).toHaveLength(1);
+
+      yield* stack.deploy(
+        Scaleway.Instance("App", {
+          zone: "fr-par-1",
+          commercialType: "DEV1-S",
+          image: "ubuntu_noble",
+          publicIps: [],
+          tags: ["role=worker"],
+          protected: true,
+          volumes: { "0": { name: "root", size: 20_000_000_000, volumeType: "sbs_volume", boot: true } },
+        }),
+      );
+      expect(requests("PATCH", "/servers/")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("changing instance image forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(Scaleway.Instance("App", { commercialType: "DEV1-S", image: "ubuntu_noble" }));
+      const second = yield* stack.deploy(Scaleway.Instance("App", { commercialType: "DEV1-S", image: "debian_bookworm" }));
+      expect(second.serverId).not.toBe(first.serverId);
+      expect(second.imageName).toBe("debian_bookworm");
+      expect(requests("DELETE", "/servers/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("changing instance volume snapshot forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(
+        Scaleway.Instance("App", {
+          commercialType: "DEV1-S",
+          volumes: { "0": { name: "root", size: 20_000_000_000, volumeType: "sbs_volume", boot: true, baseSnapshot: "snap-a" } },
+        }),
+      );
+      const second = yield* stack.deploy(
+        Scaleway.Instance("App", {
+          commercialType: "DEV1-S",
+          volumes: { "0": { name: "root", size: 20_000_000_000, volumeType: "sbs_volume", boot: true, baseSnapshot: "snap-b" } },
+        }),
+      );
+      expect(second.serverId).not.toBe(first.serverId);
+      expect(requests("DELETE", "/servers/").length).toBeGreaterThan(0);
+      const third = yield* stack.deploy(
+        Scaleway.Instance("App", {
+          commercialType: "DEV1-S",
+          volumes: { "0": { name: "root", size: 20_000_000_000, volumeType: "sbs_volume", boot: true } },
+        }),
+      );
+      expect(third.serverId).not.toBe(second.serverId);
+      expect(requests("DELETE", "/servers/").length).toBeGreaterThan(1);
+    }),
+  );
+
+  test.provider("removing an instance volume forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(
+        Scaleway.Instance("App", {
+          commercialType: "DEV1-S",
+          volumes: {
+            "0": { name: "root", size: 20_000_000_000, volumeType: "sbs_volume", boot: true },
+            "1": { name: "data", size: 10_000_000_000, volumeType: "sbs_volume" },
+          },
+        }),
+      );
+      const second = yield* stack.deploy(
+        Scaleway.Instance("App", {
+          commercialType: "DEV1-S",
+          volumes: { "0": { name: "root", size: 20_000_000_000, volumeType: "sbs_volume", boot: true } },
+        }),
+      );
+      expect(second.serverId).not.toBe(first.serverId);
+      expect(requests("DELETE", "/servers/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("desired state performs instance power actions", (stack) =>
+    Effect.gen(function* () {
+      const stopped = yield* stack.deploy(Scaleway.Instance("App", { commercialType: "DEV1-S", desiredState: "stopped" }));
+      expect(stopped.state).toBe("stopped");
+      const running = yield* stack.deploy(Scaleway.Instance("App", { commercialType: "DEV1-S", desiredState: "running" }));
+      expect(running.serverId).toBe(stopped.serverId);
+      expect(running.state).toBe("running");
+      expect(requests("POST", "/action")).toHaveLength(2);
+    }),
+  );
+
+  test.provider("read returns existing instances and ignores missing ones", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(Scaleway.Instance("App", { zone: "fr-par-1", commercialType: "DEV1-S" }));
+      const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "App",
+        instanceId: "test",
+        olds: { zone: "fr-par-1", commercialType: "DEV1-S" },
+        output: created,
+      });
+      expect(read?.serverId).toBe(created.serverId);
+
+      mock.removeServer(created.serverId);
+      const missing = yield* provider.read!({
+        id: "App",
+        instanceId: "test",
+        olds: { zone: "fr-par-1", commercialType: "DEV1-S" },
         output: created,
       });
       expect(missing).toBeUndefined();

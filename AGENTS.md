@@ -58,6 +58,7 @@ Current resources:
 - `VpcAcl` - complete VPC ACL rule set for one VPC/IP version.
 - `VpcRoute` - VPC route with resource, Private Network, or VPC connector next hops.
 - `VpcConnector` - VPC connector between two VPCs.
+- `Instance` - Scaleway Instance virtual machine lifecycle with conservative replacement for image/type/volume identity changes.
 - `SecurityGroup` - Scaleway Instance security group with complete rule-set ownership.
 - `FlexibleIp` - Scaleway Instance flexible IP reservation and attachment.
 - `PrivateNic` - Scaleway Instance private NIC attachment to a Private Network.
