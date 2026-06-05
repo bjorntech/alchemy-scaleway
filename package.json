@@ -1,6 +1,6 @@
 {
   "name": "@finnvid/alchemy-scaleway",
-  "version": "0.1.3-beta.51",
+  "version": "0.1.4-beta.51",
   "description": "Scaleway providers for Alchemy v2",
   "keywords": [
     "alchemy",

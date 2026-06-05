@@ -4,17 +4,28 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## [Unreleased]
 
+## [0.1.4-beta.51] - 2026-06-05
+
 ### Added
 
 - `Instance.cloudInit` writes multi-line Scaleway `cloud-init` user data before
   first boot. The script may be a `string` or `Redacted<string>`, is not returned
   in resource attributes, and is tracked by a SHA-256 hash for replacement diffing.
+- The production smoke test now covers Instance cloud-init and exposes stable
+  smoke rerun controls through `SCW_SMOKE_RUN_ID`, `SCW_SMOKE_STAGE`, and
+  `SCW_SMOKE_PREFIX`.
 
 ### Fixed
 
 - `Instance` deletion now uses Scaleway's terminate action and deletes Alchemy-created
   `sbs_volume` Block Storage volumes after they are detached, while preserving
   explicitly attached volume IDs.
+- `Instance` creation now follows Scaleway's REST lifecycle for first-boot user data:
+  create the stopped server, set `cloud-init` user data, then power on when requested.
+- `PrivateNic` no longer treats Scaleway auto-assigned IPAM IP IDs as drift unless
+  `ipamIpIds` is explicitly configured.
+- Scaleway validation errors now include per-argument details when the API returns
+  them.
 
 ## [0.1.3-beta.51] - 2026-06-05
 
