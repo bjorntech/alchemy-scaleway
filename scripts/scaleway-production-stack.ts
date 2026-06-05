@@ -147,6 +147,27 @@ export default Alchemy.Stack(
       tags: activeTags,
       securityGroup,
       publicIps: [],
+      volumes: {
+        "0": {
+          name: `${prefix}-root`,
+          size: 10_000_000_000,
+          volumeType: "sbs_volume",
+          boot: true,
+        },
+      },
+      cloudInit: Redacted.make(`#!/bin/bash
+set -e
+
+exec > >(tee /var/log/cloud-init-alchemy-smoke.log) 2>&1
+
+apt-get update
+apt-get install -y docker.io
+
+systemctl enable docker
+systemctl start docker
+
+echo "Alchemy Scaleway smoke VM setup complete"
+`),
       protected: false,
       desiredState: updated ? "running" : "stopped",
     });
@@ -174,6 +195,8 @@ export default Alchemy.Stack(
       flexibleIpId: flexibleIp.ipId,
       instanceId: instance.serverId,
       instanceState: instance.state,
+      instanceCloudInitHash: instance.cloudInitHash,
+      instanceCreatedVolumeIds: instance.createdVolumeIds,
       privateNicId: privateNic.privateNicId,
     };
   }),
