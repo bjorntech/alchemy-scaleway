@@ -4,6 +4,28 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## [Unreleased]
 
+### Added
+
+- `Vpc` provisions Scaleway VPCs and supports one-way routing enablement.
+- `PrivateNetwork` provisions Scaleway Private Networks with optional VPC binding,
+  subnet membership, DHCP enablement, and default route propagation.
+- `VpcAcl` manages the complete VPC ACL rule set for one VPC/IP version and resets
+  that rule set to accept-all on delete.
+
+### Fixed
+
+- Private Network subnet add/delete requests now use Scaleway's documented batch
+  payload shape (`{ subnets: [...] }`).
+- VPC ACL rule port fields now use Scaleway's published `src_port_*` and
+  `dst_port_*` names.
+
+### Known limitations
+
+- Scaleway documents in-place Private Network subnet add/delete endpoints, and the
+  provider calls them during subnet drift reconciliation. The production smoke
+  account currently receives `501 unimplemented endpoint` for those endpoints in
+  `fr-par`, so live smoke verifies create-time subnets only.
+
 ## [0.1.2-beta.51] - 2026-06-04
 
 ### Fixed

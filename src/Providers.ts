@@ -8,9 +8,12 @@ import { Container, ContainerProvider } from "./Container.ts";
 import * as Credentials from "./Credentials.ts";
 import { Domain, DomainProvider } from "./Domain.ts";
 import { Namespace, NamespaceProvider } from "./Namespace.ts";
+import { PrivateNetwork, PrivateNetworkProvider } from "./PrivateNetwork.ts";
 import { RegistryNamespace, RegistryNamespaceProvider } from "./RegistryNamespace.ts";
 import { Secret, SecretProvider } from "./Secret.ts";
 import { Trigger, TriggerProvider } from "./Trigger.ts";
+import { Vpc, VpcProvider } from "./Vpc.ts";
+import { VpcAcl, VpcAclProvider } from "./VpcAcl.ts";
 
 export class Providers extends Provider.ProviderCollection<Providers>()("Scaleway") {}
 
@@ -19,7 +22,18 @@ export type ProviderRequirements = Layer.Services<ReturnType<typeof providers>>;
 export const providers = () =>
   Layer.effect(
     Providers,
-    Provider.collection([Namespace, Container, Trigger, Domain, RegistryNamespace, Secret, Bucket]),
+    Provider.collection([
+      Namespace,
+      Container,
+      Trigger,
+      Domain,
+      RegistryNamespace,
+      Secret,
+      Bucket,
+      Vpc,
+      PrivateNetwork,
+      VpcAcl,
+    ]),
   ).pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -30,6 +44,9 @@ export const providers = () =>
         RegistryNamespaceProvider(),
         SecretProvider(),
         BucketProvider(),
+        VpcProvider(),
+        PrivateNetworkProvider(),
+        VpcAclProvider(),
       ),
     ),
     Layer.provideMerge(Credentials.fromAuthProvider()),

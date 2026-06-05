@@ -44,6 +44,8 @@ const created: {
   registryNamespaceId?: string;
   secretId?: string;
   bucketName?: string;
+  vpcId?: string;
+  privateNetworkId?: string;
 } = {};
 
 async function runEffect<A>(effect: Effect.Effect<A, unknown>) {
@@ -193,8 +195,92 @@ try {
   created.bucketName = bucket.name;
   console.log(`created bucket ${bucket.name}`);
 
+  const vpc = await runEffect(
+    clients.vpc.createVpc({
+      name: `${prefix}-vpc`,
+      project_id: projectId,
+      tags: ["alchemy-smoke-test"],
+    }),
+  );
+  created.vpcId = vpc.id;
+  console.log(`created vpc ${vpc.id}`);
+
+  const routedVpc = await runEffect(clients.vpc.enableVpcRouting(vpc.id));
+  console.log(`enabled vpc routing ${routedVpc.routing_enabled === true}`);
+
+  const updatedVpc = await runEffect(
+    clients.vpc.updateVpc(vpc.id, {
+      name: `${prefix}-vpc-updated`,
+      tags: ["alchemy-smoke-test", "updated"],
+    }),
+  );
+  console.log(`updated vpc ${updatedVpc.id}`);
+
+  const privateNetwork = await runEffect(
+    clients.vpc.createPrivateNetwork({
+      name: `${prefix}-pn`,
+      project_id: projectId,
+      vpc_id: vpc.id,
+      tags: ["alchemy-smoke-test"],
+      subnets: ["10.71.0.0/24"],
+      default_route_propagation_enabled: true,
+    }),
+  );
+  created.privateNetworkId = privateNetwork.id;
+  console.log(`created private network ${privateNetwork.id}`);
+
+  const dhcpPrivateNetwork = await runEffect(
+    clients.vpc.enablePrivateNetworkDhcp(privateNetwork.id),
+  );
+  console.log(`enabled private network dhcp ${dhcpPrivateNetwork.dhcp_enabled === true}`);
+  console.log(`private network subnets ${dhcpPrivateNetwork.subnets?.join(",")}`);
+
+  const acl = await runEffect(
+    clients.vpc.setAclRules({
+      vpcId: vpc.id,
+      ipv6: false,
+      default_policy: "drop",
+      rules: [
+        {
+          protocol: "TCP",
+          action: "accept",
+          source: "0.0.0.0/0",
+          src_port_low: 0,
+          src_port_high: 65535,
+          destination: "0.0.0.0/0",
+          dst_port_low: 443,
+          dst_port_high: 443,
+          description: "alchemy-scaleway production smoke test",
+        },
+      ],
+    }),
+  );
+  console.log(`set vpc acl ${acl.default_policy} ${acl.rules.length} rule(s)`);
+
+  const readAcl = await runEffect(clients.vpc.getAclRules({ vpcId: vpc.id, ipv6: false }));
+  console.log(`read vpc acl ${readAcl.default_policy} ${readAcl.rules.length} rule(s)`);
+
   console.log("production smoke test create/read paths succeeded");
 } finally {
+  if (created.vpcId) {
+    await runEffect(
+      clients.vpc.setAclRules({
+        vpcId: created.vpcId,
+        ipv6: false,
+        default_policy: "accept",
+        rules: [],
+      }),
+    ).catch((error) => console.error(`failed resetting vpc acl ${created.vpcId}: ${error}`));
+  }
+  if (created.privateNetworkId) {
+    await restDelete(
+      `/vpc/v2/regions/${region}/private-networks/${created.privateNetworkId}`,
+      `private network ${created.privateNetworkId}`,
+    );
+  }
+  if (created.vpcId) {
+    await restDelete(`/vpc/v2/regions/${region}/vpcs/${created.vpcId}`, `vpc ${created.vpcId}`);
+  }
   if (created.bucketName) await deleteBucket(created.bucketName);
   if (created.secretId) {
     await restDelete(

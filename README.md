@@ -37,7 +37,7 @@ The `env` auth method reads:
 ```sh
 SCW_SECRET_KEY=...
 SCW_ACCESS_KEY=...              # optional, required for Object Storage
-SCW_DEFAULT_PROJECT_ID=...      # optional, required for Containers unless set per resource
+SCW_DEFAULT_PROJECT_ID=...      # optional, required for project-scoped resources unless set per resource
 SCW_DEFAULT_REGION=fr-par       # optional, defaults to fr-par
 SCW_API_URL=https://api.scaleway.com # optional, defaults to https://api.scaleway.com
 ```
@@ -83,6 +83,21 @@ export default Alchemy.Stack(
       value: Redacted.make(process.env.API_TOKEN!),
     });
 
+    const vpc = yield* Scaleway.Vpc("Network", {
+      routing: true,
+    });
+
+    const privateNetwork = yield* Scaleway.PrivateNetwork("PrivateNetwork", {
+      vpc,
+      subnets: ["10.10.0.0/24"],
+    });
+
+    yield* Scaleway.VpcAcl("VpcAcl", {
+      vpc,
+      defaultPolicy: "drop",
+      rules: [{ protocol: "TCP", action: "accept", destinationPort: 443 }],
+    });
+
     const api = yield* Scaleway.Container("Api", {
       namespace,
       image: "rg.fr-par.scw.cloud/my-registry/api:latest",
@@ -103,6 +118,7 @@ export default Alchemy.Stack(
       imagePrefix: registry.imagePrefix,
       secretId: apiToken.secretId,
       bucket: bucket.bucketName,
+      privateNetworkId: privateNetwork.privateNetworkId,
     };
   }),
 );
@@ -117,5 +133,12 @@ export default Alchemy.Stack(
 - `RegistryNamespace` - Scaleway Container Registry namespace lifecycle with ready-to-use image prefix output.
 - `Secret` - Scaleway Secret Manager secret metadata and version lifecycle. Secret values are accepted as `Redacted<string>` and are never returned in outputs.
 - `Bucket` - Scaleway Object Storage bucket lifecycle via the S3-compatible API.
+- `Vpc` - Scaleway VPC lifecycle with optional routing enablement.
+- `PrivateNetwork` - Scaleway Private Network lifecycle, including optional VPC binding, subnets, DHCP enablement, and default route propagation.
+- `VpcAcl` - Scaleway VPC ACL lifecycle for one VPC/IP version. This resource owns the full ACL rule set for that `vpc` plus `ipVersion` and resets it to `defaultPolicy: "accept"` with no rules on delete.
+
+### VPC Caveats
+
+Scaleway's public VPC v2 schema documents in-place subnet add/delete endpoints for existing Private Networks. The provider implements those documented endpoints for subnet drift reconciliation, but the production smoke account currently receives `501 unimplemented endpoint` from Scaleway in `fr-par`. Create-time `PrivateNetwork.subnets` is verified by the live smoke test.
 
 For contributor details, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).

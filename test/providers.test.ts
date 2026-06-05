@@ -635,6 +635,159 @@ describe("Bucket", () => {
   );
 });
 
+describe("Vpc", () => {
+  test.provider("creates then updates VPC metadata in place", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.Vpc("Network", { tags: ["team=platform"], routing: true }),
+      );
+      expect(created.vpcId).toMatch(/^vpc-/);
+      expect(created.region).toBe("fr-par");
+      expect(created.projectId).toBe("proj-test");
+      expect(created.routing).toBe(true);
+      expect(created.tags).toContain("alchemy:logical-id=Network");
+
+      const updated = yield* stack.deploy(
+        Scaleway.Vpc("Network", { tags: ["team=network"], routing: true }),
+      );
+      expect(updated.vpcId).toBe(created.vpcId);
+      expect(updated.tags).toContain("team=network");
+      expect(requests("PATCH", "/vpc/v2/regions/fr-par/vpcs/")).toHaveLength(1);
+      expect(requests("POST", "/enable-routing")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("changing projectId forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(Scaleway.Vpc("Network", { projectId: "proj-a" }));
+      const second = yield* stack.deploy(Scaleway.Vpc("Network", { projectId: "proj-b" }));
+      expect(second.projectId).toBe("proj-b");
+      expect(second.vpcId).not.toBe(first.vpcId);
+      expect(requests("DELETE", "/vpc/v2/regions/fr-par/vpcs/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("omitted routing does not cause repeated updates", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(Scaleway.Vpc("Network", {}));
+      const redeployed = yield* stack.deploy(Scaleway.Vpc("Network", {}));
+      expect(redeployed.vpcId).toBe(created.vpcId);
+      expect(requests("PATCH", "/vpc/v2/regions/fr-par/vpcs/")).toHaveLength(0);
+      expect(requests("POST", "/enable-routing")).toHaveLength(0);
+    }),
+  );
+});
+
+describe("PrivateNetwork", () => {
+  test.provider("creates against a VPC and syncs mutable fields", (stack) =>
+    Effect.gen(function* () {
+      const out = yield* stack.deploy(
+        Effect.gen(function* () {
+          const vpc = yield* Scaleway.Vpc("Network", {});
+          const pn = yield* Scaleway.PrivateNetwork("Lan", {
+            vpc,
+            tags: ["scope=app"],
+            subnets: ["10.10.0.0/24"],
+            dhcp: true,
+            defaultRoutePropagation: true,
+          });
+          return { vpcId: vpc.vpcId, pn };
+        }),
+      );
+      expect(out.pn.privateNetworkId).toMatch(/^pn-/);
+      expect(out.pn.vpcId).toBe(out.vpcId);
+      expect(out.pn.subnets).toEqual(["10.10.0.0/24"]);
+      expect(out.pn.dhcp).toBe(true);
+
+      const updated = yield* stack.deploy(
+        Scaleway.PrivateNetwork("Lan", {
+          vpc: out.vpcId,
+          tags: ["scope=data"],
+          subnets: ["10.20.0.0/24"],
+          dhcp: true,
+          defaultRoutePropagation: false,
+        }),
+      );
+      expect(updated.privateNetworkId).toBe(out.pn.privateNetworkId);
+      expect(updated.subnets).toEqual(["10.20.0.0/24"]);
+      expect(updated.tags).toContain("scope=data");
+      expect(requests("PATCH", "/private-networks/")).toHaveLength(1);
+      expect(requests("POST", "/subnets")).toHaveLength(1);
+      expect(requests("DELETE", "/subnets")).toHaveLength(1);
+      expect(requests("POST", "/enable-dhcp")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("changing VPC forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(Scaleway.PrivateNetwork("Lan", { vpc: "vpc-a" }));
+      const second = yield* stack.deploy(Scaleway.PrivateNetwork("Lan", { vpc: "vpc-b" }));
+      expect(second.vpcId).toBe("vpc-b");
+      expect(second.privateNetworkId).not.toBe(first.privateNetworkId);
+      expect(requests("DELETE", "/private-networks/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("omitted optional fields do not cause repeated updates", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(Scaleway.PrivateNetwork("Lan", {}));
+      const redeployed = yield* stack.deploy(Scaleway.PrivateNetwork("Lan", {}));
+      expect(redeployed.privateNetworkId).toBe(created.privateNetworkId);
+      expect(requests("PATCH", "/private-networks/")).toHaveLength(0);
+      expect(requests("POST", "/subnets")).toHaveLength(0);
+      expect(requests("DELETE", "/subnets")).toHaveLength(0);
+      expect(requests("POST", "/enable-dhcp")).toHaveLength(0);
+    }),
+  );
+});
+
+describe("VpcAcl", () => {
+  test.provider("sets and updates the owned IPv4 ACL rule set", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.VpcAcl("Acl", {
+          vpc: "vpc-acl",
+          defaultPolicy: "drop",
+          rules: [{ protocol: "TCP", action: "accept", destinationPort: 443 }],
+        }),
+      );
+      expect(created.vpcId).toBe("vpc-acl");
+      expect(created.ipVersion).toBe("ipv4");
+      expect(created.defaultPolicy).toBe("drop");
+      expect(created.rules).toHaveLength(1);
+
+      const updated = yield* stack.deploy(
+        Scaleway.VpcAcl("Acl", {
+          vpc: "vpc-acl",
+          defaultPolicy: "accept",
+          rules: [{ protocol: "UDP", action: "drop", source: "10.0.0.0/8" }],
+        }),
+      );
+      expect(updated.defaultPolicy).toBe("accept");
+      expect(updated.rules[0]?.protocol).toBe("UDP");
+      expect(requests("PUT", "/acl-rules?is_ipv6=false")).toHaveLength(2);
+
+      yield* stack.destroy();
+      const reset = requests("PUT", "/acl-rules?is_ipv6=false").at(-1);
+      expect(JSON.parse(reset?.body ?? "{}")).toEqual({ default_policy: "accept", rules: [] });
+    }),
+  );
+
+  test.provider("changing IP version forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(
+        Scaleway.VpcAcl("Acl", { vpc: "vpc-acl", ipVersion: "ipv4", defaultPolicy: "drop" }),
+      );
+      const second = yield* stack.deploy(
+        Scaleway.VpcAcl("Acl", { vpc: "vpc-acl", ipVersion: "ipv6", defaultPolicy: "drop" }),
+      );
+      expect(first.ipVersion).toBe("ipv4");
+      expect(second.ipVersion).toBe("ipv6");
+      expect(requests("PUT", "/acl-rules?is_ipv6=true")).toHaveLength(1);
+    }),
+  );
+});
+
 describe("adoption (read path)", () => {
   adopt.test.provider("adopts an existing owned bucket by name", (stack) =>
     Effect.gen(function* () {

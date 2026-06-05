@@ -26,6 +26,12 @@ export {
 export { Domain, DomainProvider, type DomainContainerRef, type DomainProps } from "./Domain.ts";
 export { isNotFound, ScalewayError, scalewayError } from "./Errors.ts";
 export { Namespace, NamespaceProvider, type NamespaceProps } from "./Namespace.ts";
+export {
+  PrivateNetwork,
+  PrivateNetworkProvider,
+  type PrivateNetworkProps,
+  type VpcRef,
+} from "./PrivateNetwork.ts";
 export { providers, Providers, type ProviderRequirements } from "./Providers.ts";
 export {
   RegistryNamespace,
@@ -52,3 +58,13 @@ export {
   type TriggerSource,
   type TriggerSourceType,
 } from "./Trigger.ts";
+export { Vpc, VpcProvider, type VpcProps } from "./Vpc.ts";
+export {
+  VpcAcl,
+  VpcAclProvider,
+  type VpcAclIpVersion,
+  type VpcAclPolicy,
+  type VpcAclProps,
+  type VpcAclProtocol,
+  type VpcAclRule,
+} from "./VpcAcl.ts";

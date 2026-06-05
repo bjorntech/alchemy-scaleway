@@ -154,6 +154,48 @@ export interface ObjectStorageBucketRecord {
   versioning?: boolean;
 }
 
+export interface ScalewayVpcRecord {
+  id: string;
+  name: string;
+  project_id: string;
+  region?: string;
+  tags?: string[];
+  routing_enabled?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ScalewayPrivateNetworkRecord {
+  id: string;
+  name: string;
+  project_id: string;
+  region?: string;
+  vpc_id?: string;
+  tags?: string[];
+  subnets?: string[];
+  dhcp_enabled?: boolean;
+  default_route_propagation_enabled?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ScalewayVpcAclRuleRecord {
+  protocol: string;
+  action: string;
+  source?: string;
+  src_port_low?: number;
+  src_port_high?: number;
+  destination?: string;
+  dst_port_low?: number;
+  dst_port_high?: number;
+  description?: string;
+}
+
+export interface ScalewayVpcAclRecord {
+  default_policy: string;
+  rules: ScalewayVpcAclRuleRecord[];
+}
+
 export interface ScalewayClients {
   region: string;
   projectId?: string;
@@ -258,6 +300,61 @@ export interface ScalewayClients {
     }): Effect.Effect<ObjectStorageBucketRecord, ScalewayError>;
     deleteBucket(input: { name: string; region: string }): Effect.Effect<void, ScalewayError>;
   };
+  vpc: {
+    createVpc(input: {
+      name: string;
+      project_id: string;
+      tags?: string[];
+    }): Effect.Effect<ScalewayVpcRecord, ScalewayError>;
+    getVpc(vpcId: string): Effect.Effect<ScalewayVpcRecord, ScalewayError>;
+    updateVpc(
+      vpcId: string,
+      input: { name?: string; tags?: string[] },
+    ): Effect.Effect<ScalewayVpcRecord, ScalewayError>;
+    enableVpcRouting(vpcId: string): Effect.Effect<ScalewayVpcRecord, ScalewayError>;
+    deleteVpc(vpcId: string): Effect.Effect<void, ScalewayError>;
+    createPrivateNetwork(input: {
+      name: string;
+      project_id: string;
+      vpc_id?: string;
+      tags?: string[];
+      subnets?: string[];
+      default_route_propagation_enabled?: boolean;
+    }): Effect.Effect<ScalewayPrivateNetworkRecord, ScalewayError>;
+    getPrivateNetwork(
+      privateNetworkId: string,
+    ): Effect.Effect<ScalewayPrivateNetworkRecord, ScalewayError>;
+    updatePrivateNetwork(
+      privateNetworkId: string,
+      input: {
+        name?: string;
+        tags?: string[];
+        default_route_propagation_enabled?: boolean;
+      },
+    ): Effect.Effect<ScalewayPrivateNetworkRecord, ScalewayError>;
+    deletePrivateNetwork(privateNetworkId: string): Effect.Effect<void, ScalewayError>;
+    addPrivateNetworkSubnet(
+      privateNetworkId: string,
+      subnet: string,
+    ): Effect.Effect<ScalewayPrivateNetworkRecord, ScalewayError>;
+    deletePrivateNetworkSubnet(
+      privateNetworkId: string,
+      subnet: string,
+    ): Effect.Effect<ScalewayPrivateNetworkRecord, ScalewayError>;
+    enablePrivateNetworkDhcp(
+      privateNetworkId: string,
+    ): Effect.Effect<ScalewayPrivateNetworkRecord, ScalewayError>;
+    getAclRules(input: {
+      vpcId: string;
+      ipv6: boolean;
+    }): Effect.Effect<ScalewayVpcAclRecord, ScalewayError>;
+    setAclRules(input: {
+      vpcId: string;
+      ipv6: boolean;
+      default_policy: string;
+      rules: ScalewayVpcAclRuleRecord[];
+    }): Effect.Effect<ScalewayVpcAclRecord, ScalewayError>;
+  };
 }
 
 export const makeScalewayClients = Effect.gen(function* () {
@@ -267,8 +364,13 @@ export const makeScalewayClients = Effect.gen(function* () {
   const base = `/containers/v1/regions/${region}`;
   const registryBase = `/registry/v1/regions/${region}`;
   const secretManagerBase = `/secret-manager/v1beta1/regions/${region}`;
+  const vpcBase = `/vpc/v2/regions/${region}`;
 
-  const request = <T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown) =>
+  const request = <T>(
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+    path: string,
+    body?: unknown,
+  ) =>
     Effect.tryPromise({
       try: async () => {
         const response = await fetch(`${apiUrl}${path}`, {
@@ -374,6 +476,60 @@ export const makeScalewayClients = Effect.gen(function* () {
         ),
     },
     objectStorage,
+    vpc: {
+      createVpc: (input) =>
+        request("POST", `${vpcBase}/vpcs`, input).pipe(Effect.map(decodeVpc)),
+      getVpc: (id) => request("GET", `${vpcBase}/vpcs/${id}`).pipe(Effect.map(decodeVpc)),
+      updateVpc: (id, input) =>
+        request("PATCH", `${vpcBase}/vpcs/${id}`, input).pipe(Effect.map(decodeVpc)),
+      enableVpcRouting: (id) =>
+        request("POST", `${vpcBase}/vpcs/${id}/enable-routing`, {}).pipe(Effect.map(decodeVpc)),
+      deleteVpc: (id) => request<void>("DELETE", `${vpcBase}/vpcs/${id}`),
+      createPrivateNetwork: (input) =>
+        request("POST", `${vpcBase}/private-networks`, input).pipe(
+          Effect.map(decodePrivateNetwork),
+        ),
+      getPrivateNetwork: (id) =>
+        request("GET", `${vpcBase}/private-networks/${id}`).pipe(
+          Effect.map(decodePrivateNetwork),
+        ),
+      updatePrivateNetwork: (id, input) =>
+        request("PATCH", `${vpcBase}/private-networks/${id}`, input).pipe(
+          Effect.map(decodePrivateNetwork),
+        ),
+      deletePrivateNetwork: (id) => request<void>("DELETE", `${vpcBase}/private-networks/${id}`),
+      addPrivateNetworkSubnet: (id, subnet) =>
+        Effect.gen(function* () {
+          yield* request("POST", `${vpcBase}/private-networks/${id}/subnets`, {
+            subnets: [subnet],
+          });
+          return yield* request("GET", `${vpcBase}/private-networks/${id}`).pipe(
+            Effect.map(decodePrivateNetwork),
+          );
+        }),
+      deletePrivateNetworkSubnet: (id, subnet) =>
+        Effect.gen(function* () {
+          yield* request("DELETE", `${vpcBase}/private-networks/${id}/subnets`, {
+            subnets: [subnet],
+          });
+          return yield* request("GET", `${vpcBase}/private-networks/${id}`).pipe(
+            Effect.map(decodePrivateNetwork),
+          );
+        }),
+      enablePrivateNetworkDhcp: (id) =>
+        request("POST", `${vpcBase}/private-networks/${id}/enable-dhcp`, {}).pipe(
+          Effect.map(decodePrivateNetwork),
+        ),
+      getAclRules: ({ vpcId, ipv6 }) =>
+        request("GET", `${vpcBase}/vpcs/${vpcId}/acl-rules?is_ipv6=${ipv6}`).pipe(
+          Effect.map(decodeVpcAcl),
+        ),
+      setAclRules: ({ vpcId, ipv6, default_policy, rules }) =>
+        request("PUT", `${vpcBase}/vpcs/${vpcId}/acl-rules?is_ipv6=${ipv6}`, {
+          default_policy,
+          rules,
+        }).pipe(Effect.map(decodeVpcAcl)),
+    },
   } satisfies ScalewayClients;
 });
 
@@ -611,3 +767,24 @@ const decodeDomain = (value: unknown) => value as ScalewayDomainRecord;
 const decodeRegistryNamespace = (value: unknown) => value as ScalewayRegistryNamespaceRecord;
 const decodeSecret = (value: unknown) => value as ScalewaySecretRecord;
 const decodeSecretVersion = (value: unknown) => value as ScalewaySecretVersionRecord;
+const envelope = <T>(value: unknown, key: string) =>
+  typeof value === "object" && value !== null && key in value
+    ? ((value as Record<string, unknown>)[key] as T)
+    : (value as T);
+const decodeVpc = (value: unknown) => envelope<ScalewayVpcRecord>(value, "vpc");
+const decodePrivateNetwork = (value: unknown) => {
+  const record = envelope<
+    Omit<ScalewayPrivateNetworkRecord, "subnets"> & { subnets?: Array<string | { subnet: string }> }
+  >(value, "private_network");
+  return {
+    ...record,
+    subnets: record.subnets?.map((subnet) => (typeof subnet === "string" ? subnet : subnet.subnet)),
+  } as ScalewayPrivateNetworkRecord;
+};
+const decodeVpcAcl = (value: unknown): ScalewayVpcAclRecord => {
+  const envelopeValue = envelope<ScalewayVpcAclRecord>(value, "acl_rules");
+  return {
+    default_policy: envelopeValue.default_policy,
+    rules: envelopeValue.rules ?? [],
+  };
+};

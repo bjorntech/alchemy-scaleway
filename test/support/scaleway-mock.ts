@@ -72,6 +72,9 @@ export function installScalewayMock(): ScalewayMock {
   const triggers = new Map<string, Record<string, unknown>>();
   const domains = new Map<string, Record<string, unknown>>();
   const buckets = new Map<string, BucketState>();
+  const vpcs = new Map<string, Record<string, unknown>>();
+  const privateNetworks = new Map<string, Record<string, unknown>>();
+  const aclRules = new Map<string, Record<string, unknown>>();
   let counter = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
   const forcedErrors: Array<{ fragment: string; status: number; message: string }> = [];
@@ -323,6 +326,118 @@ export function installScalewayMock(): ScalewayMock {
     return json({ message: `unhandled secret manager request ${method} ${pathname}` }, 400);
   };
 
+  const vpcHandler = (method: string, pathname: string, search: string, body: unknown): Response => {
+    const segments = pathname.split("/").filter(Boolean);
+    const kind = segments[4];
+    const id = segments[5];
+    const action = segments[6];
+    const subnet = segments[7];
+    const input = (body ?? {}) as Record<string, unknown>;
+
+    if (kind === "vpcs") {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("vpc"),
+          region: "fr-par",
+          routing_enabled: false,
+          tags: [],
+          ...input,
+        };
+        vpcs.set(record.id as string, record);
+        return json({ vpc: record });
+      }
+      const existing = vpcs.get(id);
+      if (action === "acl-rules") {
+        const isIpv6 = new URLSearchParams(search).get("is_ipv6") === "true";
+        const key = `${id}:${isIpv6}`;
+        if (method === "GET") {
+          return json(
+            aclRules.get(key) ?? {
+              default_policy: "accept",
+              rules: [],
+            },
+          );
+        }
+        if (method === "PUT") {
+          const record = {
+            default_policy: input.default_policy,
+            rules: input.rules ?? [],
+          };
+          aclRules.set(key, record);
+          return json(record);
+        }
+      }
+      if (!existing) return json({ message: "vpc not found" }, 404);
+      if (!action && method === "GET") return json({ vpc: existing });
+      if (!action && method === "PATCH") {
+        const updated = { ...existing, ...input };
+        vpcs.set(id, updated);
+        return json({ vpc: updated });
+      }
+      if (!action && method === "DELETE") {
+        vpcs.delete(id);
+        return noContent();
+      }
+      if (action === "enable-routing" && method === "POST") {
+        const updated = { ...existing, routing_enabled: true };
+        vpcs.set(id, updated);
+        return json({ vpc: updated });
+      }
+    }
+
+    if (kind === "private-networks") {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("pn"),
+          region: "fr-par",
+          tags: [],
+          subnets: [],
+          dhcp_enabled: false,
+          ...input,
+        };
+        privateNetworks.set(record.id as string, record);
+        return json({ private_network: record });
+      }
+      const existing = privateNetworks.get(id);
+      if (!existing) return json({ message: "private network not found" }, 404);
+      if (!action && method === "GET") return json({ private_network: existing });
+      if (!action && method === "PATCH") {
+        const updated = { ...existing, ...input };
+        privateNetworks.set(id, updated);
+        return json({ private_network: updated });
+      }
+      if (!action && method === "DELETE") {
+        privateNetworks.delete(id);
+        return noContent();
+      }
+      if (action === "enable-dhcp" && method === "POST") {
+        const updated = { ...existing, dhcp_enabled: true };
+        privateNetworks.set(id, updated);
+        return json({ private_network: updated });
+      }
+      if (action === "subnets" && method === "POST") {
+        const subnets = new Set([
+          ...(existing.subnets as string[]),
+          ...((input.subnets as string[]) ?? []),
+        ]);
+        const updated = { ...existing, subnets: [...subnets] };
+        privateNetworks.set(id, updated);
+        return json({ subnets: updated.subnets });
+      }
+      if (action === "subnets" && method === "DELETE") {
+        const deleted = new Set((input.subnets as string[]) ?? []);
+        const updated = {
+          ...existing,
+          subnets: (existing.subnets as string[]).filter((item) => !deleted.has(item)),
+        };
+        privateNetworks.set(id, updated);
+        return json({ subnets: updated.subnets });
+      }
+    }
+
+    return json({ message: `unhandled vpc request ${method} ${pathname}${search}` }, 400);
+  };
+
   const parseTagBody = (body: string): Record<string, string> => {
     const tags: Record<string, string> = {};
     for (const [, key, value] of body.matchAll(/<Key>([^<]+)<\/Key><Value>([^<]*)<\/Value>/g)) {
@@ -435,6 +550,9 @@ export function installScalewayMock(): ScalewayMock {
       }
       if (parsed.pathname.startsWith("/secret-manager/")) {
         return secretManagerHandler(method, parsed.pathname, parsedBody);
+      }
+      if (parsed.pathname.startsWith("/vpc/")) {
+        return vpcHandler(method, parsed.pathname, parsed.search, parsedBody);
       }
       return containersHandler(method, parsed.pathname, parsedBody);
     }

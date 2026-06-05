@@ -10,7 +10,7 @@ src/
   Providers.ts      providers() layer and Provider.collection
   AuthProvider.ts   ScalewayAuth env/stored auth provider
   Credentials.ts    ScalewayCredentials service
-  Clients.ts        Containers REST client and Object Storage S3 client
+  Clients.ts        Scaleway REST clients and Object Storage S3 client
   Errors.ts         ScalewayError tagged error helpers
   Internal.ts       naming, config, and small utility helpers
 
@@ -21,6 +21,9 @@ src/
   RegistryNamespace.ts Container Registry namespace resource
   Secret.ts         Secret Manager secret resource
   Bucket.ts         Object Storage bucket resource
+  Vpc.ts            VPC resource
+  PrivateNetwork.ts Private Network resource
+  VpcAcl.ts         VPC ACL rule-set resource
 
 test/
   *.test.ts         Bun test suites
@@ -54,6 +57,10 @@ Apply the same rule to Scaleway:
 - `Container` may orchestrate custom domains and cron triggers from `domains`/`crons` props for the common service deployment workflow. Standalone `Domain` and `Trigger` resources remain available for explicit control.
 - `RegistryNamespace` provisions the Container Registry namespace needed to host images consumed by `Container.image`; image/tag pushes remain an external CI/build concern.
 - `Secret` provisions Secret Manager metadata and current value versions. Secret values use `Redacted<string>` and are never returned in resource attributes.
+- `Vpc` provisions Scaleway VPCs and can enable routing. Routing is a one-way provider operation; attempting to disable already-enabled routing fails locally.
+- `PrivateNetwork` provisions Scaleway Private Networks, optional VPC attachment, subnet membership, DHCP enablement, and default route propagation. VPC and project changes replace the resource.
+- `VpcAcl` owns the complete ACL rule set for a single VPC and IP version. Deleting it resets that ACL set to `defaultPolicy: "accept"` and no rules; do not use multiple `VpcAcl` resources for the same VPC/IP version.
+- Scaleway documents Private Network subnet add/delete endpoints, and the provider uses them for subnet drift reconciliation. Live production smoke currently verifies create-time subnets only because Scaleway returns `501 unimplemented endpoint` for the documented mutation endpoints in `fr-par`.
 - Current Alchemy v2 beta `ResourceOptions` do not expose an `alwaysUpdate` or equivalent read-on-noop option. Because of that, same-props deploys cannot detect external deletion of `Container`-managed companion domains/triggers. The `Container` read path verifies persisted companion IDs when a read/update path runs, but no-op plans will not recover missing companions until a prop change triggers reconciliation. Revisit this if Alchemy adds an always-update/read-on-noop resource option.
 
 ## Adding A Resource
