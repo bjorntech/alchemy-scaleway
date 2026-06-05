@@ -51,12 +51,12 @@ export const PrivateNicProvider = () =>
     PrivateNic,
     Effect.gen(function* () {
       const clients = yield* makeScalewayClients;
-      const toAttributes = (record: ScalewayPrivateNicRecord): PrivateNic["Attributes"] =>
+      const toAttributes = (record: ScalewayPrivateNicRecord, fallback: { zone: string; serverId?: string; privateNetworkId?: string }): PrivateNic["Attributes"] =>
         omitUndefined({
           privateNicId: record.id,
-          zone: record.zone ?? clients.region,
-          serverId: record.server_id,
-          privateNetworkId: record.private_network_id,
+          zone: record.zone ?? fallback.zone,
+          serverId: record.server_id ?? fallback.serverId,
+          privateNetworkId: record.private_network_id ?? fallback.privateNetworkId,
           macAddress: record.mac_address,
           state: record.state,
           tags: record.tags,
@@ -64,29 +64,36 @@ export const PrivateNicProvider = () =>
         }) as PrivateNic["Attributes"];
 
       return PrivateNic.Provider.of({
-        stables: ["privateNicId", "zone", "serverId", "privateNetworkId"],
+        stables: ["privateNicId", "zone", "serverId"],
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           const privateNetworkId = yield* privateNetworkIdOf(news.privateNetwork);
-          if (output.zone !== zoneOf(clients.region, news.zone) || output.serverId !== news.serverId || output.privateNetworkId !== privateNetworkId || !stringsEqual(output.ipamIpIds, news.ipamIpIds)) return { action: "replace" } as const;
+          const zone = zoneOf(clients.region, news.zone);
+          if (
+            output.zone !== zone && output.zone !== clients.region ||
+            output.serverId !== undefined && output.serverId !== news.serverId ||
+            output.privateNetworkId !== undefined && output.privateNetworkId !== privateNetworkId ||
+            !stringsEqual(output.ipamIpIds, news.ipamIpIds)
+          ) return { action: "replace" } as const;
           if (!stringsEqual(output.tags, withAlchemyTag(id, news.tags))) return { action: "update" } as const;
           return undefined;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.privateNicId) return undefined;
           return yield* clients.instance.getPrivateNic({ zone: output.zone, serverId: output.serverId, privateNicId: output.privateNicId }).pipe(
-            Effect.map(toAttributes),
+            Effect.map((record) => toAttributes(record, { zone: output.zone, serverId: output.serverId, privateNetworkId: output.privateNetworkId })),
             Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
           );
         }),
         reconcile: Effect.fnUntraced(function* ({ id, news, output, session }) {
           const zone = zoneOf(clients.region, news.zone);
           const tags = withAlchemyTag(id, news.tags);
+          const privateNetworkId = yield* privateNetworkIdOf(news.privateNetwork);
           const record = output?.privateNicId
             ? yield* clients.instance.updatePrivateNic({ zone, serverId: output.serverId, privateNicId: output.privateNicId, tags })
-            : yield* clients.instance.createPrivateNic({ zone, serverId: news.serverId, private_network_id: yield* privateNetworkIdOf(news.privateNetwork), tags, ipam_ip_ids: news.ipamIpIds });
+            : yield* clients.instance.createPrivateNic({ zone, serverId: news.serverId, private_network_id: privateNetworkId, tags, ipam_ip_ids: news.ipamIpIds });
           yield* session.note(`${output?.privateNicId ? "Updated" : "Created"} Scaleway private NIC ${record.id}`);
-          return toAttributes(record);
+          return toAttributes(record, { zone, serverId: news.serverId, privateNetworkId });
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
           yield* clients.instance.deletePrivateNic({ zone: output.zone, serverId: output.serverId, privateNicId: output.privateNicId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));

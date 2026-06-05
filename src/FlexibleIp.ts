@@ -59,9 +59,9 @@ export const FlexibleIpProvider = () =>
           tags: record.tags,
           serverId: record.server?.id,
           type: record.type,
-          reverse: record.reverse,
+          reverse: record.reverse ?? undefined,
           state: record.state,
-          prefix: record.prefix,
+          prefix: record.prefix ?? undefined,
           ipamId: record.ipam_id,
         }) as FlexibleIp["Attributes"];
 

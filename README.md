@@ -154,7 +154,7 @@ export default Alchemy.Stack(
 
 ### VPC Caveats
 
-Scaleway's public VPC v2 schema documents in-place subnet add/delete endpoints for existing Private Networks. The provider implements those documented endpoints for subnet drift reconciliation, but the production smoke account currently receives `501 unimplemented endpoint` from Scaleway in `fr-par`. Create-time `PrivateNetwork.subnets` is verified by the live smoke test.
+Scaleway's public VPC v2 schema documents in-place subnet add/delete endpoints for existing Private Networks. The provider implements those documented endpoints for subnet drift reconciliation, but the production smoke account currently receives `501 unimplemented endpoint` from Scaleway in `fr-par`. The live smoke test omits `PrivateNetwork.subnets` until those endpoints are available.
 
 `Vpc.routing` and `Vpc.customRoutesPropagation` map to one-way Scaleway operations. Once enabled, attempting to disable either flag fails locally instead of silently drifting.
 

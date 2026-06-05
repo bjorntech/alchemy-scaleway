@@ -10,7 +10,7 @@ import {
   type ScalewayDomainRecord,
   type ScalewayTriggerRecord,
 } from "./Clients.ts";
-import { isNotFound } from "./Errors.ts";
+import { isNotFound, ScalewayError } from "./Errors.ts";
 import {
   namespaceId,
   omitUndefined,
@@ -212,6 +212,20 @@ function domainKey(domain: ContainerDomain) {
 function compact<T>(items: Array<T | undefined>) {
   return items.filter((item): item is T => item !== undefined);
 }
+
+const isTransientState = (error: unknown) =>
+  String((error as { message?: unknown })?.message ?? "")
+    .toLowerCase()
+    .includes("transient state");
+
+const retryTransient = <A>(effect: Effect.Effect<A, ScalewayError>, attempts = 60): Effect.Effect<A, ScalewayError> =>
+  effect.pipe(
+    Effect.catch((error) =>
+      attempts > 1 && isTransientState(error)
+        ? Effect.sleep("5 seconds").pipe(Effect.flatMap(() => retryTransient(effect, attempts - 1)))
+        : Effect.fail(error),
+    ),
+  );
 
 function assertUnique(keys: string[], label: string) {
   const duplicates = keys.filter((key, index) => keys.indexOf(key) !== index);
@@ -520,7 +534,7 @@ export const ContainerProvider = () =>
               if (olds && containerPropsEqual(olds, news))
                 return toAttributes(yield* clients.containers.getContainer(output.containerId));
               const input = yield* inputFor(id, news, true);
-              yield* clients.containers.updateContainer(output.containerId, input);
+              yield* retryTransient(clients.containers.updateContainer(output.containerId, input));
               yield* session.note(`Updated Scaleway container ${output.containerId}`);
               return yield* waitForReady(output.containerId);
             });
@@ -531,7 +545,7 @@ export const ContainerProvider = () =>
             );
           }
           const input = yield* inputFor(id, news, false);
-          const created = yield* clients.containers.createContainer(input);
+          const created = yield* retryTransient(clients.containers.createContainer(input));
           yield* session.note(`Created Scaleway container ${created.id}`);
           const ready = yield* waitForReady(created.id);
           return yield* provisionCompanions(ready, undefined, news);
