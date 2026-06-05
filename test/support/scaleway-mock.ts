@@ -17,6 +17,13 @@ export interface ScalewayMock {
   restore(): void;
   /** Drop a record so the next `read`/`get` behaves like a 404. */
   removeContainer(id: string): void;
+  removeVpc(id: string): void;
+  removePrivateNetwork(id: string): void;
+  removeRoute(id: string): void;
+  removeVpcConnector(id: string): void;
+  removeSecurityGroup(id: string): void;
+  removeFlexibleIp(id: string): void;
+  removePrivateNic(serverId: string, id: string): void;
   removeBucket(name: string): void;
   /** Seed a bucket that Alchemy does not own (no `alchemy:logical-id` tag). */
   seedBucket(name: string, region: string, tags?: Record<string, string>): void;
@@ -77,6 +84,10 @@ export function installScalewayMock(): ScalewayMock {
   const aclRules = new Map<string, Record<string, unknown>>();
   const routes = new Map<string, Record<string, unknown>>();
   const vpcConnectors = new Map<string, Record<string, unknown>>();
+  const securityGroups = new Map<string, Record<string, unknown>>();
+  const securityGroupRules = new Map<string, Array<Record<string, unknown>>>();
+  const flexibleIps = new Map<string, Record<string, unknown>>();
+  const privateNics = new Map<string, Record<string, unknown>>();
   let counter = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
   const forcedErrors: Array<{ fragment: string; status: number; message: string }> = [];
@@ -578,6 +589,116 @@ export function installScalewayMock(): ScalewayMock {
     );
   };
 
+  const instanceHandler = (method: string, pathname: string, body: unknown): Response => {
+    const segments = pathname.split("/").filter(Boolean);
+    const zone = segments[3];
+    const kind = segments[4];
+    const id = segments[5];
+    const nested = segments[6];
+    const nestedId = segments[7];
+    const input = (body ?? {}) as Record<string, unknown>;
+
+    if (kind === "security_groups") {
+      if (!id && method === "POST") {
+        const record = { id: nextId("sg"), zone, state: "available", tags: [], ...input };
+        securityGroups.set(record.id as string, record);
+        return json({ security_group: record }, 201);
+      }
+      const existing = securityGroups.get(id);
+      if (!existing) return json({ message: "security group not found" }, 404);
+      if (!nested && method === "GET") return json({ security_group: existing });
+      if (!nested && method === "PATCH") {
+        const updated = { ...existing, ...input };
+        securityGroups.set(id, updated);
+        return json({ security_group: updated });
+      }
+      if (!nested && method === "DELETE") {
+        securityGroups.delete(id);
+        securityGroupRules.delete(id);
+        return noContent();
+      }
+      if (nested === "rules") {
+        if (!nestedId && method === "PUT") {
+          const rules = ((input.rules as Array<Record<string, unknown>>) ?? []).map((rule, index) => ({
+            id: (rule.id as string | undefined) ?? nextId("sgr"),
+            zone,
+            editable: true,
+            position: index,
+            ...rule,
+            dest_port_to: rule.dest_port_to === rule.dest_port_from ? null : rule.dest_port_to,
+          }));
+          securityGroupRules.set(id, rules);
+          return json({ rules });
+        }
+        if (!nestedId && method === "GET") return json({ rules: securityGroupRules.get(id) ?? [] });
+      }
+    }
+
+    if (kind === "ips") {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("ip"),
+          zone,
+          address: `203.0.113.${counter + 1}`,
+          state: "attached",
+          type: input.type ?? "routed_ipv4",
+          tags: [],
+          ...input,
+          server: input.server ? { id: input.server } : undefined,
+        };
+        flexibleIps.set(record.id as string, record);
+        return json({ ip: record }, 201);
+      }
+      const existing = flexibleIps.get(id) ?? [...flexibleIps.values()].find((ip) => ip.address === id);
+      if (!existing) return json({ message: "ip not found" }, 404);
+      if (method === "GET") return json({ ip: existing });
+      if (method === "PATCH") {
+        const updated = {
+          ...existing,
+          ...input,
+          server: input.server === null ? undefined : input.server ? { id: input.server } : existing.server,
+        };
+        flexibleIps.set(existing.id as string, updated);
+        return json({ ip: updated });
+      }
+      if (method === "DELETE") {
+        flexibleIps.delete(existing.id as string);
+        return noContent();
+      }
+    }
+
+    if (kind === "servers" && nested === "private_nics") {
+      const key = (privateNicId: string) => `${id}:${privateNicId}`;
+      if (!nestedId && method === "POST") {
+        const record = {
+          id: nextId("pnic"),
+          zone,
+          server_id: id,
+          mac_address: "02:00:00:00:00:01",
+          state: "available",
+          tags: [],
+          ...input,
+        };
+        privateNics.set(key(record.id as string), record);
+        return json({ private_nic: record }, 201);
+      }
+      const existing = privateNics.get(key(nestedId));
+      if (!existing) return json({ message: "private nic not found" }, 404);
+      if (method === "GET") return json({ private_nic: existing });
+      if (method === "PATCH") {
+        const updated = { ...existing, ...input };
+        privateNics.set(key(nestedId), updated);
+        return json(updated);
+      }
+      if (method === "DELETE") {
+        privateNics.delete(key(nestedId));
+        return noContent();
+      }
+    }
+
+    return json({ message: `unhandled instance request ${method} ${pathname}` }, 400);
+  };
+
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     // Our Containers client calls `fetch(url, { method, body })`; aws4fetch
     // signs and calls `fetch(Request)` with a single argument, so the method
@@ -616,6 +737,9 @@ export function installScalewayMock(): ScalewayMock {
       if (parsed.pathname.startsWith("/vpc/")) {
         return vpcHandler(method, parsed.pathname, parsed.search, parsedBody);
       }
+      if (parsed.pathname.startsWith("/instance/")) {
+        return instanceHandler(method, parsed.pathname, parsedBody);
+      }
       return containersHandler(method, parsed.pathname, parsedBody);
     }
     if (parsed.host.endsWith(".scw.cloud")) {
@@ -630,6 +754,13 @@ export function installScalewayMock(): ScalewayMock {
       globalThis.fetch = original;
     },
     removeContainer: (id) => containers.delete(id),
+    removeVpc: (id) => vpcs.delete(id),
+    removePrivateNetwork: (id) => privateNetworks.delete(id),
+    removeRoute: (id) => routes.delete(id),
+    removeVpcConnector: (id) => vpcConnectors.delete(id),
+    removeSecurityGroup: (id) => securityGroups.delete(id),
+    removeFlexibleIp: (id) => flexibleIps.delete(id),
+    removePrivateNic: (serverId, id) => privateNics.delete(`${serverId}:${id}`),
     removeBucket: (name) => buckets.delete(name),
     seedBucket: (name, region, tags = {}) => buckets.set(name, { region, versioning: false, tags }),
     failNext: (fragment, status, message) => forcedErrors.push({ fragment, status, message }),

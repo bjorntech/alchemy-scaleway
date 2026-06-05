@@ -37,8 +37,7 @@ export type VpcConnector = Resource<
 
 export const VpcConnector = Resource<VpcConnector>("Scaleway.VpcConnector");
 
-const stringsEqual = (left?: string[], right?: string[]) =>
-  JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
+const stringsEqual = (left?: string[], right?: string[]) => JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
 const withAlchemyTag = (id: string, tags: string[] | undefined) => [
   `alchemy:logical-id=${id}`,
   ...(tags ?? []),
@@ -79,9 +78,7 @@ export const VpcConnectorProvider = () =>
           }
           const name = yield* nameOf(id, news.name);
           const tags = withAlchemyTag(id, news.tags);
-          if (output.name !== name || !stringsEqual(output.tags, tags)) {
-            return { action: "update" } as const;
-          }
+          if (output.name !== name || !stringsEqual(output.tags, tags)) return { action: "update" } as const;
           return undefined;
         }),
         read: Effect.fnUntraced(function* ({ output }) {

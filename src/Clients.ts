@@ -233,6 +233,59 @@ export interface ScalewayVpcConnectorRecord {
   updated_at?: string;
 }
 
+export interface ScalewaySecurityGroupRecord {
+  id: string;
+  name: string;
+  description?: string | null;
+  project?: string;
+  tags?: string[];
+  inbound_default_policy?: string;
+  outbound_default_policy?: string;
+  stateful?: boolean;
+  project_default?: boolean;
+  enable_default_security?: boolean;
+  state?: string;
+  zone?: string;
+}
+
+export interface ScalewaySecurityGroupRuleRecord {
+  id?: string;
+  protocol: string;
+  direction: string;
+  action: string;
+  ip_range: string;
+  dest_port_from?: number;
+  dest_port_to?: number | null;
+  position?: number;
+  editable?: boolean;
+  zone?: string;
+}
+
+export interface ScalewayFlexibleIpRecord {
+  id: string;
+  address: string;
+  reverse?: string;
+  server?: { id: string; name?: string } | null;
+  tags?: string[];
+  project?: string;
+  type?: string;
+  state?: string;
+  prefix?: string;
+  ipam_id?: string;
+  zone?: string;
+}
+
+export interface ScalewayPrivateNicRecord {
+  id: string;
+  server_id: string;
+  private_network_id: string;
+  mac_address?: string;
+  state?: string;
+  tags?: string[];
+  zone?: string;
+  ipam_ip_ids?: string[];
+}
+
 export interface ScalewayClients {
   region: string;
   projectId?: string;
@@ -426,6 +479,42 @@ export interface ScalewayClients {
       input: { name?: string; tags?: string[] },
     ): Effect.Effect<ScalewayVpcConnectorRecord, ScalewayError>;
     deleteVpcConnector(vpcConnectorId: string): Effect.Effect<void, ScalewayError>;
+  };
+  instance: {
+    createSecurityGroup(input: {
+      zone: string;
+      name: string;
+      project?: string;
+      description?: string;
+      tags?: string[];
+      inbound_default_policy?: string;
+      outbound_default_policy?: string;
+      stateful?: boolean;
+      project_default?: boolean;
+    }): Effect.Effect<ScalewaySecurityGroupRecord, ScalewayError>;
+    getSecurityGroup(input: { zone: string; securityGroupId: string }): Effect.Effect<ScalewaySecurityGroupRecord, ScalewayError>;
+    updateSecurityGroup(input: {
+      zone: string;
+      securityGroupId: string;
+      name?: string;
+      description?: string | null;
+      tags?: string[];
+      inbound_default_policy?: string;
+      outbound_default_policy?: string;
+      stateful?: boolean;
+      project_default?: boolean;
+    }): Effect.Effect<ScalewaySecurityGroupRecord, ScalewayError>;
+    deleteSecurityGroup(input: { zone: string; securityGroupId: string }): Effect.Effect<void, ScalewayError>;
+    listSecurityGroupRules(input: { zone: string; securityGroupId: string }): Effect.Effect<ScalewaySecurityGroupRuleRecord[], ScalewayError>;
+    setSecurityGroupRules(input: { zone: string; securityGroupId: string; rules: ScalewaySecurityGroupRuleRecord[] }): Effect.Effect<ScalewaySecurityGroupRuleRecord[], ScalewayError>;
+    createFlexibleIp(input: { zone: string; project?: string; tags?: string[]; server?: string; type?: string }): Effect.Effect<ScalewayFlexibleIpRecord, ScalewayError>;
+    getFlexibleIp(input: { zone: string; ip: string }): Effect.Effect<ScalewayFlexibleIpRecord, ScalewayError>;
+    updateFlexibleIp(input: { zone: string; ip: string; reverse?: string | null; tags?: string[]; server?: string | null }): Effect.Effect<ScalewayFlexibleIpRecord, ScalewayError>;
+    deleteFlexibleIp(input: { zone: string; ip: string }): Effect.Effect<void, ScalewayError>;
+    createPrivateNic(input: { zone: string; serverId: string; private_network_id: string; tags?: string[]; ipam_ip_ids?: string[] }): Effect.Effect<ScalewayPrivateNicRecord, ScalewayError>;
+    getPrivateNic(input: { zone: string; serverId: string; privateNicId: string }): Effect.Effect<ScalewayPrivateNicRecord, ScalewayError>;
+    updatePrivateNic(input: { zone: string; serverId: string; privateNicId: string; tags?: string[] }): Effect.Effect<ScalewayPrivateNicRecord, ScalewayError>;
+    deletePrivateNic(input: { zone: string; serverId: string; privateNicId: string }): Effect.Effect<void, ScalewayError>;
   };
 }
 
@@ -622,6 +711,33 @@ export const makeScalewayClients = Effect.gen(function* () {
           Effect.map(decodeVpcConnector),
         ),
       deleteVpcConnector: (id) => request<void>("DELETE", `${vpcBase}/vpc-connectors/${id}`),
+    },
+    instance: {
+      createSecurityGroup: ({ zone, ...input }) =>
+        request("POST", `/instance/v1/zones/${zone}/security_groups`, input).pipe(Effect.map(decodeSecurityGroup)),
+      getSecurityGroup: ({ zone, securityGroupId }) =>
+        request("GET", `/instance/v1/zones/${zone}/security_groups/${securityGroupId}`).pipe(Effect.map(decodeSecurityGroup)),
+      updateSecurityGroup: ({ zone, securityGroupId, ...input }) =>
+        request("PATCH", `/instance/v1/zones/${zone}/security_groups/${securityGroupId}`, input).pipe(Effect.map(decodeSecurityGroup)),
+      deleteSecurityGroup: ({ zone, securityGroupId }) => request<void>("DELETE", `/instance/v1/zones/${zone}/security_groups/${securityGroupId}`),
+      listSecurityGroupRules: ({ zone, securityGroupId }) =>
+        request("GET", `/instance/v1/zones/${zone}/security_groups/${securityGroupId}/rules`).pipe(Effect.map(decodeSecurityGroupRules)),
+      setSecurityGroupRules: ({ zone, securityGroupId, rules }) =>
+        request("PUT", `/instance/v1/zones/${zone}/security_groups/${securityGroupId}/rules`, { rules }).pipe(Effect.map(decodeSecurityGroupRules)),
+      createFlexibleIp: ({ zone, ...input }) =>
+        request("POST", `/instance/v1/zones/${zone}/ips`, input).pipe(Effect.map(decodeFlexibleIp)),
+      getFlexibleIp: ({ zone, ip }) =>
+        request("GET", `/instance/v1/zones/${zone}/ips/${ip}`).pipe(Effect.map(decodeFlexibleIp)),
+      updateFlexibleIp: ({ zone, ip, ...input }) =>
+        request("PATCH", `/instance/v1/zones/${zone}/ips/${ip}`, input).pipe(Effect.map(decodeFlexibleIp)),
+      deleteFlexibleIp: ({ zone, ip }) => request<void>("DELETE", `/instance/v1/zones/${zone}/ips/${ip}`),
+      createPrivateNic: ({ zone, serverId, ...input }) =>
+        request("POST", `/instance/v1/zones/${zone}/servers/${serverId}/private_nics`, input).pipe(Effect.map(decodePrivateNic)),
+      getPrivateNic: ({ zone, serverId, privateNicId }) =>
+        request("GET", `/instance/v1/zones/${zone}/servers/${serverId}/private_nics/${privateNicId}`).pipe(Effect.map(decodePrivateNic)),
+      updatePrivateNic: ({ zone, serverId, privateNicId, ...input }) =>
+        request("PATCH", `/instance/v1/zones/${zone}/servers/${serverId}/private_nics/${privateNicId}`, input).pipe(Effect.map(decodePrivateNic)),
+      deletePrivateNic: ({ zone, serverId, privateNicId }) => request<void>("DELETE", `/instance/v1/zones/${zone}/servers/${serverId}/private_nics/${privateNicId}`),
     },
   } satisfies ScalewayClients;
 });
@@ -884,3 +1000,7 @@ const decodeVpcAcl = (value: unknown): ScalewayVpcAclRecord => {
 const decodeVpcRoute = (value: unknown) => envelope<ScalewayVpcRouteRecord>(value, "route");
 const decodeVpcConnector = (value: unknown) =>
   envelope<ScalewayVpcConnectorRecord>(value, "vpc_connector");
+const decodeSecurityGroup = (value: unknown) => envelope<ScalewaySecurityGroupRecord>(value, "security_group");
+const decodeSecurityGroupRules = (value: unknown) => envelope<ScalewaySecurityGroupRuleRecord[]>(value, "rules") ?? [];
+const decodeFlexibleIp = (value: unknown) => envelope<ScalewayFlexibleIpRecord>(value, "ip");
+const decodePrivateNic = (value: unknown) => envelope<ScalewayPrivateNicRecord>(value, "private_nic");

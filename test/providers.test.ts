@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Test from "alchemy/Test/Bun";
 import * as Scaleway from "../src/index.ts";
@@ -8,6 +9,29 @@ import { testProviders } from "./support/test-providers.ts";
 
 const { test } = Test.make({ providers: testProviders() });
 const adopt = Test.make({ providers: testProviders(), adopt: true });
+const vpcLifecycleLayer = Layer.mergeAll(
+  Scaleway.VpcProvider(),
+  Scaleway.PrivateNetworkProvider(),
+  Scaleway.VpcRouteProvider(),
+  Scaleway.VpcConnectorProvider(),
+  Scaleway.SecurityGroupProvider(),
+  Scaleway.FlexibleIpProvider(),
+  Scaleway.PrivateNicProvider(),
+).pipe(
+  Layer.provideMerge(
+    Layer.succeed(
+      Scaleway.ScalewayCredentials,
+      Scaleway.ScalewayCredentials.of({
+        secretKey: Redacted.make("test-secret"),
+        accessKey: "test-access",
+        region: "fr-par",
+        apiUrl: "https://api.scaleway.com",
+        projectId: "proj-test",
+      }),
+    ),
+  ),
+  Layer.orDie,
+);
 
 let mock: ScalewayMock;
 beforeEach(() => {
@@ -687,6 +711,48 @@ describe("Vpc", () => {
       expect(requests("POST", "/enable-custom-routes-propagation")).toHaveLength(0);
     }),
   );
+
+  test.provider("rejects disabling one-way VPC flags", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Scaleway.Vpc("Network", { routing: true, customRoutesPropagation: true }),
+      );
+
+      const routingExit = yield* Effect.exit(
+        stack.deploy(Scaleway.Vpc("Network", { routing: false, customRoutesPropagation: true })),
+      );
+      expect(routingExit._tag).toBe("Failure");
+
+      const propagationExit = yield* Effect.exit(
+        stack.deploy(Scaleway.Vpc("Network", { routing: true, customRoutesPropagation: false })),
+      );
+      expect(propagationExit._tag).toBe("Failure");
+    }),
+  );
+
+  test.provider("read returns existing VPCs and ignores missing ones", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(Scaleway.Vpc("Network", { tags: ["read=ok"] }));
+      const provider = yield* Scaleway.Vpc.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "Network",
+        instanceId: "test",
+        olds: { tags: ["read=ok"] },
+        output: created,
+      });
+      expect(read?.vpcId).toBe(created.vpcId);
+
+      mock.removeVpc(created.vpcId);
+      const missing = yield* provider.read!({
+        id: "Network",
+        instanceId: "test",
+        olds: { tags: ["read=ok"] },
+        output: created,
+      });
+      expect(missing).toBeUndefined();
+    }),
+  );
+
 });
 
 describe("PrivateNetwork", () => {
@@ -750,6 +816,37 @@ describe("PrivateNetwork", () => {
       expect(requests("POST", "/enable-dhcp")).toHaveLength(0);
     }),
   );
+
+  test.provider("rejects disabling DHCP once enabled", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(Scaleway.PrivateNetwork("Lan", { dhcp: true }));
+      const exit = yield* Effect.exit(stack.deploy(Scaleway.PrivateNetwork("Lan", { dhcp: false })));
+      expect(exit._tag).toBe("Failure");
+    }),
+  );
+
+  test.provider("read returns existing Private Networks and ignores missing ones", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(Scaleway.PrivateNetwork("Lan", { tags: ["read=ok"] }));
+      const provider = yield* Scaleway.PrivateNetwork.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "Lan",
+        instanceId: "test",
+        olds: { tags: ["read=ok"] },
+        output: created,
+      });
+      expect(read?.privateNetworkId).toBe(created.privateNetworkId);
+
+      mock.removePrivateNetwork(created.privateNetworkId);
+      const missing = yield* provider.read!({
+        id: "Lan",
+        instanceId: "test",
+        olds: { tags: ["read=ok"] },
+        output: created,
+      });
+      expect(missing).toBeUndefined();
+    }),
+  );
 });
 
 describe("VpcAcl", () => {
@@ -795,6 +892,20 @@ describe("VpcAcl", () => {
       expect(first.ipVersion).toBe("ipv4");
       expect(second.ipVersion).toBe("ipv6");
       expect(requests("PUT", "/acl-rules?is_ipv6=true")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("identical ACL rule sets redeploy as a noop", (stack) =>
+    Effect.gen(function* () {
+      const props = {
+        vpc: "vpc-acl",
+        defaultPolicy: "drop" as const,
+        rules: [{ protocol: "TCP" as const, action: "accept" as const, destinationPort: 443 }],
+      };
+      const created = yield* stack.deploy(Scaleway.VpcAcl("Acl", props));
+      const redeployed = yield* stack.deploy(Scaleway.VpcAcl("Acl", props));
+      expect(redeployed.vpcId).toBe(created.vpcId);
+      expect(requests("PUT", "/acl-rules?is_ipv6=false")).toHaveLength(1);
     }),
   );
 });
@@ -865,6 +976,63 @@ describe("VpcRoute", () => {
       expect(requests("DELETE", "/vpc/v2/regions/fr-par/routes/").length).toBeGreaterThan(0);
     }),
   );
+
+  test.provider("uses VPC connector next hops", (stack) =>
+    Effect.gen(function* () {
+      const out = yield* stack.deploy(
+        Effect.gen(function* () {
+          const connector = yield* Scaleway.VpcConnector("Connector", {
+            vpc: "vpc-a",
+            targetVpc: "vpc-b",
+          });
+          const route = yield* Scaleway.VpcRoute("Route", {
+            vpc: "vpc-a",
+            destination: "10.92.0.0/24",
+            nextHop: { type: "vpcConnector", vpcConnector: connector },
+          });
+          return { connector, route };
+        }),
+      );
+      expect(out.route.nextHopVpcConnectorId).toBe(out.connector.vpcConnectorId);
+    }),
+  );
+
+  test.provider("read returns existing VPC routes and ignores missing ones", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.VpcRoute("Route", {
+          vpc: "vpc-a",
+          destination: "10.90.0.0/24",
+          nextHop: { type: "resource", resourceId: "resource-a" },
+        }),
+      );
+      const provider = yield* Scaleway.VpcRoute.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "Route",
+        instanceId: "test",
+        olds: {
+          vpc: "vpc-a",
+          destination: "10.90.0.0/24",
+          nextHop: { type: "resource", resourceId: "resource-a" },
+        },
+        output: created,
+      });
+      expect(read?.routeId).toBe(created.routeId);
+
+      mock.removeRoute(created.routeId);
+      const missing = yield* provider.read!({
+        id: "Route",
+        instanceId: "test",
+        olds: {
+          vpc: "vpc-a",
+          destination: "10.90.0.0/24",
+          nextHop: { type: "resource", resourceId: "resource-a" },
+        },
+        output: created,
+      });
+      expect(missing).toBeUndefined();
+    }),
+  );
 });
 
 describe("VpcConnector", () => {
@@ -903,12 +1071,14 @@ describe("VpcConnector", () => {
 
       const updated = yield* stack.deploy(
         Scaleway.VpcConnector("Connector", {
+          name: "renamed-connector",
           vpc: "vpc-a",
           targetVpc: "vpc-b",
           tags: ["scope=data"],
         }),
       );
       expect(updated.vpcConnectorId).toBe(created.vpcConnectorId);
+      expect(updated.name).toBe("renamed-connector");
       expect(updated.tags).toContain("scope=data");
       expect(requests("PATCH", "/vpc-connectors/")).toHaveLength(1);
     }),
@@ -925,6 +1095,269 @@ describe("VpcConnector", () => {
       expect(second.targetVpcId).toBe("vpc-c");
       expect(second.vpcConnectorId).not.toBe(first.vpcConnectorId);
       expect(requests("DELETE", "/vpc-connectors/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("read returns existing VPC connectors and ignores missing ones", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.VpcConnector("Connector", { vpc: "vpc-a", targetVpc: "vpc-b" }),
+      );
+      const provider = yield* Scaleway.VpcConnector.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "Connector",
+        instanceId: "test",
+        olds: { vpc: "vpc-a", targetVpc: "vpc-b" },
+        output: created,
+      });
+      expect(read?.vpcConnectorId).toBe(created.vpcConnectorId);
+
+      mock.removeVpcConnector(created.vpcConnectorId);
+      const missing = yield* provider.read!({
+        id: "Connector",
+        instanceId: "test",
+        olds: { vpc: "vpc-a", targetVpc: "vpc-b" },
+        output: created,
+      });
+      expect(missing).toBeUndefined();
+    }),
+  );
+});
+
+describe("SecurityGroup", () => {
+  test.provider("creates then updates security group rules in place", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.SecurityGroup("Firewall", {
+          zone: "fr-par-1",
+          description: "public ingress",
+          rules: [
+            { protocol: "TCP", port: 22 },
+            { protocol: "UDP", portRange: { from: 16384, to: 65535 } },
+          ],
+        }),
+      );
+      expect(created.securityGroupId).toMatch(/^sg-/);
+      expect(created.zone).toBe("fr-par-1");
+      expect(created.inboundDefaultPolicy).toBe("drop");
+      expect(created.outboundDefaultPolicy).toBe("accept");
+      expect(created.rules).toHaveLength(2);
+      expect(created.tags).toContain("alchemy:logical-id=Firewall");
+
+      const updated = yield* stack.deploy(
+        Scaleway.SecurityGroup("Firewall", {
+          zone: "fr-par-1",
+          description: "sip ingress",
+          tags: ["service=sip"],
+          rules: [
+            { protocol: "TCP", portRange: { from: 5060, to: 5080 } },
+            { protocol: "UDP", portRange: { from: 5060, to: 5080 } },
+          ],
+        }),
+      );
+      expect(updated.securityGroupId).toBe(created.securityGroupId);
+      expect(updated.description).toBe("sip ingress");
+      expect(updated.rules).toHaveLength(2);
+
+      const cleared = yield* stack.deploy(
+        Scaleway.SecurityGroup("Firewall", {
+          zone: "fr-par-1",
+          tags: ["service=sip"],
+          rules: [
+            { protocol: "TCP", portRange: { from: 5060, to: 5080 } },
+            { protocol: "UDP", portRange: { from: 5060, to: 5080 } },
+          ],
+        }),
+      );
+      expect(cleared.securityGroupId).toBe(created.securityGroupId);
+      expect(cleared.description).toBeUndefined();
+      expect(requests("PATCH", "/security_groups/")).toHaveLength(2);
+      expect(requests("PUT", "/rules")).toHaveLength(3);
+    }),
+  );
+
+  test.provider("changing security group zone forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(Scaleway.SecurityGroup("Firewall", { zone: "fr-par-1" }));
+      const second = yield* stack.deploy(Scaleway.SecurityGroup("Firewall", { zone: "fr-par-2" }));
+      expect(second.zone).toBe("fr-par-2");
+      expect(second.securityGroupId).not.toBe(first.securityGroupId);
+      expect(requests("DELETE", "/security_groups/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("changing security group project forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(Scaleway.SecurityGroup("Firewall", { projectId: "project-a" }));
+      const second = yield* stack.deploy(Scaleway.SecurityGroup("Firewall", { projectId: "project-b" }));
+      expect(second.securityGroupId).not.toBe(first.securityGroupId);
+      expect(second.projectId).toBe("project-b");
+    }),
+  );
+
+  test.provider("read returns existing security groups and ignores missing ones", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.SecurityGroup("Firewall", { zone: "fr-par-1", rules: [{ protocol: "TCP", port: 443 }] }),
+      );
+      const provider = yield* Scaleway.SecurityGroup.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "Firewall",
+        instanceId: "test",
+        olds: { zone: "fr-par-1" },
+        output: created,
+      });
+      expect(read?.securityGroupId).toBe(created.securityGroupId);
+      expect(read?.rules).toHaveLength(1);
+      expect(requests("GET", "/security_groups/").some((call) => call.url.endsWith("/rules"))).toBe(true);
+
+      mock.removeSecurityGroup(created.securityGroupId);
+      const missing = yield* provider.read!({
+        id: "Firewall",
+        instanceId: "test",
+        olds: { zone: "fr-par-1" },
+        output: created,
+      });
+      expect(missing).toBeUndefined();
+    }),
+  );
+});
+
+describe("FlexibleIp", () => {
+  test.provider("creates then updates flexible IP metadata and attachment", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.FlexibleIp("PublicIp", { zone: "fr-par-1", tags: ["role=edge"], reverse: "edge.example.test" }),
+      );
+      expect(created.ipId).toMatch(/^ip-/);
+      expect(created.address).toMatch(/^203\.0\.113\./);
+      expect(created.type).toBe("routed_ipv4");
+      expect(created.reverse).toBe("edge.example.test");
+      expect(created.tags).toContain("alchemy:logical-id=PublicIp");
+
+      const updated = yield* stack.deploy(
+        Scaleway.FlexibleIp("PublicIp", {
+          zone: "fr-par-1",
+          tags: ["role=sip"],
+          serverId: "server-a",
+          reverse: "sip.example.test",
+        }),
+      );
+      expect(updated.ipId).toBe(created.ipId);
+      expect(updated.serverId).toBe("server-a");
+      expect(updated.reverse).toBe("sip.example.test");
+      expect(requests("PATCH", "/ips/")).toHaveLength(2);
+    }),
+  );
+
+  test.provider("changing flexible IP type forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { type: "routed_ipv4" }));
+      const second = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { type: "routed_ipv6" }));
+      expect(second.ipId).not.toBe(first.ipId);
+      expect(second.type).toBe("routed_ipv6");
+    }),
+  );
+
+  test.provider("changing flexible IP project forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { projectId: "project-a" }));
+      const second = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { projectId: "project-b" }));
+      expect(second.ipId).not.toBe(first.ipId);
+      expect(second.projectId).toBe("project-b");
+    }),
+  );
+
+  test.provider("read returns existing flexible IPs and ignores missing ones", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { zone: "fr-par-1" }));
+      const provider = yield* Scaleway.FlexibleIp.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "PublicIp",
+        instanceId: "test",
+        olds: { zone: "fr-par-1" },
+        output: created,
+      });
+      expect(read?.ipId).toBe(created.ipId);
+
+      mock.removeFlexibleIp(created.ipId);
+      const missing = yield* provider.read!({
+        id: "PublicIp",
+        instanceId: "test",
+        olds: { zone: "fr-par-1" },
+        output: created,
+      });
+      expect(missing).toBeUndefined();
+    }),
+  );
+});
+
+describe("PrivateNic", () => {
+  test.provider("creates then updates private NIC tags", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.PrivateNic("Nic", {
+          zone: "fr-par-1",
+          serverId: "server-a",
+          privateNetwork: "pn-a",
+          tags: ["role=app"],
+        }),
+      );
+      expect(created.privateNicId).toMatch(/^pnic-/);
+      expect(created.serverId).toBe("server-a");
+      expect(created.privateNetworkId).toBe("pn-a");
+      expect(created.tags).toContain("alchemy:logical-id=Nic");
+
+      const updated = yield* stack.deploy(
+        Scaleway.PrivateNic("Nic", {
+          zone: "fr-par-1",
+          serverId: "server-a",
+          privateNetwork: "pn-a",
+          tags: ["role=data"],
+        }),
+      );
+      expect(updated.privateNicId).toBe(created.privateNicId);
+      expect(updated.tags).toContain("role=data");
+      expect(requests("PATCH", "/private_nics/")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("changing private NIC network forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(
+        Scaleway.PrivateNic("Nic", { serverId: "server-a", privateNetwork: "pn-a" }),
+      );
+      const second = yield* stack.deploy(
+        Scaleway.PrivateNic("Nic", { serverId: "server-a", privateNetwork: "pn-b" }),
+      );
+      expect(second.privateNicId).not.toBe(first.privateNicId);
+      expect(second.privateNetworkId).toBe("pn-b");
+      expect(requests("DELETE", "/private_nics/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("read returns existing private NICs and ignores missing ones", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.PrivateNic("Nic", { zone: "fr-par-1", serverId: "server-a", privateNetwork: "pn-a" }),
+      );
+      const provider = yield* Scaleway.PrivateNic.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "Nic",
+        instanceId: "test",
+        olds: { zone: "fr-par-1", serverId: "server-a", privateNetwork: "pn-a" },
+        output: created,
+      });
+      expect(read?.privateNicId).toBe(created.privateNicId);
+
+      mock.removePrivateNic(created.serverId, created.privateNicId);
+      const missing = yield* provider.read!({
+        id: "Nic",
+        instanceId: "test",
+        olds: { zone: "fr-par-1", serverId: "server-a", privateNetwork: "pn-a" },
+        output: created,
+      });
+      expect(missing).toBeUndefined();
     }),
   );
 });

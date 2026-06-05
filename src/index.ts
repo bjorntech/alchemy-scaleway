@@ -24,8 +24,15 @@ export {
   type ScalewayCredentialsService,
 } from "./Credentials.ts";
 export { Domain, DomainProvider, type DomainContainerRef, type DomainProps } from "./Domain.ts";
+export { FlexibleIp, FlexibleIpProvider, type FlexibleIpProps, type FlexibleIpType } from "./FlexibleIp.ts";
 export { isNotFound, ScalewayError, scalewayError } from "./Errors.ts";
 export { Namespace, NamespaceProvider, type NamespaceProps } from "./Namespace.ts";
+export {
+  PrivateNic,
+  PrivateNicProvider,
+  type PrivateNicPrivateNetworkRef,
+  type PrivateNicProps,
+} from "./PrivateNic.ts";
 export {
   PrivateNetwork,
   PrivateNetworkProvider,
@@ -45,6 +52,16 @@ export {
   type SecretProps,
   type SecretType,
 } from "./Secret.ts";
+export {
+  SecurityGroup,
+  SecurityGroupProvider,
+  type SecurityGroupAction,
+  type SecurityGroupDirection,
+  type SecurityGroupPolicy,
+  type SecurityGroupProps,
+  type SecurityGroupProtocol,
+  type SecurityGroupRule,
+} from "./SecurityGroup.ts";
 export {
   type ContainerRef,
   type CronTriggerSource,

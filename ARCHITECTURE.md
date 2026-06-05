@@ -26,6 +26,9 @@ src/
   VpcAcl.ts         VPC ACL rule-set resource
   VpcRoute.ts       VPC route resource
   VpcConnector.ts   VPC connector resource
+  SecurityGroup.ts  Instance security group resource
+  FlexibleIp.ts     Instance flexible IP resource
+  PrivateNic.ts     Instance private NIC resource
 
 test/
   *.test.ts         Bun test suites
@@ -64,6 +67,9 @@ Apply the same rule to Scaleway:
 - `VpcAcl` owns the complete ACL rule set for a single VPC and IP version. Deleting it resets that ACL set to `defaultPolicy: "accept"` and no rules; do not use multiple `VpcAcl` resources for the same VPC/IP version.
 - `VpcRoute` provisions routes inside one VPC. VPC changes replace the route; destination, description, tags, and next-hop changes update it in place. Next hops can be resource IDs, Private Networks, or VPC connectors.
 - `VpcConnector` provisions connectors between two VPCs. Either VPC identity changing replaces the connector; name and tags update in place.
+- `SecurityGroup` provisions Scaleway Instance security groups and owns the complete rule set. Zone changes replace the resource; metadata and rule changes update in place.
+- `FlexibleIp` provisions Scaleway Instance flexible IPs. Zone or IP type changes replace the reservation; tags, reverse DNS, and server attachment update in place.
+- `PrivateNic` provisions Scaleway Instance private NICs that attach one Instance to one Private Network. Zone, server, Private Network, or IPAM IP identity changes replace the NIC; tags update in place.
 - Scaleway documents Private Network subnet add/delete endpoints, and the provider uses them for subnet drift reconciliation. Live production smoke currently verifies create-time subnets only because Scaleway returns `501 unimplemented endpoint` for the documented mutation endpoints in `fr-par`.
 - Current Alchemy v2 beta `ResourceOptions` do not expose an `alwaysUpdate` or equivalent read-on-noop option. Because of that, same-props deploys cannot detect external deletion of `Container`-managed companion domains/triggers. The `Container` read path verifies persisted companion IDs when a read/update path runs, but no-op plans will not recover missing companions until a prop change triggers reconciliation. Revisit this if Alchemy adds an always-update/read-on-noop resource option.
 

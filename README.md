@@ -145,6 +145,9 @@ export default Alchemy.Stack(
 - `VpcAcl` - Scaleway VPC ACL lifecycle for one VPC/IP version. This resource owns the full ACL rule set for that `vpc` plus `ipVersion` and resets it to `defaultPolicy: "accept"` with no rules on delete.
 - `VpcRoute` - Scaleway VPC route lifecycle with next hops expressed as a resource ID, Private Network, or VPC connector.
 - `VpcConnector` - Scaleway VPC connector lifecycle for connecting two VPCs, with name and tag updates in place.
+- `SecurityGroup` - Scaleway Instance security group lifecycle. This resource owns the complete security group rule set.
+- `FlexibleIp` - Scaleway Instance flexible IP reservation lifecycle, including tag, reverse DNS, and server attachment updates.
+- `PrivateNic` - Scaleway Instance private NIC lifecycle for attaching one Instance to one Private Network.
 
 ### VPC Caveats
 

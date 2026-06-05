@@ -15,6 +15,12 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 - `VpcRoute` provisions Scaleway VPC routes with resource, Private Network, or VPC
   connector next hops.
 - `VpcConnector` provisions Scaleway VPC connectors between two VPCs.
+- `SecurityGroup` provisions Scaleway Instance security groups and owns their full
+  rule set.
+- `FlexibleIp` provisions Scaleway Instance flexible IP reservations with tag,
+  reverse DNS, and server attachment updates.
+- `PrivateNic` provisions Scaleway Instance private NIC attachments to Private
+  Networks.
 
 ### Fixed
 
