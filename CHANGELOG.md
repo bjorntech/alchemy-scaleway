@@ -4,6 +4,18 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## [Unreleased]
 
+### Added
+
+- `Instance.cloudInit` writes multi-line Scaleway `cloud-init` user data before
+  first boot. The script may be a `string` or `Redacted<string>`, is not returned
+  in resource attributes, and is tracked by a SHA-256 hash for replacement diffing.
+
+### Fixed
+
+- `Instance` deletion now uses Scaleway's terminate action and deletes Alchemy-created
+  `sbs_volume` Block Storage volumes after they are detached, while preserving
+  explicitly attached volume IDs.
+
 ## [0.1.3-beta.51] - 2026-06-05
 
 ### Added

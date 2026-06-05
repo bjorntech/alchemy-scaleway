@@ -527,6 +527,8 @@ export interface ScalewayClients {
     updateInstance(input: { zone: string; serverId: string } & Record<string, unknown>): Effect.Effect<ScalewayInstanceRecord, ScalewayError>;
     deleteInstance(input: { zone: string; serverId: string }): Effect.Effect<void, ScalewayError>;
     instanceAction(input: { zone: string; serverId: string; action: string }): Effect.Effect<void, ScalewayError>;
+    setInstanceUserData(input: { zone: string; serverId: string; key: string; value: string }): Effect.Effect<void, ScalewayError>;
+    deleteVolume(input: { zone: string; volumeId: string }): Effect.Effect<void, ScalewayError>;
     createSecurityGroup(input: {
       zone: string;
       name: string;
@@ -768,6 +770,40 @@ export const makeScalewayClients = Effect.gen(function* () {
       deleteInstance: ({ zone, serverId }) => request<void>("DELETE", `/instance/v1/zones/${zone}/servers/${serverId}`),
       instanceAction: ({ zone, serverId, action }) =>
         request("POST", `/instance/v1/zones/${zone}/servers/${serverId}/action`, { action }).pipe(Effect.asVoid),
+      setInstanceUserData: ({ zone, serverId, key, value }) =>
+        Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(`${apiUrl}/instance/v1/zones/${zone}/servers/${serverId}/user_data/${encodeURIComponent(key)}`, {
+              method: "PATCH",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "text/plain",
+                "X-Auth-Token": secretKey,
+              },
+              body: value,
+            });
+            if (!response.ok) {
+              const text = await response.text();
+              let decoded: unknown;
+              try {
+                decoded = text.length === 0 ? undefined : JSON.parse(text);
+              } catch {
+                decoded = text;
+              }
+              throw scalewayError({
+                operation: `PATCH /instance/v1/zones/${zone}/servers/${serverId}/user_data/${key}`,
+                cause: new Error(messageFromBody(decoded) ?? `Scaleway request failed with status ${response.status}`),
+                statusCode: response.status,
+                retryable: response.status >= 500 || response.status === 429,
+              });
+            }
+          },
+          catch: (cause) =>
+            cause instanceof Error && cause.name === "ScalewayError"
+              ? (cause as ScalewayError)
+              : scalewayError({ operation: `PATCH /instance/v1/zones/${zone}/servers/${serverId}/user_data/${key}`, cause }),
+        }),
+      deleteVolume: ({ zone, volumeId }) => request<void>("DELETE", `/instance/v1/zones/${zone}/volumes/${volumeId}`),
       createSecurityGroup: ({ zone, ...input }) =>
         request("POST", `/instance/v1/zones/${zone}/security_groups`, input).pipe(Effect.map(decodeSecurityGroup)),
       getSecurityGroup: ({ zone, securityGroupId }) =>
@@ -1021,8 +1057,21 @@ const unescapeXml = (value: string) =>
     .replaceAll("&gt;", ">")
     .replaceAll("&lt;", "<")
     .replaceAll("&amp;", "&");
-const messageFromBody = (body: unknown) =>
-  typeof body === "object" && body !== null && "message" in body ? String(body.message) : undefined;
+const validationDetails = (details: unknown) =>
+  Array.isArray(details)
+    ? details
+        .map((detail) => {
+          const record = detail as Record<string, unknown>;
+          return [record.argument_name, record.help_message].filter((value) => typeof value === "string" && value.length > 0).join(": ");
+        })
+        .filter((detail) => detail.length > 0)
+    : [];
+const messageFromBody = (body: unknown) => {
+  if (typeof body !== "object" || body === null || !("message" in body)) return undefined;
+  const message = String(body.message);
+  const details = validationDetails((body as Record<string, unknown>).details);
+  return details.length === 0 ? message : `${message}: ${details.join("; ")}`;
+};
 // The Containers v1 API returns resource objects at the top level (no envelope key).
 const decodeNamespace = (value: unknown) => value as ScalewayNamespaceRecord;
 const decodeContainer = (value: unknown) => value as ScalewayContainerRecord;

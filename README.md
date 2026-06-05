@@ -58,6 +58,8 @@ This flag requires the beta 1Password CLI version that supports Environments.
 
 The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, optional `SCW_DEFAULT_ZONE`, and `SCW_API_URL` from the environment. It creates and deletes Containers, Registry, Secret Manager, Object Storage, VPC, VPC route, VPC connector, security group, flexible IP, Instance, and private NIC resources.
 
+By default each smoke run uses a random Alchemy stage and resource prefix. If a run is interrupted, rerun with the same `SCW_SMOKE_RUN_ID`, or set both `SCW_SMOKE_STAGE` and `SCW_SMOKE_PREFIX`, so Alchemy can reuse the same local state and destroy or reconcile the same resources.
+
 ## Usage
 
 ```ts
@@ -146,12 +148,31 @@ export default Alchemy.Stack(
 - `VpcAcl` - Scaleway VPC ACL lifecycle for one VPC/IP version. This resource owns the full ACL rule set for that `vpc` plus `ipVersion` and resets it to `defaultPolicy: "accept"` with no rules on delete.
 - `VpcRoute` - Scaleway VPC route lifecycle with next hops expressed as a resource ID, Private Network, or VPC connector.
 - `VpcConnector` - Scaleway VPC connector lifecycle for connecting two VPCs, with name and tag updates in place.
-- `Instance` - Scaleway Instance lifecycle for virtual machines, with conservative replacement for image/type/volume identity changes and action-based power state convergence.
+- `Instance` - Scaleway Instance lifecycle for virtual machines, with conservative replacement for image/type/volume/cloud-init identity changes and action-based power state convergence.
 - `SecurityGroup` - Scaleway Instance security group lifecycle. This resource owns the complete security group rule set.
 - `FlexibleIp` - Scaleway Instance flexible IP reservation lifecycle, including tag, reverse DNS, and server attachment updates.
 - `PrivateNic` - Scaleway Instance private NIC lifecycle for attaching one Instance to one Private Network.
 
+`Instance.cloudInit` accepts a multi-line `string` or `Redacted<string>` and writes it to Scaleway's `cloud-init` user-data key before the first boot. The script is treated as first-boot input: Alchemy stores only a SHA-256 hash in resource outputs, and changing the value replaces the Instance instead of mutating a running VM.
+
+```ts
+yield* Scaleway.Instance("DockerVm", {
+  commercialType: "DEV1-S",
+  image: "ubuntu_jammy",
+  desiredState: "running",
+  cloudInit: Redacted.make(`#!/bin/bash
+set -e
+apt-get update
+apt-get install -y docker.io
+systemctl enable docker
+systemctl start docker
+`),
+});
+```
+
 `Instance.securityGroup` can attach or switch to a security group by ID. Omitting it leaves the current attachment unchanged; Scaleway's Instance update API does not expose a documented raw security-group detach operation.
+
+When deleting an `Instance`, the provider terminates the Scaleway server and deletes Block Storage (`sbs_volume`) volumes that were created by that Instance resource. Volumes passed with an explicit `id` are treated as externally owned and are preserved.
 
 ### VPC Caveats
 

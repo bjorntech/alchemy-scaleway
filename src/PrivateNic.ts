@@ -73,7 +73,7 @@ export const PrivateNicProvider = () =>
             output.zone !== zone && output.zone !== clients.region ||
             output.serverId !== undefined && output.serverId !== news.serverId ||
             output.privateNetworkId !== undefined && output.privateNetworkId !== privateNetworkId ||
-            !stringsEqual(output.ipamIpIds, news.ipamIpIds)
+            news.ipamIpIds !== undefined && !stringsEqual(output.ipamIpIds, news.ipamIpIds)
           ) return { action: "replace" } as const;
           if (!stringsEqual(output.tags, withAlchemyTag(id, news.tags))) return { action: "update" } as const;
           return undefined;

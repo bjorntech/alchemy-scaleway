@@ -87,6 +87,8 @@ export function installScalewayMock(): ScalewayMock {
   const routes = new Map<string, Record<string, unknown>>();
   const vpcConnectors = new Map<string, Record<string, unknown>>();
   const servers = new Map<string, Record<string, unknown>>();
+  const serverUserData = new Map<string, Map<string, string>>();
+  const volumes = new Map<string, Record<string, unknown>>();
   const securityGroups = new Map<string, Record<string, unknown>>();
   const securityGroupRules = new Map<string, Array<Record<string, unknown>>>();
   const flexibleIps = new Map<string, Record<string, unknown>>();
@@ -125,7 +127,7 @@ export function installScalewayMock(): ScalewayMock {
     if (kind === "containers") {
       // v1 has no separate deploy endpoint; Create/Update auto-deploy.
       if (method === "POST") {
-        const record = {
+        const record: Record<string, unknown> = {
           id: nextId("ctr"),
           region: "fr-par",
           status: "ready",
@@ -234,7 +236,7 @@ export function installScalewayMock(): ScalewayMock {
 
     if (kind === "namespaces") {
       if (method === "POST") {
-        const record = {
+        const record: Record<string, unknown> = {
           id: nextId("regns"),
           region: "fr-par",
           status: "ready",
@@ -612,22 +614,87 @@ export function installScalewayMock(): ScalewayMock {
           state: "attached",
         };
       });
+    const serverVolumes = (serverId: string, serverName: unknown, inputVolumes: unknown) => {
+      const entries = Object.entries((inputVolumes as Record<string, Record<string, unknown>> | undefined) ?? {
+        "0": { boot: true, volume_type: "sbs_volume", size: 10_000_000_000 },
+      });
+      return Object.fromEntries(
+        entries.map(([key, volume]) => {
+          const id = (volume.id as string | undefined) ?? nextId("vol");
+          const record = {
+            id,
+            name: volume.name ?? `${String(serverName ?? "server")}-${key}`,
+            size: volume.size,
+            volume_type: volume.volume_type ?? "sbs_volume",
+            boot: volume.boot,
+            project: volume.project ?? "proj-test",
+            zone,
+            server: { id: serverId, name: serverName },
+            state: "in_use",
+          };
+          if (!volume.id) volumes.set(id, record);
+          return [key, { ...volume, ...record }];
+        }),
+      );
+    };
 
     if (kind === "servers" && nested === "action") {
       const existing = servers.get(id);
       if (!existing) return json({ message: "server not found" }, 404);
+      if (input.action === "terminate") {
+        for (const volume of Object.values((existing.volumes as Record<string, Record<string, unknown>> | undefined) ?? {})) {
+          if (volume.volume_type === "l_ssd" || volume.volume_type === "scratch") volumes.delete(volume.id as string);
+          else if (typeof volume.id === "string") volumes.set(volume.id, { ...volume, server: undefined, state: "available" });
+        }
+        servers.delete(id);
+        serverUserData.delete(id);
+        return json({ task: { id: nextId("task"), status: "success" } });
+      }
       const state = input.action === "poweroff" || input.action === "stop_in_place" ? "stopped" : input.action === "poweron" ? "running" : existing.state;
       const updated = { ...existing, state };
       servers.set(id, updated);
       return json({ task: { id: nextId("task"), status: "success" } });
     }
 
+    if (kind === "volumes") {
+      const existing = volumes.get(id);
+      if (!existing) return json({ message: "volume not found" }, 404);
+      if (method === "GET") return json({ volume: existing });
+      if (method === "DELETE") {
+        if (existing.server) return json({ message: "precondition is not respected" }, 412);
+        volumes.delete(id);
+        return noContent();
+      }
+    }
+
+    if (kind === "servers" && nested === "user_data") {
+      const existing = servers.get(id);
+      if (!existing) return json({ message: "server not found" }, 404);
+      const key = decodeURIComponent(nestedId ?? "");
+      const values = serverUserData.get(id) ?? new Map<string, string>();
+      if (!nestedId && method === "GET") return json({ user_data: [...values.keys()] });
+      if (method === "GET") {
+        const value = values.get(key);
+        if (value === undefined) return json({ message: "user data not found" }, 404);
+        return json({ name: key, content_type: "text/plain", content: value });
+      }
+      if (method === "PATCH") {
+        values.set(key, typeof body === "string" ? body : String(body ?? ""));
+        serverUserData.set(id, values);
+        return noContent();
+      }
+      if (method === "DELETE") {
+        values.delete(key);
+        return noContent();
+      }
+    }
+
     if (kind === "servers" && !nested) {
       if (!id && method === "POST") {
-        const record = {
+        const record: Record<string, unknown> = {
           id: nextId("srv"),
           zone,
-          state: "running",
+          state: "stopped",
           boot_type: input.boot_type ?? "local",
           dynamic_ip_required: input.dynamic_ip_required,
           routed_ip_enabled: input.routed_ip_enabled,
@@ -641,6 +708,7 @@ export function installScalewayMock(): ScalewayMock {
           placement_group: input.placement_group ? { id: input.placement_group } : undefined,
           dns: `${input.name}.test.local`,
         };
+        record.volumes = serverVolumes(record.id as string, input.name, input.volumes);
         servers.set(record.id as string, record);
         return json({ server: record }, 201);
       }
@@ -659,7 +727,12 @@ export function installScalewayMock(): ScalewayMock {
         return json({ server: updated });
       }
       if (method === "DELETE") {
+        for (const volume of Object.values((existing.volumes as Record<string, Record<string, unknown>> | undefined) ?? {})) {
+          if (volume.volume_type === "l_ssd" || volume.volume_type === "scratch") volumes.delete(volume.id as string);
+          else if (typeof volume.id === "string") volumes.set(volume.id, { ...volume, server: undefined, state: "available" });
+        }
         servers.delete(id);
+        serverUserData.delete(id);
         return noContent();
       }
     }
@@ -756,6 +829,7 @@ export function installScalewayMock(): ScalewayMock {
           mac_address: "02:00:00:00:00:01",
           state: "available",
           tags: [],
+          ipam_ip_ids: input.ipam_ip_ids ?? [nextId("ipam")],
           ...input,
         };
         privateNics.set(key(record.id as string), record);
@@ -806,7 +880,7 @@ export function installScalewayMock(): ScalewayMock {
     }
 
     if (parsed.host === "api.scaleway.com") {
-      const parsedBody = text.length > 0 ? JSON.parse(text) : undefined;
+      const parsedBody = text.length > 0 && !headers.get("content-type")?.startsWith("text/plain") ? JSON.parse(text) : text.length > 0 ? text : undefined;
       if (parsed.pathname.startsWith("/registry/")) {
         return registryHandler(method, parsed.pathname, parsedBody);
       }
