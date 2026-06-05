@@ -16,6 +16,8 @@ import { Secret, SecretProvider } from "../../src/Secret.ts";
 import { Trigger, TriggerProvider } from "../../src/Trigger.ts";
 import { Vpc, VpcProvider } from "../../src/Vpc.ts";
 import { VpcAcl, VpcAclProvider } from "../../src/VpcAcl.ts";
+import { VpcConnector, VpcConnectorProvider } from "../../src/VpcConnector.ts";
+import { VpcRoute, VpcRouteProvider } from "../../src/VpcRoute.ts";
 
 const credentialsLayer = Layer.succeed(
   ScalewayCredentials,
@@ -42,6 +44,8 @@ export const testProviders = () =>
       Vpc,
       PrivateNetwork,
       VpcAcl,
+      VpcRoute,
+      VpcConnector,
     ]),
   ).pipe(
     Layer.provide(
@@ -56,6 +60,8 @@ export const testProviders = () =>
         VpcProvider(),
         PrivateNetworkProvider(),
         VpcAclProvider(),
+        VpcRouteProvider(),
+        VpcConnectorProvider(),
       ),
     ),
     Layer.provideMerge(credentialsLayer),

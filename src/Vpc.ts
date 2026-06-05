@@ -12,6 +12,7 @@ export interface VpcProps {
   projectId?: string;
   tags?: string[];
   routing?: boolean;
+  customRoutesPropagation?: boolean;
 }
 
 export type Vpc = Resource<
@@ -24,6 +25,7 @@ export type Vpc = Resource<
     region: string;
     tags?: string[];
     routing?: boolean;
+    customRoutesPropagation?: boolean;
   },
   never,
   Providers
@@ -54,6 +56,7 @@ export const VpcProvider = () =>
           region: clients.region,
           tags: record.tags,
           routing: record.routing_enabled,
+          customRoutesPropagation: record.custom_routes_propagation_enabled,
         }) as Vpc["Attributes"];
 
       return Vpc.Provider.of({
@@ -68,7 +71,9 @@ export const VpcProvider = () =>
           if (
             output.name !== name ||
             !tagsEqual(output.tags, tags) ||
-            (news.routing !== undefined && output.routing !== news.routing)
+            (news.routing !== undefined && output.routing !== news.routing) ||
+            (news.customRoutesPropagation !== undefined &&
+              output.customRoutesPropagation !== news.customRoutesPropagation)
           ) {
             return { action: "update" } as const;
           }
@@ -98,7 +103,18 @@ export const VpcProvider = () =>
           if (news.routing === false && record.routing_enabled === true) {
             throw new Error("Scaleway VPC routing cannot be disabled once enabled.");
           }
-
+          if (
+            news.customRoutesPropagation === true &&
+            record.custom_routes_propagation_enabled !== true
+          ) {
+            record = yield* clients.vpc.enableVpcCustomRoutesPropagation(record.id);
+          }
+          if (
+            news.customRoutesPropagation === false &&
+            record.custom_routes_propagation_enabled === true
+          ) {
+            throw new Error("Scaleway VPC custom routes propagation cannot be disabled once enabled.");
+          }
           yield* session.note(`${output?.vpcId ? "Updated" : "Created"} Scaleway VPC ${record.id}`);
           return toAttributes(record);
         }),

@@ -75,6 +75,8 @@ export function installScalewayMock(): ScalewayMock {
   const vpcs = new Map<string, Record<string, unknown>>();
   const privateNetworks = new Map<string, Record<string, unknown>>();
   const aclRules = new Map<string, Record<string, unknown>>();
+  const routes = new Map<string, Record<string, unknown>>();
+  const vpcConnectors = new Map<string, Record<string, unknown>>();
   let counter = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
   const forcedErrors: Array<{ fragment: string; status: number; message: string }> = [];
@@ -340,6 +342,7 @@ export function installScalewayMock(): ScalewayMock {
           id: nextId("vpc"),
           region: "fr-par",
           routing_enabled: false,
+          custom_routes_propagation_enabled: false,
           tags: [],
           ...input,
         };
@@ -382,6 +385,65 @@ export function installScalewayMock(): ScalewayMock {
         const updated = { ...existing, routing_enabled: true };
         vpcs.set(id, updated);
         return json({ vpc: updated });
+      }
+      if (action === "enable-custom-routes-propagation" && method === "POST") {
+        const updated = { ...existing, custom_routes_propagation_enabled: true };
+        vpcs.set(id, updated);
+        return json({ vpc: updated });
+      }
+    }
+
+    if (kind === "routes") {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("route"),
+          region: "fr-par",
+          is_read_only: false,
+          type: "custom",
+          tags: [],
+          ...input,
+        };
+        routes.set(record.id as string, record);
+        return json({ route: record });
+      }
+      const existing = routes.get(id);
+      if (!existing) return json({ message: "route not found" }, 404);
+      if (method === "GET") return json({ route: existing });
+      if (method === "PATCH") {
+        const updated = { ...existing, ...input };
+        routes.set(id, updated);
+        return json({ route: updated });
+      }
+      if (method === "DELETE") {
+        routes.delete(id);
+        return noContent();
+      }
+    }
+
+    if (kind === "vpc-connectors") {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("vpc-connector"),
+          region: "fr-par",
+          project_id: "proj-test",
+          status: "orphan",
+          tags: [],
+          ...input,
+        };
+        vpcConnectors.set(record.id as string, record);
+        return json({ vpc_connector: record });
+      }
+      const existing = vpcConnectors.get(id);
+      if (!existing) return json({ message: "vpc connector not found" }, 404);
+      if (method === "GET") return json({ vpc_connector: existing });
+      if (method === "PATCH") {
+        const updated = { ...existing, ...input };
+        vpcConnectors.set(id, updated);
+        return json({ vpc_connector: updated });
+      }
+      if (method === "DELETE") {
+        vpcConnectors.delete(id);
+        return noContent();
       }
     }
 

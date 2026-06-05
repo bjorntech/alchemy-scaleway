@@ -85,6 +85,7 @@ export default Alchemy.Stack(
 
     const vpc = yield* Scaleway.Vpc("Network", {
       routing: true,
+      customRoutesPropagation: true,
     });
 
     const privateNetwork = yield* Scaleway.PrivateNetwork("PrivateNetwork", {
@@ -96,6 +97,12 @@ export default Alchemy.Stack(
       vpc,
       defaultPolicy: "drop",
       rules: [{ protocol: "TCP", action: "accept", destinationPort: 443 }],
+    });
+
+    yield* Scaleway.VpcRoute("PrivateRoute", {
+      vpc,
+      destination: "10.20.0.0/24",
+      nextHop: { type: "privateNetwork", privateNetwork },
     });
 
     const api = yield* Scaleway.Container("Api", {
@@ -133,12 +140,16 @@ export default Alchemy.Stack(
 - `RegistryNamespace` - Scaleway Container Registry namespace lifecycle with ready-to-use image prefix output.
 - `Secret` - Scaleway Secret Manager secret metadata and version lifecycle. Secret values are accepted as `Redacted<string>` and are never returned in outputs.
 - `Bucket` - Scaleway Object Storage bucket lifecycle via the S3-compatible API.
-- `Vpc` - Scaleway VPC lifecycle with optional routing enablement.
+- `Vpc` - Scaleway VPC lifecycle with optional routing and custom route propagation enablement.
 - `PrivateNetwork` - Scaleway Private Network lifecycle, including optional VPC binding, subnets, DHCP enablement, and default route propagation.
 - `VpcAcl` - Scaleway VPC ACL lifecycle for one VPC/IP version. This resource owns the full ACL rule set for that `vpc` plus `ipVersion` and resets it to `defaultPolicy: "accept"` with no rules on delete.
+- `VpcRoute` - Scaleway VPC route lifecycle with next hops expressed as a resource ID, Private Network, or VPC connector.
+- `VpcConnector` - Scaleway VPC connector lifecycle for connecting two VPCs, with name and tag updates in place.
 
 ### VPC Caveats
 
 Scaleway's public VPC v2 schema documents in-place subnet add/delete endpoints for existing Private Networks. The provider implements those documented endpoints for subnet drift reconciliation, but the production smoke account currently receives `501 unimplemented endpoint` from Scaleway in `fr-par`. Create-time `PrivateNetwork.subnets` is verified by the live smoke test.
+
+`Vpc.routing` and `Vpc.customRoutesPropagation` map to one-way Scaleway operations. Once enabled, attempting to disable either flag fails locally instead of silently drifting.
 
 For contributor details, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).

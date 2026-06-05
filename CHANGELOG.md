@@ -6,11 +6,15 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ### Added
 
-- `Vpc` provisions Scaleway VPCs and supports one-way routing enablement.
+- `Vpc` provisions Scaleway VPCs and supports one-way routing and custom route
+  propagation enablement.
 - `PrivateNetwork` provisions Scaleway Private Networks with optional VPC binding,
   subnet membership, DHCP enablement, and default route propagation.
 - `VpcAcl` manages the complete VPC ACL rule set for one VPC/IP version and resets
   that rule set to accept-all on delete.
+- `VpcRoute` provisions Scaleway VPC routes with resource, Private Network, or VPC
+  connector next hops.
+- `VpcConnector` provisions Scaleway VPC connectors between two VPCs.
 
 ### Fixed
 

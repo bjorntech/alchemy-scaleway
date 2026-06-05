@@ -53,6 +53,11 @@ Current resources:
 - `RegistryNamespace` - Scaleway Container Registry namespace.
 - `Secret` - Scaleway Secret Manager secret and value version lifecycle.
 - `Bucket` - Scaleway Object Storage bucket via S3-compatible API.
+- `Vpc` - Scaleway VPC lifecycle with one-way routing and custom route propagation enablement.
+- `PrivateNetwork` - Scaleway Private Network with optional VPC binding, subnets, DHCP, and default route propagation.
+- `VpcAcl` - complete VPC ACL rule set for one VPC/IP version.
+- `VpcRoute` - VPC route with resource, Private Network, or VPC connector next hops.
+- `VpcConnector` - VPC connector between two VPCs.
 
 ## Quality Gates
 

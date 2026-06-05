@@ -14,6 +14,8 @@ import { Secret, SecretProvider } from "./Secret.ts";
 import { Trigger, TriggerProvider } from "./Trigger.ts";
 import { Vpc, VpcProvider } from "./Vpc.ts";
 import { VpcAcl, VpcAclProvider } from "./VpcAcl.ts";
+import { VpcConnector, VpcConnectorProvider } from "./VpcConnector.ts";
+import { VpcRoute, VpcRouteProvider } from "./VpcRoute.ts";
 
 export class Providers extends Provider.ProviderCollection<Providers>()("Scaleway") {}
 
@@ -33,6 +35,8 @@ export const providers = () =>
       Vpc,
       PrivateNetwork,
       VpcAcl,
+      VpcRoute,
+      VpcConnector,
     ]),
   ).pipe(
     Layer.provide(
@@ -47,6 +51,8 @@ export const providers = () =>
         VpcProvider(),
         PrivateNetworkProvider(),
         VpcAclProvider(),
+        VpcRouteProvider(),
+        VpcConnectorProvider(),
       ),
     ),
     Layer.provideMerge(Credentials.fromAuthProvider()),

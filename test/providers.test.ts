@@ -639,21 +639,31 @@ describe("Vpc", () => {
   test.provider("creates then updates VPC metadata in place", (stack) =>
     Effect.gen(function* () {
       const created = yield* stack.deploy(
-        Scaleway.Vpc("Network", { tags: ["team=platform"], routing: true }),
+        Scaleway.Vpc("Network", {
+          tags: ["team=platform"],
+          routing: true,
+          customRoutesPropagation: true,
+        }),
       );
       expect(created.vpcId).toMatch(/^vpc-/);
       expect(created.region).toBe("fr-par");
       expect(created.projectId).toBe("proj-test");
       expect(created.routing).toBe(true);
+      expect(created.customRoutesPropagation).toBe(true);
       expect(created.tags).toContain("alchemy:logical-id=Network");
 
       const updated = yield* stack.deploy(
-        Scaleway.Vpc("Network", { tags: ["team=network"], routing: true }),
+        Scaleway.Vpc("Network", {
+          tags: ["team=network"],
+          routing: true,
+          customRoutesPropagation: true,
+        }),
       );
       expect(updated.vpcId).toBe(created.vpcId);
       expect(updated.tags).toContain("team=network");
       expect(requests("PATCH", "/vpc/v2/regions/fr-par/vpcs/")).toHaveLength(1);
       expect(requests("POST", "/enable-routing")).toHaveLength(1);
+      expect(requests("POST", "/enable-custom-routes-propagation")).toHaveLength(1);
     }),
   );
 
@@ -674,6 +684,7 @@ describe("Vpc", () => {
       expect(redeployed.vpcId).toBe(created.vpcId);
       expect(requests("PATCH", "/vpc/v2/regions/fr-par/vpcs/")).toHaveLength(0);
       expect(requests("POST", "/enable-routing")).toHaveLength(0);
+      expect(requests("POST", "/enable-custom-routes-propagation")).toHaveLength(0);
     }),
   );
 });
@@ -784,6 +795,136 @@ describe("VpcAcl", () => {
       expect(first.ipVersion).toBe("ipv4");
       expect(second.ipVersion).toBe("ipv6");
       expect(requests("PUT", "/acl-rules?is_ipv6=true")).toHaveLength(1);
+    }),
+  );
+});
+
+describe("VpcRoute", () => {
+  test.provider("creates then updates a custom route in place", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.VpcRoute("Route", {
+          vpc: "vpc-route",
+          destination: "10.90.0.0/24",
+          nextHop: { type: "privateNetwork", privateNetwork: "pn-a" },
+          description: "first",
+          tags: ["scope=app"],
+        }),
+      );
+      expect(created.routeId).toMatch(/^route-/);
+      expect(created.vpcId).toBe("vpc-route");
+      expect(created.nextHopPrivateNetworkId).toBe("pn-a");
+      expect(created.tags).toContain("alchemy:logical-id=Route");
+
+      const updated = yield* stack.deploy(
+        Scaleway.VpcRoute("Route", {
+          vpc: "vpc-route",
+          destination: "10.91.0.0/24",
+          nextHop: { type: "resource", resourceId: "resource-a" },
+          description: "second",
+          tags: ["scope=data"],
+        }),
+      );
+      expect(updated.routeId).toBe(created.routeId);
+      expect(updated.destination).toBe("10.91.0.0/24");
+      expect(updated.nextHopResourceId).toBe("resource-a");
+      expect(updated.nextHopPrivateNetworkId).toBeUndefined();
+
+      const redeployed = yield* stack.deploy(
+        Scaleway.VpcRoute("Route", {
+          vpc: "vpc-route",
+          destination: "10.91.0.0/24",
+          nextHop: { type: "resource", resourceId: "resource-a" },
+          description: "second",
+          tags: ["scope=data"],
+        }),
+      );
+      expect(redeployed.routeId).toBe(created.routeId);
+      expect(requests("PATCH", "/vpc/v2/regions/fr-par/routes/")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("changing VPC forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(
+        Scaleway.VpcRoute("Route", {
+          vpc: "vpc-a",
+          destination: "10.90.0.0/24",
+          nextHop: { type: "resource", resourceId: "resource-a" },
+        }),
+      );
+      const second = yield* stack.deploy(
+        Scaleway.VpcRoute("Route", {
+          vpc: "vpc-b",
+          destination: "10.90.0.0/24",
+          nextHop: { type: "resource", resourceId: "resource-a" },
+        }),
+      );
+      expect(second.vpcId).toBe("vpc-b");
+      expect(second.routeId).not.toBe(first.routeId);
+      expect(requests("DELETE", "/vpc/v2/regions/fr-par/routes/").length).toBeGreaterThan(0);
+    }),
+  );
+});
+
+describe("VpcConnector", () => {
+  test.provider("accepts VPC resource references", (stack) =>
+    Effect.gen(function* () {
+      const out = yield* stack.deploy(
+        Effect.gen(function* () {
+          const source = yield* Scaleway.Vpc("Source", {});
+          const target = yield* Scaleway.Vpc("Target", {});
+          const connector = yield* Scaleway.VpcConnector("Connector", {
+            vpc: source,
+            targetVpc: target,
+          });
+          return { source, target, connector };
+        }),
+      );
+      expect(out.connector.vpcId).toBe(out.source.vpcId);
+      expect(out.connector.targetVpcId).toBe(out.target.vpcId);
+    }),
+  );
+
+  test.provider("creates then updates connector metadata in place", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.VpcConnector("Connector", {
+          vpc: "vpc-a",
+          targetVpc: "vpc-b",
+          tags: ["scope=app"],
+        }),
+      );
+      expect(created.vpcConnectorId).toMatch(/^vpc-connector-/);
+      expect(created.vpcId).toBe("vpc-a");
+      expect(created.targetVpcId).toBe("vpc-b");
+      expect(created.status).toBe("orphan");
+      expect(created.tags).toContain("alchemy:logical-id=Connector");
+
+      const updated = yield* stack.deploy(
+        Scaleway.VpcConnector("Connector", {
+          vpc: "vpc-a",
+          targetVpc: "vpc-b",
+          tags: ["scope=data"],
+        }),
+      );
+      expect(updated.vpcConnectorId).toBe(created.vpcConnectorId);
+      expect(updated.tags).toContain("scope=data");
+      expect(requests("PATCH", "/vpc-connectors/")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("changing target VPC forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(
+        Scaleway.VpcConnector("Connector", { vpc: "vpc-a", targetVpc: "vpc-b" }),
+      );
+      const second = yield* stack.deploy(
+        Scaleway.VpcConnector("Connector", { vpc: "vpc-a", targetVpc: "vpc-c" }),
+      );
+      expect(second.targetVpcId).toBe("vpc-c");
+      expect(second.vpcConnectorId).not.toBe(first.vpcConnectorId);
+      expect(requests("DELETE", "/vpc-connectors/").length).toBeGreaterThan(0);
     }),
   );
 });

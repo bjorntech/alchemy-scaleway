@@ -161,6 +161,7 @@ export interface ScalewayVpcRecord {
   region?: string;
   tags?: string[];
   routing_enabled?: boolean;
+  custom_routes_propagation_enabled?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -194,6 +195,42 @@ export interface ScalewayVpcAclRuleRecord {
 export interface ScalewayVpcAclRecord {
   default_policy: string;
   rules: ScalewayVpcAclRuleRecord[];
+}
+
+export interface ScalewayVpcRouteRecord {
+  id: string;
+  description?: string;
+  tags?: string[];
+  vpc_id: string;
+  destination: string;
+  nexthop_resource_id?: string | null;
+  nexthop_private_network_id?: string | null;
+  nexthop_vpc_connector_id?: string | null;
+  is_read_only?: boolean;
+  type?: string;
+  region?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ScalewayVpcConnectorPeerInfo {
+  organization_id?: string;
+  project_id?: string;
+  vpc_name?: string;
+}
+
+export interface ScalewayVpcConnectorRecord {
+  id: string;
+  name: string;
+  project_id?: string;
+  vpc_id: string;
+  target_vpc_id: string;
+  status?: string;
+  peer_info?: ScalewayVpcConnectorPeerInfo | null;
+  region?: string;
+  tags?: string[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ScalewayClients {
@@ -312,6 +349,7 @@ export interface ScalewayClients {
       input: { name?: string; tags?: string[] },
     ): Effect.Effect<ScalewayVpcRecord, ScalewayError>;
     enableVpcRouting(vpcId: string): Effect.Effect<ScalewayVpcRecord, ScalewayError>;
+    enableVpcCustomRoutesPropagation(vpcId: string): Effect.Effect<ScalewayVpcRecord, ScalewayError>;
     deleteVpc(vpcId: string): Effect.Effect<void, ScalewayError>;
     createPrivateNetwork(input: {
       name: string;
@@ -354,6 +392,40 @@ export interface ScalewayClients {
       default_policy: string;
       rules: ScalewayVpcAclRuleRecord[];
     }): Effect.Effect<ScalewayVpcAclRecord, ScalewayError>;
+    createRoute(input: {
+      description?: string;
+      tags?: string[];
+      vpc_id: string;
+      destination: string;
+      nexthop_resource_id?: string;
+      nexthop_private_network_id?: string;
+      nexthop_vpc_connector_id?: string;
+    }): Effect.Effect<ScalewayVpcRouteRecord, ScalewayError>;
+    getRoute(routeId: string): Effect.Effect<ScalewayVpcRouteRecord, ScalewayError>;
+    updateRoute(
+      routeId: string,
+      input: {
+        description?: string | null;
+        tags?: string[];
+        destination?: string;
+        nexthop_resource_id?: string | null;
+        nexthop_private_network_id?: string | null;
+        nexthop_vpc_connector_id?: string | null;
+      },
+    ): Effect.Effect<ScalewayVpcRouteRecord, ScalewayError>;
+    deleteRoute(routeId: string): Effect.Effect<void, ScalewayError>;
+    createVpcConnector(input: {
+      name: string;
+      tags?: string[];
+      vpc_id: string;
+      target_vpc_id: string;
+    }): Effect.Effect<ScalewayVpcConnectorRecord, ScalewayError>;
+    getVpcConnector(vpcConnectorId: string): Effect.Effect<ScalewayVpcConnectorRecord, ScalewayError>;
+    updateVpcConnector(
+      vpcConnectorId: string,
+      input: { name?: string; tags?: string[] },
+    ): Effect.Effect<ScalewayVpcConnectorRecord, ScalewayError>;
+    deleteVpcConnector(vpcConnectorId: string): Effect.Effect<void, ScalewayError>;
   };
 }
 
@@ -484,6 +556,10 @@ export const makeScalewayClients = Effect.gen(function* () {
         request("PATCH", `${vpcBase}/vpcs/${id}`, input).pipe(Effect.map(decodeVpc)),
       enableVpcRouting: (id) =>
         request("POST", `${vpcBase}/vpcs/${id}/enable-routing`, {}).pipe(Effect.map(decodeVpc)),
+      enableVpcCustomRoutesPropagation: (id) =>
+        request("POST", `${vpcBase}/vpcs/${id}/enable-custom-routes-propagation`, {}).pipe(
+          Effect.map(decodeVpc),
+        ),
       deleteVpc: (id) => request<void>("DELETE", `${vpcBase}/vpcs/${id}`),
       createPrivateNetwork: (input) =>
         request("POST", `${vpcBase}/private-networks`, input).pipe(
@@ -529,6 +605,23 @@ export const makeScalewayClients = Effect.gen(function* () {
           default_policy,
           rules,
         }).pipe(Effect.map(decodeVpcAcl)),
+      createRoute: (input) =>
+        request("POST", `${vpcBase}/routes`, input).pipe(Effect.map(decodeVpcRoute)),
+      getRoute: (id) => request("GET", `${vpcBase}/routes/${id}`).pipe(Effect.map(decodeVpcRoute)),
+      updateRoute: (id, input) =>
+        request("PATCH", `${vpcBase}/routes/${id}`, input).pipe(Effect.map(decodeVpcRoute)),
+      deleteRoute: (id) => request<void>("DELETE", `${vpcBase}/routes/${id}`),
+      createVpcConnector: (input) =>
+        request("POST", `${vpcBase}/vpc-connectors`, input).pipe(
+          Effect.map(decodeVpcConnector),
+        ),
+      getVpcConnector: (id) =>
+        request("GET", `${vpcBase}/vpc-connectors/${id}`).pipe(Effect.map(decodeVpcConnector)),
+      updateVpcConnector: (id, input) =>
+        request("PATCH", `${vpcBase}/vpc-connectors/${id}`, input).pipe(
+          Effect.map(decodeVpcConnector),
+        ),
+      deleteVpcConnector: (id) => request<void>("DELETE", `${vpcBase}/vpc-connectors/${id}`),
     },
   } satisfies ScalewayClients;
 });
@@ -788,3 +881,6 @@ const decodeVpcAcl = (value: unknown): ScalewayVpcAclRecord => {
     rules: envelopeValue.rules ?? [],
   };
 };
+const decodeVpcRoute = (value: unknown) => envelope<ScalewayVpcRouteRecord>(value, "route");
+const decodeVpcConnector = (value: unknown) =>
+  envelope<ScalewayVpcConnectorRecord>(value, "vpc_connector");

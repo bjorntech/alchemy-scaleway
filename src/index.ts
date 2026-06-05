@@ -68,3 +68,18 @@ export {
   type VpcAclProtocol,
   type VpcAclRule,
 } from "./VpcAcl.ts";
+export {
+  VpcConnector,
+  VpcConnectorProvider,
+  type VpcConnectorProps,
+  type VpcConnectorVpcRef,
+} from "./VpcConnector.ts";
+export {
+  VpcRoute,
+  VpcRouteProvider,
+  type VpcRouteConnectorRef,
+  type VpcRouteNextHop,
+  type VpcRoutePrivateNetworkRef,
+  type VpcRouteProps,
+  type VpcRouteVpcRef,
+} from "./VpcRoute.ts";
