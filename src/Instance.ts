@@ -2,6 +2,8 @@ import { Resource } from "alchemy";
 import { isResolved } from "alchemy/Diff";
 import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
+import * as Redacted from "effect/Redacted";
+import { createHash } from "node:crypto";
 import { makeScalewayClients, type ScalewayInstanceRecord, type ScalewayInstanceVolumeRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
 import { omitUndefined, physicalName, projectId, resolveRef } from "./Internal.ts";
@@ -40,6 +42,12 @@ export interface InstanceProps {
   placementGroupId?: string | null;
   protected?: boolean;
   desiredState?: InstanceDesiredState;
+  /**
+   * First-boot cloud-init user data. Written to Scaleway's `cloud-init` user-data
+   * key before the first boot. The script itself is never returned in attributes;
+   * only a SHA-256 hash is persisted for replacement diffing.
+   */
+  cloudInit?: string | Redacted.Redacted<string>;
 }
 
 export type Instance = Resource<
@@ -65,6 +73,7 @@ export type Instance = Resource<
     placementGroupId?: string;
     dns?: string;
     volumes?: Record<string, InstanceVolume>;
+    cloudInitHash?: string;
   },
   never,
   Providers
@@ -107,6 +116,7 @@ const volumeChanged = (desired: InstanceVolume, current: InstanceVolume | undefi
 const volumesNeedReplace = (desired: Record<string, InstanceVolume> | undefined, current: Record<string, InstanceVolume> | undefined) =>
   desired !== undefined && (!stringsEqual(Object.keys(desired), Object.keys(current ?? {})) || Object.entries(desired).some(([key, volume]) => volumeChanged(volume, current?.[key])));
 const targetState = (state: InstanceDesiredState | undefined) => (state === "stopped" ? "stopped" : state);
+const targetStateFor = (state: InstanceDesiredState | undefined, cloudInit: string | undefined) => targetState(state) ?? (cloudInit === undefined ? undefined : "running");
 const publicIpIdOf = (publicIp: InstancePublicIpRef) => resolveRef(typeof publicIp === "string" ? publicIp : publicIp.ipId);
 const securityGroupIdOf = (securityGroup: InstanceSecurityGroupRef) => {
   return resolveRef(typeof securityGroup === "string" ? securityGroup : securityGroup.securityGroupId);
@@ -116,6 +126,11 @@ const isPreconditionError = (error: unknown) => String((error as { message?: unk
 function managedPublicIpIdsFromRecord(record: ScalewayInstanceRecord) {
   return (record.public_ips ?? []).filter((ip) => ip.dynamic !== true).map((ip) => ip.id).filter(isString);
 }
+const cloudInitValue = (value: InstanceProps["cloudInit"]) => value === undefined ? undefined : Redacted.isRedacted(value) ? Redacted.value(value) : value;
+const cloudInitHash = (value: InstanceProps["cloudInit"]) => {
+  const unwrapped = cloudInitValue(value);
+  return unwrapped === undefined ? undefined : `sha256:${createHash("sha256").update(unwrapped).digest("hex")}`;
+};
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const InstanceProvider = () =>
@@ -143,7 +158,7 @@ export const InstanceProvider = () =>
           }
           throw new Error(`Timed out waiting for Scaleway instance ${serverId} public IP attachments`);
         });
-      const toAttributes = (record: ScalewayInstanceRecord, requestedVolumes?: Record<string, InstanceVolume>, requestedImage?: string): Instance["Attributes"] =>
+      const toAttributes = (record: ScalewayInstanceRecord, requestedVolumes?: Record<string, InstanceVolume>, requestedImage?: string, requestedCloudInitHash?: string): Instance["Attributes"] =>
         omitUndefined({
           serverId: record.id,
           name: record.name,
@@ -164,6 +179,7 @@ export const InstanceProvider = () =>
           placementGroupId: record.placement_group?.id,
           dns: record.dns ?? undefined,
           volumes: volumesOutput(record.volumes, requestedVolumes),
+          cloudInitHash: requestedCloudInitHash,
         }) as Instance["Attributes"];
 
       return Instance.Provider.of({
@@ -175,12 +191,13 @@ export const InstanceProvider = () =>
           if (output.commercialType !== news.commercialType) return { action: "replace" } as const;
           if (news.image && output.imageName !== news.image && output.imageId !== news.image) return { action: "replace" } as const;
           if (volumesNeedReplace(news.volumes, output.volumes)) return { action: "replace" } as const;
+          if (cloudInitHash(news.cloudInit) !== output.cloudInitHash) return { action: "replace" } as const;
 
           const name = yield* nameOf(id, news.name);
           const publicIpIds = news.publicIps === undefined ? output.publicIpIds : yield* publicIpIdsOf(news.publicIps);
           const securityGroupId = news.securityGroup === undefined ? output.securityGroupId : yield* securityGroupIdOf(news.securityGroup);
           const placementGroupId = news.placementGroupId === null ? undefined : (news.placementGroupId ?? output.placementGroupId);
-          const desiredState = targetState(news.desiredState);
+          const desiredState = targetStateFor(news.desiredState, cloudInitValue(news.cloudInit));
           if (news.routedIpEnabled === false && output.routedIpEnabled) throw new Error("Scaleway routed IP mode cannot be disabled once enabled.");
           if (
             output.name !== name ||
@@ -199,7 +216,7 @@ export const InstanceProvider = () =>
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.serverId) return undefined;
           return yield* clients.instance.getInstance({ zone: output.zone, serverId: output.serverId }).pipe(
-            Effect.map((record) => toAttributes(record, output.volumes, output.imageName)),
+            Effect.map((record) => toAttributes(record, output.volumes, output.imageName, output.cloudInitHash)),
             Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
           );
         }),
@@ -208,6 +225,8 @@ export const InstanceProvider = () =>
           const name = yield* nameOf(id, news.name);
           const publicIps = news.publicIps === undefined ? undefined : yield* publicIpIdsOf(news.publicIps);
           const securityGroup = news.securityGroup === undefined ? undefined : yield* securityGroupIdOf(news.securityGroup);
+          const init = cloudInitValue(news.cloudInit);
+          const initHash = cloudInitHash(news.cloudInit);
           let record = output?.serverId
             ? yield* clients.instance.updateInstance({
                 zone,
@@ -236,8 +255,16 @@ export const InstanceProvider = () =>
                 security_group: typeof securityGroup === "string" ? securityGroup : undefined,
                 placement_group: news.placementGroupId,
                 protected: news.protected ?? false,
+                state: init === undefined ? undefined : "stopped",
               });
-          const desiredState = targetState(news.desiredState);
+          if (!output?.serverId && init !== undefined) {
+            if (record.state !== "stopped") {
+              yield* clients.instance.instanceAction({ zone, serverId: record.id, action: "poweroff" }).pipe(Effect.catchIf(isPreconditionError, () => Effect.void));
+              record = yield* waitForState(zone, record.id, "stopped", 60);
+            }
+            yield* clients.instance.setInstanceUserData({ zone, serverId: record.id, key: "cloud-init", value: init });
+          }
+          const desiredState = targetStateFor(news.desiredState, init);
           if (desiredState === "stopped" && record.state !== "stopped") {
             yield* clients.instance.instanceAction({ zone, serverId: record.id, action: "poweroff" }).pipe(Effect.catchIf(isPreconditionError, () => Effect.void));
             record = yield* waitForState(zone, record.id, "stopped", 60);
@@ -257,7 +284,7 @@ export const InstanceProvider = () =>
             record = yield* waitForState(zone, record.id, "running");
           }
           yield* session.note(`${output?.serverId ? "Updated" : "Created"} Scaleway instance ${record.id}`);
-          return toAttributes(record, news.volumes, news.image);
+          return toAttributes(record, news.volumes, news.image, initHash);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
           const current = yield* clients.instance.getInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));

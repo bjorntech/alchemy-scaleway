@@ -4,6 +4,12 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## [Unreleased]
 
+### Added
+
+- `Instance.cloudInit` writes multi-line Scaleway `cloud-init` user data before
+  first boot. The script may be a `string` or `Redacted<string>`, is not returned
+  in resource attributes, and is tracked by a SHA-256 hash for replacement diffing.
+
 ## [0.1.3-beta.51] - 2026-06-05
 
 ### Added

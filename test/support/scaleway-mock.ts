@@ -87,6 +87,7 @@ export function installScalewayMock(): ScalewayMock {
   const routes = new Map<string, Record<string, unknown>>();
   const vpcConnectors = new Map<string, Record<string, unknown>>();
   const servers = new Map<string, Record<string, unknown>>();
+  const serverUserData = new Map<string, Map<string, string>>();
   const securityGroups = new Map<string, Record<string, unknown>>();
   const securityGroupRules = new Map<string, Array<Record<string, unknown>>>();
   const flexibleIps = new Map<string, Record<string, unknown>>();
@@ -622,6 +623,28 @@ export function installScalewayMock(): ScalewayMock {
       return json({ task: { id: nextId("task"), status: "success" } });
     }
 
+    if (kind === "servers" && nested === "user_data") {
+      const existing = servers.get(id);
+      if (!existing) return json({ message: "server not found" }, 404);
+      const key = decodeURIComponent(nestedId ?? "");
+      const values = serverUserData.get(id) ?? new Map<string, string>();
+      if (!nestedId && method === "GET") return json({ user_data: [...values.keys()] });
+      if (method === "GET") {
+        const value = values.get(key);
+        if (value === undefined) return json({ message: "user data not found" }, 404);
+        return json({ name: key, content_type: "text/plain", content: value });
+      }
+      if (method === "PATCH") {
+        values.set(key, typeof body === "string" ? body : String(body ?? ""));
+        serverUserData.set(id, values);
+        return noContent();
+      }
+      if (method === "DELETE") {
+        values.delete(key);
+        return noContent();
+      }
+    }
+
     if (kind === "servers" && !nested) {
       if (!id && method === "POST") {
         const record = {
@@ -660,6 +683,7 @@ export function installScalewayMock(): ScalewayMock {
       }
       if (method === "DELETE") {
         servers.delete(id);
+        serverUserData.delete(id);
         return noContent();
       }
     }
@@ -806,7 +830,7 @@ export function installScalewayMock(): ScalewayMock {
     }
 
     if (parsed.host === "api.scaleway.com") {
-      const parsedBody = text.length > 0 ? JSON.parse(text) : undefined;
+      const parsedBody = text.length > 0 && !headers.get("content-type")?.startsWith("text/plain") ? JSON.parse(text) : text.length > 0 ? text : undefined;
       if (parsed.pathname.startsWith("/registry/")) {
         return registryHandler(method, parsed.pathname, parsedBody);
       }

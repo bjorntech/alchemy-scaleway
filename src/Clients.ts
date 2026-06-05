@@ -527,6 +527,7 @@ export interface ScalewayClients {
     updateInstance(input: { zone: string; serverId: string } & Record<string, unknown>): Effect.Effect<ScalewayInstanceRecord, ScalewayError>;
     deleteInstance(input: { zone: string; serverId: string }): Effect.Effect<void, ScalewayError>;
     instanceAction(input: { zone: string; serverId: string; action: string }): Effect.Effect<void, ScalewayError>;
+    setInstanceUserData(input: { zone: string; serverId: string; key: string; value: string }): Effect.Effect<void, ScalewayError>;
     createSecurityGroup(input: {
       zone: string;
       name: string;
@@ -768,6 +769,39 @@ export const makeScalewayClients = Effect.gen(function* () {
       deleteInstance: ({ zone, serverId }) => request<void>("DELETE", `/instance/v1/zones/${zone}/servers/${serverId}`),
       instanceAction: ({ zone, serverId, action }) =>
         request("POST", `/instance/v1/zones/${zone}/servers/${serverId}/action`, { action }).pipe(Effect.asVoid),
+      setInstanceUserData: ({ zone, serverId, key, value }) =>
+        Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(`${apiUrl}/instance/v1/zones/${zone}/servers/${serverId}/user_data/${encodeURIComponent(key)}`, {
+              method: "PATCH",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "text/plain",
+                "X-Auth-Token": secretKey,
+              },
+              body: value,
+            });
+            if (!response.ok) {
+              const text = await response.text();
+              let decoded: unknown;
+              try {
+                decoded = text.length === 0 ? undefined : JSON.parse(text);
+              } catch {
+                decoded = text;
+              }
+              throw scalewayError({
+                operation: `PATCH /instance/v1/zones/${zone}/servers/${serverId}/user_data/${key}`,
+                cause: new Error(messageFromBody(decoded) ?? `Scaleway request failed with status ${response.status}`),
+                statusCode: response.status,
+                retryable: response.status >= 500 || response.status === 429,
+              });
+            }
+          },
+          catch: (cause) =>
+            cause instanceof Error && cause.name === "ScalewayError"
+              ? (cause as ScalewayError)
+              : scalewayError({ operation: `PATCH /instance/v1/zones/${zone}/servers/${serverId}/user_data/${key}`, cause }),
+        }),
       createSecurityGroup: ({ zone, ...input }) =>
         request("POST", `/instance/v1/zones/${zone}/security_groups`, input).pipe(Effect.map(decodeSecurityGroup)),
       getSecurityGroup: ({ zone, securityGroupId }) =>

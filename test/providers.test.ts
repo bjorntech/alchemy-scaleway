@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
+import { createHash } from "node:crypto";
 import * as Test from "alchemy/Test/Bun";
 import * as Scaleway from "../src/index.ts";
 import { installScalewayMock, type ScalewayMock } from "./support/scaleway-mock.ts";
@@ -44,6 +45,8 @@ afterEach(() => {
 
 const requests = (method: string, fragment: string) =>
   mock.calls.filter((c) => c.method === method && c.url.includes(fragment));
+
+const sha256 = (value: string) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
 const bucketRootRequests = (method: string, bucket: string) =>
   mock.calls.filter((c) => {
@@ -1126,6 +1129,59 @@ describe("VpcConnector", () => {
 });
 
 describe("Instance", () => {
+  test.provider("sets cloud-init user data before first boot without storing script", (stack) =>
+    Effect.gen(function* () {
+      const script = `#!/bin/bash
+set -e
+
+apt-get update
+apt-get install -y docker.io
+systemctl enable docker
+systemctl start docker
+`;
+
+      const created = yield* stack.deploy(
+        Scaleway.Instance("App", {
+          commercialType: "DEV1-S",
+          image: "ubuntu_jammy",
+          cloudInit: Redacted.make(script),
+          desiredState: "running",
+        }),
+      );
+
+      expect(created.state).toBe("running");
+      expect(created.cloudInitHash).toBe(sha256(script));
+      expect(JSON.stringify(created)).not.toContain("apt-get install");
+
+      const creates = requests("POST", "/servers");
+      expect(JSON.parse(creates[0].body).state).toBe("stopped");
+
+      const userData = requests("PATCH", "/user_data/cloud-init");
+      expect(userData).toHaveLength(1);
+      expect(userData[0].headers.get("content-type")).toBe("text/plain");
+      expect(userData[0].body).toBe(script);
+
+      const actions = requests("POST", "/action");
+      expect(JSON.parse(actions.at(-1)!.body).action).toBe("poweron");
+    }),
+  );
+
+  test.provider("changing cloud-init forces an instance replacement", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(
+        Scaleway.Instance("App", { commercialType: "DEV1-S", cloudInit: "#!/bin/bash\necho first\n" }),
+      );
+      const second = yield* stack.deploy(
+        Scaleway.Instance("App", { commercialType: "DEV1-S", cloudInit: "#!/bin/bash\necho second\n" }),
+      );
+
+      expect(second.serverId).not.toBe(first.serverId);
+      expect(second.cloudInitHash).toBe(sha256("#!/bin/bash\necho second\n"));
+      expect(requests("DELETE", "/servers/").length).toBeGreaterThan(0);
+      expect(requests("PATCH", "/user_data/cloud-init")).toHaveLength(2);
+    }),
+  );
+
   test.provider("creates then updates instance metadata and attachments", (stack) =>
     Effect.gen(function* () {
       mock.addFlexibleIp("ip-existing");
