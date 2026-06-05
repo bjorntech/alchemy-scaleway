@@ -4,6 +4,8 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## [Unreleased]
 
+## [0.1.3-beta.51] - 2026-06-05
+
 ### Added
 
 - `Vpc` provisions Scaleway VPCs and supports one-way routing and custom route
@@ -30,13 +32,25 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
   payload shape (`{ subnets: [...] }`).
 - VPC ACL rule port fields now use Scaleway's published `src_port_*` and
   `dst_port_*` names.
+- The production smoke test now deploys, updates, settles, and destroys a public
+  `Alchemy.Stack` through the documented Alchemy CLI workflow.
+- Namespace reconciliation waits for Scaleway readiness after create/update.
+- Container create/update retries Scaleway transient state errors.
+- Instance deletion now powers off servers and detaches managed flexible IPs before
+  delete; Instance image aliases are preserved in outputs to avoid alias drift.
+- `FlexibleIp` normalizes nullable Scaleway fields to `undefined` in outputs.
+- `PrivateNic` preserves stable server and Private Network identity when Scaleway
+  omits those fields from responses.
+- `SecurityGroup` ignores Scaleway-managed non-editable rules when comparing and
+  returning the owned rule set.
 
 ### Known limitations
 
 - Scaleway documents in-place Private Network subnet add/delete endpoints, and the
   provider calls them during subnet drift reconciliation. The production smoke
   account currently receives `501 unimplemented endpoint` for those endpoints in
-  `fr-par`, so live smoke verifies create-time subnets only.
+  `fr-par`, so live smoke omits `PrivateNetwork.subnets` until those endpoints are
+  available.
 
 ## [0.1.2-beta.51] - 2026-06-04
 
