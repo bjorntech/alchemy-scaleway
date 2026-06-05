@@ -8,11 +8,19 @@ import { Bucket, BucketProvider } from "../../src/Bucket.ts";
 import { Container, ContainerProvider } from "../../src/Container.ts";
 import { ScalewayCredentials } from "../../src/Credentials.ts";
 import { Domain, DomainProvider } from "../../src/Domain.ts";
+import { FlexibleIp, FlexibleIpProvider } from "../../src/FlexibleIp.ts";
 import { Namespace, NamespaceProvider } from "../../src/Namespace.ts";
+import { PrivateNic, PrivateNicProvider } from "../../src/PrivateNic.ts";
+import { PrivateNetwork, PrivateNetworkProvider } from "../../src/PrivateNetwork.ts";
 import { Providers } from "../../src/Providers.ts";
 import { RegistryNamespace, RegistryNamespaceProvider } from "../../src/RegistryNamespace.ts";
 import { Secret, SecretProvider } from "../../src/Secret.ts";
+import { SecurityGroup, SecurityGroupProvider } from "../../src/SecurityGroup.ts";
 import { Trigger, TriggerProvider } from "../../src/Trigger.ts";
+import { Vpc, VpcProvider } from "../../src/Vpc.ts";
+import { VpcAcl, VpcAclProvider } from "../../src/VpcAcl.ts";
+import { VpcConnector, VpcConnectorProvider } from "../../src/VpcConnector.ts";
+import { VpcRoute, VpcRouteProvider } from "../../src/VpcRoute.ts";
 
 const credentialsLayer = Layer.succeed(
   ScalewayCredentials,
@@ -28,7 +36,23 @@ const credentialsLayer = Layer.succeed(
 export const testProviders = () =>
   Layer.effect(
     Providers,
-    Provider.collection([Namespace, Container, Trigger, Domain, RegistryNamespace, Secret, Bucket]),
+    Provider.collection([
+      Namespace,
+      Container,
+      Trigger,
+      Domain,
+      RegistryNamespace,
+      Secret,
+      Bucket,
+      Vpc,
+      PrivateNetwork,
+      VpcAcl,
+      VpcRoute,
+      VpcConnector,
+      SecurityGroup,
+      FlexibleIp,
+      PrivateNic,
+    ]),
   ).pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -39,6 +63,14 @@ export const testProviders = () =>
         RegistryNamespaceProvider(),
         SecretProvider(),
         BucketProvider(),
+        VpcProvider(),
+        PrivateNetworkProvider(),
+        VpcAclProvider(),
+        VpcRouteProvider(),
+        VpcConnectorProvider(),
+        SecurityGroupProvider(),
+        FlexibleIpProvider(),
+        PrivateNicProvider(),
       ),
     ),
     Layer.provideMerge(credentialsLayer),

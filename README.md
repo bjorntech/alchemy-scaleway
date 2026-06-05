@@ -37,7 +37,7 @@ The `env` auth method reads:
 ```sh
 SCW_SECRET_KEY=...
 SCW_ACCESS_KEY=...              # optional, required for Object Storage
-SCW_DEFAULT_PROJECT_ID=...      # optional, required for Containers unless set per resource
+SCW_DEFAULT_PROJECT_ID=...      # optional, required for project-scoped resources unless set per resource
 SCW_DEFAULT_REGION=fr-par       # optional, defaults to fr-par
 SCW_API_URL=https://api.scaleway.com # optional, defaults to https://api.scaleway.com
 ```
@@ -83,6 +83,28 @@ export default Alchemy.Stack(
       value: Redacted.make(process.env.API_TOKEN!),
     });
 
+    const vpc = yield* Scaleway.Vpc("Network", {
+      routing: true,
+      customRoutesPropagation: true,
+    });
+
+    const privateNetwork = yield* Scaleway.PrivateNetwork("PrivateNetwork", {
+      vpc,
+      subnets: ["10.10.0.0/24"],
+    });
+
+    yield* Scaleway.VpcAcl("VpcAcl", {
+      vpc,
+      defaultPolicy: "drop",
+      rules: [{ protocol: "TCP", action: "accept", destinationPort: 443 }],
+    });
+
+    yield* Scaleway.VpcRoute("PrivateRoute", {
+      vpc,
+      destination: "10.20.0.0/24",
+      nextHop: { type: "privateNetwork", privateNetwork },
+    });
+
     const api = yield* Scaleway.Container("Api", {
       namespace,
       image: "rg.fr-par.scw.cloud/my-registry/api:latest",
@@ -103,6 +125,7 @@ export default Alchemy.Stack(
       imagePrefix: registry.imagePrefix,
       secretId: apiToken.secretId,
       bucket: bucket.bucketName,
+      privateNetworkId: privateNetwork.privateNetworkId,
     };
   }),
 );
@@ -117,5 +140,19 @@ export default Alchemy.Stack(
 - `RegistryNamespace` - Scaleway Container Registry namespace lifecycle with ready-to-use image prefix output.
 - `Secret` - Scaleway Secret Manager secret metadata and version lifecycle. Secret values are accepted as `Redacted<string>` and are never returned in outputs.
 - `Bucket` - Scaleway Object Storage bucket lifecycle via the S3-compatible API.
+- `Vpc` - Scaleway VPC lifecycle with optional routing and custom route propagation enablement.
+- `PrivateNetwork` - Scaleway Private Network lifecycle, including optional VPC binding, subnets, DHCP enablement, and default route propagation.
+- `VpcAcl` - Scaleway VPC ACL lifecycle for one VPC/IP version. This resource owns the full ACL rule set for that `vpc` plus `ipVersion` and resets it to `defaultPolicy: "accept"` with no rules on delete.
+- `VpcRoute` - Scaleway VPC route lifecycle with next hops expressed as a resource ID, Private Network, or VPC connector.
+- `VpcConnector` - Scaleway VPC connector lifecycle for connecting two VPCs, with name and tag updates in place.
+- `SecurityGroup` - Scaleway Instance security group lifecycle. This resource owns the complete security group rule set.
+- `FlexibleIp` - Scaleway Instance flexible IP reservation lifecycle, including tag, reverse DNS, and server attachment updates.
+- `PrivateNic` - Scaleway Instance private NIC lifecycle for attaching one Instance to one Private Network.
+
+### VPC Caveats
+
+Scaleway's public VPC v2 schema documents in-place subnet add/delete endpoints for existing Private Networks. The provider implements those documented endpoints for subnet drift reconciliation, but the production smoke account currently receives `501 unimplemented endpoint` from Scaleway in `fr-par`. Create-time `PrivateNetwork.subnets` is verified by the live smoke test.
+
+`Vpc.routing` and `Vpc.customRoutesPropagation` map to one-way Scaleway operations. Once enabled, attempting to disable either flag fails locally instead of silently drifting.
 
 For contributor details, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).

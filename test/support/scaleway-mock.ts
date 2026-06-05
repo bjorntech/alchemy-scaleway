@@ -17,6 +17,13 @@ export interface ScalewayMock {
   restore(): void;
   /** Drop a record so the next `read`/`get` behaves like a 404. */
   removeContainer(id: string): void;
+  removeVpc(id: string): void;
+  removePrivateNetwork(id: string): void;
+  removeRoute(id: string): void;
+  removeVpcConnector(id: string): void;
+  removeSecurityGroup(id: string): void;
+  removeFlexibleIp(id: string): void;
+  removePrivateNic(serverId: string, id: string): void;
   removeBucket(name: string): void;
   /** Seed a bucket that Alchemy does not own (no `alchemy:logical-id` tag). */
   seedBucket(name: string, region: string, tags?: Record<string, string>): void;
@@ -72,6 +79,15 @@ export function installScalewayMock(): ScalewayMock {
   const triggers = new Map<string, Record<string, unknown>>();
   const domains = new Map<string, Record<string, unknown>>();
   const buckets = new Map<string, BucketState>();
+  const vpcs = new Map<string, Record<string, unknown>>();
+  const privateNetworks = new Map<string, Record<string, unknown>>();
+  const aclRules = new Map<string, Record<string, unknown>>();
+  const routes = new Map<string, Record<string, unknown>>();
+  const vpcConnectors = new Map<string, Record<string, unknown>>();
+  const securityGroups = new Map<string, Record<string, unknown>>();
+  const securityGroupRules = new Map<string, Array<Record<string, unknown>>>();
+  const flexibleIps = new Map<string, Record<string, unknown>>();
+  const privateNics = new Map<string, Record<string, unknown>>();
   let counter = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
   const forcedErrors: Array<{ fragment: string; status: number; message: string }> = [];
@@ -323,6 +339,178 @@ export function installScalewayMock(): ScalewayMock {
     return json({ message: `unhandled secret manager request ${method} ${pathname}` }, 400);
   };
 
+  const vpcHandler = (method: string, pathname: string, search: string, body: unknown): Response => {
+    const segments = pathname.split("/").filter(Boolean);
+    const kind = segments[4];
+    const id = segments[5];
+    const action = segments[6];
+    const subnet = segments[7];
+    const input = (body ?? {}) as Record<string, unknown>;
+
+    if (kind === "vpcs") {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("vpc"),
+          region: "fr-par",
+          routing_enabled: false,
+          custom_routes_propagation_enabled: false,
+          tags: [],
+          ...input,
+        };
+        vpcs.set(record.id as string, record);
+        return json({ vpc: record });
+      }
+      const existing = vpcs.get(id);
+      if (action === "acl-rules") {
+        const isIpv6 = new URLSearchParams(search).get("is_ipv6") === "true";
+        const key = `${id}:${isIpv6}`;
+        if (method === "GET") {
+          return json(
+            aclRules.get(key) ?? {
+              default_policy: "accept",
+              rules: [],
+            },
+          );
+        }
+        if (method === "PUT") {
+          const record = {
+            default_policy: input.default_policy,
+            rules: input.rules ?? [],
+          };
+          aclRules.set(key, record);
+          return json(record);
+        }
+      }
+      if (!existing) return json({ message: "vpc not found" }, 404);
+      if (!action && method === "GET") return json({ vpc: existing });
+      if (!action && method === "PATCH") {
+        const updated = { ...existing, ...input };
+        vpcs.set(id, updated);
+        return json({ vpc: updated });
+      }
+      if (!action && method === "DELETE") {
+        vpcs.delete(id);
+        return noContent();
+      }
+      if (action === "enable-routing" && method === "POST") {
+        const updated = { ...existing, routing_enabled: true };
+        vpcs.set(id, updated);
+        return json({ vpc: updated });
+      }
+      if (action === "enable-custom-routes-propagation" && method === "POST") {
+        const updated = { ...existing, custom_routes_propagation_enabled: true };
+        vpcs.set(id, updated);
+        return json({ vpc: updated });
+      }
+    }
+
+    if (kind === "routes") {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("route"),
+          region: "fr-par",
+          is_read_only: false,
+          type: "custom",
+          tags: [],
+          ...input,
+        };
+        routes.set(record.id as string, record);
+        return json({ route: record });
+      }
+      const existing = routes.get(id);
+      if (!existing) return json({ message: "route not found" }, 404);
+      if (method === "GET") return json({ route: existing });
+      if (method === "PATCH") {
+        const updated = { ...existing, ...input };
+        routes.set(id, updated);
+        return json({ route: updated });
+      }
+      if (method === "DELETE") {
+        routes.delete(id);
+        return noContent();
+      }
+    }
+
+    if (kind === "vpc-connectors") {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("vpc-connector"),
+          region: "fr-par",
+          project_id: "proj-test",
+          status: "orphan",
+          tags: [],
+          ...input,
+        };
+        vpcConnectors.set(record.id as string, record);
+        return json({ vpc_connector: record });
+      }
+      const existing = vpcConnectors.get(id);
+      if (!existing) return json({ message: "vpc connector not found" }, 404);
+      if (method === "GET") return json({ vpc_connector: existing });
+      if (method === "PATCH") {
+        const updated = { ...existing, ...input };
+        vpcConnectors.set(id, updated);
+        return json({ vpc_connector: updated });
+      }
+      if (method === "DELETE") {
+        vpcConnectors.delete(id);
+        return noContent();
+      }
+    }
+
+    if (kind === "private-networks") {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("pn"),
+          region: "fr-par",
+          tags: [],
+          subnets: [],
+          dhcp_enabled: false,
+          ...input,
+        };
+        privateNetworks.set(record.id as string, record);
+        return json({ private_network: record });
+      }
+      const existing = privateNetworks.get(id);
+      if (!existing) return json({ message: "private network not found" }, 404);
+      if (!action && method === "GET") return json({ private_network: existing });
+      if (!action && method === "PATCH") {
+        const updated = { ...existing, ...input };
+        privateNetworks.set(id, updated);
+        return json({ private_network: updated });
+      }
+      if (!action && method === "DELETE") {
+        privateNetworks.delete(id);
+        return noContent();
+      }
+      if (action === "enable-dhcp" && method === "POST") {
+        const updated = { ...existing, dhcp_enabled: true };
+        privateNetworks.set(id, updated);
+        return json({ private_network: updated });
+      }
+      if (action === "subnets" && method === "POST") {
+        const subnets = new Set([
+          ...(existing.subnets as string[]),
+          ...((input.subnets as string[]) ?? []),
+        ]);
+        const updated = { ...existing, subnets: [...subnets] };
+        privateNetworks.set(id, updated);
+        return json({ subnets: updated.subnets });
+      }
+      if (action === "subnets" && method === "DELETE") {
+        const deleted = new Set((input.subnets as string[]) ?? []);
+        const updated = {
+          ...existing,
+          subnets: (existing.subnets as string[]).filter((item) => !deleted.has(item)),
+        };
+        privateNetworks.set(id, updated);
+        return json({ subnets: updated.subnets });
+      }
+    }
+
+    return json({ message: `unhandled vpc request ${method} ${pathname}${search}` }, 400);
+  };
+
   const parseTagBody = (body: string): Record<string, string> => {
     const tags: Record<string, string> = {};
     for (const [, key, value] of body.matchAll(/<Key>([^<]+)<\/Key><Value>([^<]*)<\/Value>/g)) {
@@ -401,6 +589,116 @@ export function installScalewayMock(): ScalewayMock {
     );
   };
 
+  const instanceHandler = (method: string, pathname: string, body: unknown): Response => {
+    const segments = pathname.split("/").filter(Boolean);
+    const zone = segments[3];
+    const kind = segments[4];
+    const id = segments[5];
+    const nested = segments[6];
+    const nestedId = segments[7];
+    const input = (body ?? {}) as Record<string, unknown>;
+
+    if (kind === "security_groups") {
+      if (!id && method === "POST") {
+        const record = { id: nextId("sg"), zone, state: "available", tags: [], ...input };
+        securityGroups.set(record.id as string, record);
+        return json({ security_group: record }, 201);
+      }
+      const existing = securityGroups.get(id);
+      if (!existing) return json({ message: "security group not found" }, 404);
+      if (!nested && method === "GET") return json({ security_group: existing });
+      if (!nested && method === "PATCH") {
+        const updated = { ...existing, ...input };
+        securityGroups.set(id, updated);
+        return json({ security_group: updated });
+      }
+      if (!nested && method === "DELETE") {
+        securityGroups.delete(id);
+        securityGroupRules.delete(id);
+        return noContent();
+      }
+      if (nested === "rules") {
+        if (!nestedId && method === "PUT") {
+          const rules = ((input.rules as Array<Record<string, unknown>>) ?? []).map((rule, index) => ({
+            id: (rule.id as string | undefined) ?? nextId("sgr"),
+            zone,
+            editable: true,
+            position: index,
+            ...rule,
+            dest_port_to: rule.dest_port_to === rule.dest_port_from ? null : rule.dest_port_to,
+          }));
+          securityGroupRules.set(id, rules);
+          return json({ rules });
+        }
+        if (!nestedId && method === "GET") return json({ rules: securityGroupRules.get(id) ?? [] });
+      }
+    }
+
+    if (kind === "ips") {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("ip"),
+          zone,
+          address: `203.0.113.${counter + 1}`,
+          state: "attached",
+          type: input.type ?? "routed_ipv4",
+          tags: [],
+          ...input,
+          server: input.server ? { id: input.server } : undefined,
+        };
+        flexibleIps.set(record.id as string, record);
+        return json({ ip: record }, 201);
+      }
+      const existing = flexibleIps.get(id) ?? [...flexibleIps.values()].find((ip) => ip.address === id);
+      if (!existing) return json({ message: "ip not found" }, 404);
+      if (method === "GET") return json({ ip: existing });
+      if (method === "PATCH") {
+        const updated = {
+          ...existing,
+          ...input,
+          server: input.server === null ? undefined : input.server ? { id: input.server } : existing.server,
+        };
+        flexibleIps.set(existing.id as string, updated);
+        return json({ ip: updated });
+      }
+      if (method === "DELETE") {
+        flexibleIps.delete(existing.id as string);
+        return noContent();
+      }
+    }
+
+    if (kind === "servers" && nested === "private_nics") {
+      const key = (privateNicId: string) => `${id}:${privateNicId}`;
+      if (!nestedId && method === "POST") {
+        const record = {
+          id: nextId("pnic"),
+          zone,
+          server_id: id,
+          mac_address: "02:00:00:00:00:01",
+          state: "available",
+          tags: [],
+          ...input,
+        };
+        privateNics.set(key(record.id as string), record);
+        return json({ private_nic: record }, 201);
+      }
+      const existing = privateNics.get(key(nestedId));
+      if (!existing) return json({ message: "private nic not found" }, 404);
+      if (method === "GET") return json({ private_nic: existing });
+      if (method === "PATCH") {
+        const updated = { ...existing, ...input };
+        privateNics.set(key(nestedId), updated);
+        return json(updated);
+      }
+      if (method === "DELETE") {
+        privateNics.delete(key(nestedId));
+        return noContent();
+      }
+    }
+
+    return json({ message: `unhandled instance request ${method} ${pathname}` }, 400);
+  };
+
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     // Our Containers client calls `fetch(url, { method, body })`; aws4fetch
     // signs and calls `fetch(Request)` with a single argument, so the method
@@ -436,6 +734,12 @@ export function installScalewayMock(): ScalewayMock {
       if (parsed.pathname.startsWith("/secret-manager/")) {
         return secretManagerHandler(method, parsed.pathname, parsedBody);
       }
+      if (parsed.pathname.startsWith("/vpc/")) {
+        return vpcHandler(method, parsed.pathname, parsed.search, parsedBody);
+      }
+      if (parsed.pathname.startsWith("/instance/")) {
+        return instanceHandler(method, parsed.pathname, parsedBody);
+      }
       return containersHandler(method, parsed.pathname, parsedBody);
     }
     if (parsed.host.endsWith(".scw.cloud")) {
@@ -450,6 +754,13 @@ export function installScalewayMock(): ScalewayMock {
       globalThis.fetch = original;
     },
     removeContainer: (id) => containers.delete(id),
+    removeVpc: (id) => vpcs.delete(id),
+    removePrivateNetwork: (id) => privateNetworks.delete(id),
+    removeRoute: (id) => routes.delete(id),
+    removeVpcConnector: (id) => vpcConnectors.delete(id),
+    removeSecurityGroup: (id) => securityGroups.delete(id),
+    removeFlexibleIp: (id) => flexibleIps.delete(id),
+    removePrivateNic: (serverId, id) => privateNics.delete(`${serverId}:${id}`),
     removeBucket: (name) => buckets.delete(name),
     seedBucket: (name, region, tags = {}) => buckets.set(name, { region, versioning: false, tags }),
     failNext: (fragment, status, message) => forcedErrors.push({ fragment, status, message }),
