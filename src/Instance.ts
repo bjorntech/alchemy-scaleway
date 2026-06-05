@@ -111,6 +111,10 @@ const publicIpIdOf = (publicIp: InstancePublicIpRef) => resolveRef(typeof public
 const securityGroupIdOf = (securityGroup: InstanceSecurityGroupRef) => {
   return resolveRef(typeof securityGroup === "string" ? securityGroup : securityGroup.securityGroupId);
 };
+const isString = (value: string | undefined): value is string => value !== undefined;
+function publicIpIdsFromRecord(record: ScalewayInstanceRecord) {
+  return (record.public_ips ?? []).map((ip) => ip.id).filter(isString);
+}
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const InstanceProvider = () =>
@@ -128,6 +132,15 @@ export const InstanceProvider = () =>
             yield* Effect.sleep("1 second");
           }
           throw new Error(`Timed out waiting for Scaleway instance ${serverId} to become ${state}`);
+        });
+      const waitForPublicIps = (zone: string, serverId: string, publicIps: string[], attempts = 20) =>
+        Effect.gen(function* () {
+          for (let attempt = 0; attempt < attempts; attempt++) {
+            const record = yield* clients.instance.getInstance({ zone, serverId });
+            if (stringsEqual(publicIpIdsFromRecord(record), publicIps)) return record;
+            yield* Effect.sleep("2 seconds");
+          }
+          throw new Error(`Timed out waiting for Scaleway instance ${serverId} public IP attachments`);
         });
       const toAttributes = (record: ScalewayInstanceRecord, requestedVolumes?: Record<string, InstanceVolume>): Instance["Attributes"] =>
         omitUndefined({
@@ -202,7 +215,6 @@ export const InstanceProvider = () =>
                 tags: withAlchemyTag(id, news.tags),
                 dynamic_ip_required: news.dynamicIpRequired,
                 routed_ip_enabled: news.routedIpEnabled,
-                public_ips: publicIps,
                 boot_type: news.bootType,
                 security_group: securityGroup ? { id: securityGroup } : undefined,
                 placement_group: news.placementGroupId,
@@ -224,6 +236,16 @@ export const InstanceProvider = () =>
                 placement_group: news.placementGroupId,
                 protected: news.protected ?? false,
               });
+          if (output?.serverId && publicIps !== undefined) {
+            const currentPublicIps = publicIpIdsFromRecord(record);
+            for (const publicIp of currentPublicIps.filter((publicIp) => !publicIps.includes(publicIp))) {
+              yield* clients.instance.updateFlexibleIp({ zone, ip: publicIp, server: null });
+            }
+            for (const publicIp of publicIps.filter((publicIp) => !currentPublicIps.includes(publicIp))) {
+              yield* clients.instance.updateFlexibleIp({ zone, ip: publicIp, server: record.id });
+            }
+            record = yield* waitForPublicIps(zone, record.id, publicIps);
+          }
           const desiredState = targetState(news.desiredState);
           if (desiredState === "running" && record.state !== "running") {
             yield* clients.instance.instanceAction({ zone, serverId: record.id, action: "poweron" });

@@ -15,6 +15,7 @@ export interface MockCall {
 export interface ScalewayMock {
   readonly calls: ReadonlyArray<MockCall>;
   restore(): void;
+  addFlexibleIp(id: string): void;
   /** Drop a record so the next `read`/`get` behaves like a 404. */
   removeContainer(id: string): void;
   removeVpc(id: string): void;
@@ -501,7 +502,7 @@ export function installScalewayMock(): ScalewayMock {
       }
       if (action === "subnets" && method === "DELETE") {
         const deleted = new Set((input.subnets as string[]) ?? []);
-        const updated = {
+        const updated: Record<string, unknown> = {
           ...existing,
           subnets: (existing.subnets as string[]).filter((item) => !deleted.has(item)),
         };
@@ -647,7 +648,7 @@ export function installScalewayMock(): ScalewayMock {
       if (!existing) return json({ message: "server not found" }, 404);
       if (method === "GET") return json({ server: existing });
       if (method === "PATCH") {
-        const updated = {
+        const updated: Record<string, unknown> = {
           ...existing,
           ...input,
           public_ips: input.public_ips === undefined ? existing.public_ips : serverPublicIps(input.public_ips),
@@ -718,12 +719,25 @@ export function installScalewayMock(): ScalewayMock {
       if (!existing) return json({ message: "ip not found" }, 404);
       if (method === "GET") return json({ ip: existing });
       if (method === "PATCH") {
-        const updated = {
+        const updated: Record<string, unknown> = {
           ...existing,
           ...input,
           server: input.server === null ? undefined : input.server ? { id: input.server } : existing.server,
         };
         flexibleIps.set(existing.id as string, updated);
+        for (const [serverId, server] of servers) {
+          const publicIps = ((server.public_ips as Array<Record<string, unknown>> | undefined) ?? []).filter((ip) => ip.id !== existing.id);
+          if ((updated.server as { id?: string } | undefined)?.id === serverId) {
+            publicIps.push({
+              id: existing.id,
+              address: updated.address as string,
+              family: "inet",
+              dynamic: false,
+              state: "attached",
+            });
+          }
+          servers.set(serverId, { ...server, public_ips: publicIps });
+        }
         return json({ ip: updated });
       }
       if (method === "DELETE") {
@@ -818,6 +832,7 @@ export function installScalewayMock(): ScalewayMock {
     restore: () => {
       globalThis.fetch = original;
     },
+    addFlexibleIp: (id) => flexibleIps.set(id, { id, zone: "fr-par-1", address: `203.0.113.${counter + 1}`, state: "attached", type: "routed_ipv4", tags: [] }),
     removeContainer: (id) => containers.delete(id),
     removeVpc: (id) => vpcs.delete(id),
     removePrivateNetwork: (id) => privateNetworks.delete(id),

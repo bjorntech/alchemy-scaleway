@@ -19,6 +19,7 @@ if (process.env.SCW_LIVE_TEST !== "1") {
 const accessKey = required("SCW_ACCESS_KEY");
 const secretKey = required("SCW_SECRET_KEY");
 const region = process.env.SCW_DEFAULT_REGION || "fr-par";
+const zone = process.env.SCW_DEFAULT_ZONE || `${region}-1`;
 const projectId = required("SCW_DEFAULT_PROJECT_ID");
 const apiUrl = process.env.SCW_API_URL || "https://api.scaleway.com";
 const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -45,7 +46,14 @@ const created: {
   secretId?: string;
   bucketName?: string;
   vpcId?: string;
+  targetVpcId?: string;
   privateNetworkId?: string;
+  routeId?: string;
+  vpcConnectorId?: string;
+  securityGroupId?: string;
+  flexibleIpId?: string;
+  serverId?: string;
+  privateNicId?: string;
 } = {};
 
 async function runEffect<A>(effect: Effect.Effect<A, unknown>) {
@@ -115,6 +123,26 @@ async function waitForNamespaceReady(namespaceId: string) {
     await sleep(1000);
   }
   throw new Error(`timed out waiting for namespace ${namespaceId}`);
+}
+
+async function waitForInstanceState(serverId: string, state: string) {
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const server = await runEffect(clients.instance.getInstance({ zone, serverId }));
+    console.log(`instance ${serverId} state ${server.state ?? "unknown"}`);
+    if (server.state === state) return server;
+    await sleep(2000);
+  }
+  throw new Error(`timed out waiting for instance ${serverId} to become ${state}`);
+}
+
+async function waitForFlexibleIpServer(ip: string, serverId: string) {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const flexibleIp = await runEffect(clients.instance.getFlexibleIp({ zone, ip }));
+    console.log(`flexible ip ${ip} server ${flexibleIp.server?.id ?? "none"}`);
+    if (flexibleIp.server?.id === serverId) return flexibleIp;
+    await sleep(2000);
+  }
+  throw new Error(`timed out waiting for flexible ip ${ip} to attach to ${serverId}`);
 }
 
 function containerUrl(container: ScalewayContainerRecord) {
@@ -216,6 +244,16 @@ try {
   );
   console.log(`updated vpc ${updatedVpc.id}`);
 
+  const targetVpc = await runEffect(
+    clients.vpc.createVpc({
+      name: `${prefix}-target-vpc`,
+      project_id: projectId,
+      tags: ["alchemy-smoke-test"],
+    }),
+  );
+  created.targetVpcId = targetVpc.id;
+  console.log(`created target vpc ${targetVpc.id}`);
+
   const privateNetwork = await runEffect(
     clients.vpc.createPrivateNetwork({
       name: `${prefix}-pn`,
@@ -260,8 +298,197 @@ try {
   const readAcl = await runEffect(clients.vpc.getAclRules({ vpcId: vpc.id, ipv6: false }));
   console.log(`read vpc acl ${readAcl.default_policy} ${readAcl.rules.length} rule(s)`);
 
+  const route = await runEffect(
+    clients.vpc.createRoute({
+      vpc_id: vpc.id,
+      destination: "10.72.0.0/24",
+      nexthop_private_network_id: privateNetwork.id,
+      description: "alchemy-scaleway production smoke test",
+      tags: ["alchemy-smoke-test"],
+    }),
+  );
+  created.routeId = route.id;
+  console.log(`created vpc route ${route.id}`);
+
+  const updatedRoute = await runEffect(
+    clients.vpc.updateRoute(route.id, {
+      destination: "10.73.0.0/24",
+      nexthop_private_network_id: privateNetwork.id,
+      description: "alchemy-scaleway production smoke test updated",
+      tags: ["alchemy-smoke-test", "updated"],
+    }),
+  );
+  console.log(`updated vpc route ${updatedRoute.id}`);
+
+  const vpcConnector = await runEffect(
+    clients.vpc.createVpcConnector({
+      name: `${prefix}-connector`,
+      vpc_id: vpc.id,
+      target_vpc_id: targetVpc.id,
+      tags: ["alchemy-smoke-test"],
+    }),
+  );
+  created.vpcConnectorId = vpcConnector.id;
+  console.log(`created vpc connector ${vpcConnector.id}`);
+
+  const updatedVpcConnector = await runEffect(
+    clients.vpc.updateVpcConnector(vpcConnector.id, {
+      name: `${prefix}-connector-updated`,
+      tags: ["alchemy-smoke-test", "updated"],
+    }),
+  );
+  console.log(`updated vpc connector ${updatedVpcConnector.id}`);
+
+  const securityGroup = await runEffect(
+    clients.instance.createSecurityGroup({
+      zone,
+      name: `${prefix}-sg`,
+      project: projectId,
+      description: "alchemy-scaleway production smoke test",
+      tags: ["alchemy-smoke-test"],
+      inbound_default_policy: "drop",
+      outbound_default_policy: "accept",
+      stateful: true,
+    }),
+  );
+  created.securityGroupId = securityGroup.id;
+  console.log(`created security group ${securityGroup.id}`);
+
+  const securityGroupRules = await runEffect(
+    clients.instance.setSecurityGroupRules({
+      zone,
+      securityGroupId: securityGroup.id,
+      rules: [
+        {
+          protocol: "TCP",
+          direction: "inbound",
+          action: "accept",
+          ip_range: "0.0.0.0/0",
+          dest_port_from: 22,
+          dest_port_to: null,
+          position: 0,
+        },
+      ],
+    }),
+  );
+  console.log(`set security group rules ${securityGroupRules.length}`);
+
+  const updatedSecurityGroup = await runEffect(
+    clients.instance.updateSecurityGroup({
+      zone,
+      securityGroupId: securityGroup.id,
+      description: "alchemy-scaleway production smoke test updated",
+      tags: ["alchemy-smoke-test", "updated"],
+    }),
+  );
+  console.log(`updated security group ${updatedSecurityGroup.id}`);
+
+  const flexibleIp = await runEffect(
+    clients.instance.createFlexibleIp({
+      zone,
+      project: projectId,
+      tags: ["alchemy-smoke-test"],
+      type: "routed_ipv4",
+    }),
+  );
+  created.flexibleIpId = flexibleIp.id;
+  console.log(`created flexible ip ${flexibleIp.id}`);
+
+  const server = await runEffect(
+    clients.instance.createInstance({
+      zone,
+      name: `${prefix}-instance`,
+      project: projectId,
+      commercial_type: "DEV1-S",
+      image: "ubuntu_noble",
+      tags: ["alchemy-smoke-test"],
+      security_group: securityGroup.id,
+      protected: false,
+    }),
+  );
+  created.serverId = server.id;
+  console.log(`created instance ${server.id}`);
+  if (server.state !== "running") {
+    await runEffect(clients.instance.instanceAction({ zone, serverId: server.id, action: "poweron" }));
+  }
+  await waitForInstanceState(server.id, "running");
+
+  const attachedServer = await runEffect(
+    clients.instance.updateInstance({
+      zone,
+      serverId: server.id,
+      tags: ["alchemy-smoke-test", "updated"],
+      security_group: { id: securityGroup.id },
+      protected: false,
+    }),
+  );
+  console.log(`updated instance attachments ${attachedServer.id}`);
+
+  await runEffect(clients.instance.updateFlexibleIp({ zone, ip: flexibleIp.id, server: server.id }));
+  await waitForFlexibleIpServer(flexibleIp.id, server.id);
+
+  await runEffect(clients.instance.instanceAction({ zone, serverId: server.id, action: "poweroff" }));
+  await waitForInstanceState(server.id, "stopped");
+
+  const privateNic = await runEffect(
+    clients.instance.createPrivateNic({
+      zone,
+      serverId: server.id,
+      private_network_id: privateNetwork.id,
+      tags: ["alchemy-smoke-test"],
+    }),
+  );
+  created.privateNicId = privateNic.id;
+  console.log(`created private nic ${privateNic.id}`);
+
+  const updatedPrivateNic = await runEffect(
+    clients.instance.updatePrivateNic({
+      zone,
+      serverId: server.id,
+      privateNicId: privateNic.id,
+      tags: ["alchemy-smoke-test", "updated"],
+    }),
+  );
+  console.log(`updated private nic ${updatedPrivateNic.id}`);
+
+  await runEffect(clients.instance.instanceAction({ zone, serverId: server.id, action: "poweron" }));
+  await waitForInstanceState(server.id, "running");
+
   console.log("production smoke test create/read paths succeeded");
 } finally {
+  if (created.privateNicId && created.serverId) {
+    await restDelete(
+      `/instance/v1/zones/${zone}/servers/${created.serverId}/private_nics/${created.privateNicId}`,
+      `private nic ${created.privateNicId}`,
+    );
+  }
+  if (created.serverId) {
+    await runEffect(
+      clients.instance.updateInstance({ zone, serverId: created.serverId, protected: false }),
+    ).catch((error) => console.error(`failed unprotecting instance ${created.serverId}: ${error}`));
+    await runEffect(clients.instance.instanceAction({ zone, serverId: created.serverId, action: "poweroff" }))
+      .then(() => waitForInstanceState(created.serverId!, "stopped"))
+      .catch((error) => console.error(`failed stopping instance ${created.serverId}: ${error}`));
+    await restDelete(`/instance/v1/zones/${zone}/servers/${created.serverId}`, `instance ${created.serverId}`);
+  }
+  if (created.flexibleIpId) {
+    await restDelete(`/instance/v1/zones/${zone}/ips/${created.flexibleIpId}`, `flexible ip ${created.flexibleIpId}`);
+  }
+  if (created.securityGroupId) {
+    await restDelete(
+      `/instance/v1/zones/${zone}/security_groups/${created.securityGroupId}`,
+      `security group ${created.securityGroupId}`,
+    );
+  }
+  if (created.vpcConnectorId) {
+    await restDelete(
+      `/vpc/v2/regions/${region}/vpc-connectors/${created.vpcConnectorId}`,
+      `vpc connector ${created.vpcConnectorId}`,
+    );
+  }
+  if (created.routeId) {
+    await restDelete(`/vpc/v2/regions/${region}/routes/${created.routeId}`, `vpc route ${created.routeId}`);
+  }
   if (created.vpcId) {
     await runEffect(
       clients.vpc.setAclRules({
@@ -280,6 +507,12 @@ try {
   }
   if (created.vpcId) {
     await restDelete(`/vpc/v2/regions/${region}/vpcs/${created.vpcId}`, `vpc ${created.vpcId}`);
+  }
+  if (created.targetVpcId) {
+    await restDelete(
+      `/vpc/v2/regions/${region}/vpcs/${created.targetVpcId}`,
+      `target vpc ${created.targetVpcId}`,
+    );
   }
   if (created.bucketName) await deleteBucket(created.bucketName);
   if (created.secretId) {

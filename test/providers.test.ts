@@ -1128,15 +1128,14 @@ describe("VpcConnector", () => {
 describe("Instance", () => {
   test.provider("creates then updates instance metadata and attachments", (stack) =>
     Effect.gen(function* () {
-      const ip = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { zone: "fr-par-1" }));
-      const securityGroup = yield* stack.deploy(Scaleway.SecurityGroup("Firewall", { zone: "fr-par-1" }));
+      mock.addFlexibleIp("ip-existing");
       const created = yield* stack.deploy(
         Scaleway.Instance("App", {
           zone: "fr-par-1",
           commercialType: "DEV1-S",
           image: "ubuntu_noble",
-          publicIps: [ip.ipId],
-          securityGroup: securityGroup.securityGroupId,
+          publicIps: ["ip-existing"],
+          securityGroup: "sg-existing",
           tags: ["role=app"],
           volumes: { "0": { name: "root", size: 20_000_000_000, volumeType: "sbs_volume", boot: true } },
         }),
@@ -1146,8 +1145,8 @@ describe("Instance", () => {
       expect(created.projectId).toBe("proj-test");
       expect(created.commercialType).toBe("DEV1-S");
       expect(created.imageName).toBe("ubuntu_noble");
-      expect(created.publicIpIds).toContain(ip.ipId);
-      expect(created.securityGroupId).toBe(securityGroup.securityGroupId);
+      expect(created.publicIpIds).toContain("ip-existing");
+      expect(created.securityGroupId).toBe("sg-existing");
       expect(created.tags).toContain("alchemy:logical-id=App");
 
       const updated = yield* stack.deploy(
@@ -1163,9 +1162,10 @@ describe("Instance", () => {
       );
       expect(updated.serverId).toBe(created.serverId);
       expect(updated.publicIpIds).toEqual([]);
-      expect(updated.securityGroupId).toBe(securityGroup.securityGroupId);
+      expect(updated.securityGroupId).toBe("sg-existing");
       expect(updated.protected).toBe(true);
       expect(requests("PATCH", "/servers/")).toHaveLength(1);
+      expect(requests("PATCH", "/ips/")).toHaveLength(1);
 
       yield* stack.deploy(
         Scaleway.Instance("App", {
