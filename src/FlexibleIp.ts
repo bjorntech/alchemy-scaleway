@@ -42,7 +42,7 @@ export const FlexibleIp = Resource<FlexibleIp>("Scaleway.FlexibleIp");
 
 const stringsEqual = (left?: string[], right?: string[]) => JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
 const withAlchemyTag = (id: string, tags: string[] | undefined) => [`alchemy:logical-id=${id}`, ...(tags ?? [])];
-const zoneOf = (region: string, zone?: string) => zone ?? `${region}-1`;
+const zoneOf = (region: string, zone?: string) => !zone || zone === region ? `${region}-1` : zone;
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const FlexibleIpProvider = () =>
@@ -54,7 +54,7 @@ export const FlexibleIpProvider = () =>
         omitUndefined({
           ipId: record.id,
           address: record.address,
-          zone: record.zone ?? clients.region,
+          zone: zoneOf(clients.region, record.zone),
           projectId: record.project,
           tags: record.tags,
           serverId: record.server?.id,
@@ -69,14 +69,14 @@ export const FlexibleIpProvider = () =>
         stables: ["ipId", "address", "zone", "projectId"],
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
-          if (output.zone !== zoneOf(clients.region, news.zone) || output.type !== (news.type ?? "routed_ipv4")) return { action: "replace" } as const;
+          if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone) || output.type !== (news.type ?? "routed_ipv4")) return { action: "replace" } as const;
           if (output.projectId !== (yield* projectId(news.projectId))) return { action: "replace" } as const;
           if (!stringsEqual(output.tags, withAlchemyTag(id, news.tags)) || output.serverId !== news.serverId || output.reverse !== news.reverse) return { action: "update" } as const;
           return undefined;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.ipId) return undefined;
-          return yield* clients.instance.getFlexibleIp({ zone: output.zone, ip: output.ipId }).pipe(
+          return yield* clients.instance.getFlexibleIp({ zone: zoneOf(clients.region, output.zone), ip: output.ipId }).pipe(
             Effect.map(toAttributes),
             Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
           );
@@ -104,7 +104,7 @@ export const FlexibleIpProvider = () =>
           return toAttributes(record);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
-          yield* clients.instance.deleteFlexibleIp({ zone: output.zone, ip: output.ipId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+          yield* clients.instance.deleteFlexibleIp({ zone: zoneOf(clients.region, output.zone), ip: output.ipId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
           yield* session.note(`Deleted Scaleway flexible IP ${output.ipId}`);
         }),
       });

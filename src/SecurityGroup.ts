@@ -59,7 +59,7 @@ export const SecurityGroup = Resource<SecurityGroup>("Scaleway.SecurityGroup");
 
 const stringsEqual = (left?: string[], right?: string[]) => JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
 const withAlchemyTag = (id: string, tags: string[] | undefined) => [`alchemy:logical-id=${id}`, ...(tags ?? [])];
-const zoneOf = (region: string, zone?: string) => zone ?? `${region}-1`;
+const zoneOf = (region: string, zone?: string) => !zone || zone === region ? `${region}-1` : zone;
 const ruleInput = (rule: SecurityGroupRule, position: number): ScalewaySecurityGroupRuleRecord => {
   const from = rule.portRange?.from ?? rule.port;
   const to = rule.portRange?.to;
@@ -104,7 +104,7 @@ export const SecurityGroupProvider = () =>
         omitUndefined({
           securityGroupId: record.id,
           name: record.name,
-          zone: record.zone ?? clients.region,
+          zone: zoneOf(clients.region, record.zone),
           projectId: record.project,
           description: record.description ?? undefined,
           tags: record.tags,
@@ -120,7 +120,7 @@ export const SecurityGroupProvider = () =>
         stables: ["securityGroupId", "zone", "projectId"],
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
-          if (output.zone !== zoneOf(clients.region, news.zone)) return { action: "replace" } as const;
+          if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone)) return { action: "replace" } as const;
           if (output.projectId !== (yield* projectId(news.projectId))) return { action: "replace" } as const;
           const name = yield* nameOf(id, news.name);
           const tags = withAlchemyTag(id, news.tags);
@@ -139,7 +139,7 @@ export const SecurityGroupProvider = () =>
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.securityGroupId) return undefined;
-          const zone = output.zone;
+          const zone = zoneOf(clients.region, output.zone);
           const securityGroupId = output.securityGroupId;
           return yield* clients.instance.getSecurityGroup({ zone, securityGroupId }).pipe(
             Effect.flatMap((record) => clients.instance.listSecurityGroupRules({ zone, securityGroupId }).pipe(Effect.map((rules) => toAttributes(record, rules)))),
@@ -166,7 +166,7 @@ export const SecurityGroupProvider = () =>
           return toAttributes(record, rules);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
-          yield* clients.instance.deleteSecurityGroup({ zone: output.zone, securityGroupId: output.securityGroupId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+          yield* clients.instance.deleteSecurityGroup({ zone: zoneOf(clients.region, output.zone), securityGroupId: output.securityGroupId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
           yield* session.note(`Deleted Scaleway security group ${output.securityGroupId}`);
         }),
       });

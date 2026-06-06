@@ -84,7 +84,7 @@ export const Instance = Resource<Instance>("Scaleway.Instance");
 
 const stringsEqual = (left?: string[], right?: string[]) => JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
 const withAlchemyTag = (id: string, tags: string[] | undefined) => [`alchemy:logical-id=${id}`, ...(tags ?? [])];
-const zoneOf = (region: string, zone?: string) => zone ?? `${region}-1`;
+const zoneOf = (region: string, zone?: string) => !zone || zone === region ? `${region}-1` : zone;
 const volumesInput = (volumes: Record<string, InstanceVolume> | undefined) =>
   Object.fromEntries(
     Object.entries(volumes ?? {}).map(([key, volume]) => [
@@ -113,16 +113,10 @@ const volumesOutput = (volumes: Record<string, ScalewayInstanceVolumeRecord> | u
   Object.fromEntries(Object.entries(volumes ?? {}).map(([key, volume]) => [key, { ...requested?.[key], ...volumeOutput(volume) }]));
 const createdVolumeIds = (volumes: Record<string, ScalewayInstanceVolumeRecord> | undefined, requested?: Record<string, InstanceVolume>, previous?: string[]) => {
   const entries = Object.entries(volumes ?? {});
-  if (previous) {
-    const current = new Set(entries.map(([, volume]) => volume.id).filter(isString));
-    return previous.filter((id) => current.has(id));
-  }
+  if (previous) return previous;
   return entries.flatMap(([key, volume]) => volume.id && requested?.[key]?.id === undefined ? [volume.id] : []);
 };
-const createdVolumeIdsToDelete = (volumes: Record<string, InstanceVolume> | undefined, createdIds: string[] | undefined) => {
-  const created = new Set(createdIds ?? []);
-  return Object.values(volumes ?? {}).flatMap((volume) => volume.id !== undefined && created.has(volume.id) ? [volume.id] : []);
-};
+const createdVolumeIdsToDelete = (createdIds: string[] | undefined) => [...new Set(createdIds ?? [])];
 const replacementVolumeFields = ["id", "boot", "name", "size", "volumeType", "projectId"] as const;
 const volumeChanged = (desired: InstanceVolume, current: InstanceVolume | undefined) =>
   desired.baseSnapshot !== current?.baseSnapshot || replacementVolumeFields.some((field) => desired[field] !== undefined && desired[field] !== current?.[field]);
@@ -189,7 +183,7 @@ export const InstanceProvider = () =>
         omitUndefined({
           serverId: record.id,
           name: record.name,
-          zone: record.zone ?? clients.region,
+          zone: zoneOf(clients.region, record.zone),
           projectId: record.project,
           commercialType: record.commercial_type,
           imageId: record.image?.id,
@@ -214,7 +208,7 @@ export const InstanceProvider = () =>
         stables: ["serverId", "zone", "projectId"],
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
-          if (output.zone !== zoneOf(clients.region, news.zone)) return { action: "replace" } as const;
+          if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone)) return { action: "replace" } as const;
           if (output.projectId !== (yield* projectId(news.projectId))) return { action: "replace" } as const;
           if (output.commercialType !== news.commercialType) return { action: "replace" } as const;
           if (news.image && output.imageName !== news.image && output.imageId !== news.image) return { action: "replace" } as const;
@@ -243,7 +237,8 @@ export const InstanceProvider = () =>
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.serverId) return undefined;
-          return yield* clients.instance.getInstance({ zone: output.zone, serverId: output.serverId }).pipe(
+          const zone = zoneOf(clients.region, output.zone);
+          return yield* clients.instance.getInstance({ zone, serverId: output.serverId }).pipe(
             Effect.map((record) => toAttributes(record, output.volumes, output.imageName, output.cloudInitHash, output.createdVolumeIds)),
             Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
           );
@@ -310,24 +305,25 @@ export const InstanceProvider = () =>
           return toAttributes(record, news.volumes, news.image, initHash);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
-          const current = yield* clients.instance.getInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
-          const volumesToDelete = createdVolumeIdsToDelete(output.volumes, output.createdVolumeIds);
+          const zone = zoneOf(clients.region, output.zone);
+          const current = yield* clients.instance.getInstance({ zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
+          const volumesToDelete = createdVolumeIdsToDelete(output.createdVolumeIds);
           if (current) {
-            yield* clients.instance.updateInstance({ zone: output.zone, serverId: output.serverId, protected: false }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+            yield* clients.instance.updateInstance({ zone, serverId: output.serverId, protected: false }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
             for (const publicIp of managedPublicIpIdsFromRecord(current)) {
-              yield* clients.instance.updateFlexibleIp({ zone: output.zone, ip: publicIp, server: null }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+              yield* clients.instance.updateFlexibleIp({ zone, ip: publicIp, server: null }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
             }
             if (current.state === "stopped" || current.state === "stopped in place") {
-              yield* clients.instance.deleteInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+              yield* clients.instance.deleteInstance({ zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
             } else {
-              yield* clients.instance.instanceAction({ zone: output.zone, serverId: output.serverId, action: "terminate" }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+              yield* clients.instance.instanceAction({ zone, serverId: output.serverId, action: "terminate" }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
             }
-            yield* waitForDeleted(output.zone, output.serverId).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+            yield* waitForDeleted(zone, output.serverId).pipe(Effect.catchIf(isNotFound, () => Effect.void));
           } else {
-            yield* clients.instance.deleteInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+            yield* clients.instance.deleteInstance({ zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
           }
           for (const volumeId of volumesToDelete) {
-            yield* retryDeleteBlockVolume(output.zone, volumeId);
+            yield* retryDeleteBlockVolume(zone, volumeId);
           }
           yield* session.note(`Deleted Scaleway instance ${output.serverId}`);
         }),
