@@ -1,4 +1,5 @@
 import * as Alchemy from "alchemy";
+import * as Output from "alchemy/Output";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Scaleway from "../src/index.ts";
@@ -6,6 +7,9 @@ import * as Scaleway from "../src/index.ts";
 const region = process.env.SCW_DEFAULT_REGION || "fr-par";
 const zone = process.env.SCW_DEFAULT_ZONE || `${region}-1`;
 const prefix = process.env.SCW_SMOKE_PREFIX ?? "alchemy-smoke";
+const dnsZone = process.env.SCW_SMOKE_DNS_ZONE ?? "alchemy-smoke.finnvid.org";
+const dnsLabel = process.env.SCW_SMOKE_DNS_LABEL ?? prefix;
+const smokeHostname = `${dnsLabel}.${dnsZone}`;
 const phase = process.env.SCW_SMOKE_PHASE === "create" ? "create" : process.env.SCW_SMOKE_PHASE === "settle" ? "settle" : "update";
 
 const tags = ["alchemy-smoke-test"];
@@ -34,8 +38,23 @@ export default Alchemy.Stack(
       name: `${prefix.slice(0, 22)}-ctr`,
       image: "docker.io/library/nginx:latest",
       environmentVariables: { ALCHEMY_SMOKE_TEST: "true" },
+      port: 80,
       privacy: "public",
     });
+
+    const dnsRecord = yield* Scaleway.DnsRecord("ContainerDns", {
+      zone: dnsZone,
+      name: dnsLabel,
+      target: container,
+    });
+
+    const domain = updated
+        ? yield* Scaleway.Domain("ContainerDomain", {
+            container,
+            hostname: Output.interpolate`${dnsRecord.name}.${dnsRecord.dnsZone}`,
+            waitForCname: true,
+          })
+      : undefined;
 
     const registry = yield* Scaleway.RegistryNamespace("Registry", {
       name: `${prefix}-registry`,
@@ -174,6 +193,9 @@ echo "Alchemy Scaleway smoke VM setup complete"
     return {
       namespaceId: namespace.namespaceId,
       containerUrl: container.url,
+      smokeHostname,
+      dnsRecordType: dnsRecord.type,
+      customDomainUrl: domain?.url,
       registryEndpoint: registry.endpoint,
       secretId: secret.secretId,
       bucketName: bucket.bucketName,

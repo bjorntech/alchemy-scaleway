@@ -24,6 +24,16 @@ export {
   type ScalewayCredentialsService,
 } from "./Credentials.ts";
 export { Domain, DomainProvider, type DomainContainerRef, type DomainProps } from "./Domain.ts";
+export {
+  DnsRecord,
+  DnsRecordProvider,
+  type DnsRecordProps,
+  type DnsRecordTarget,
+  type DnsRecordType,
+  type DnsRecordValue,
+  type DnsZoneRef,
+} from "./DnsRecord.ts";
+export { DnsZone, DnsZoneProvider, dnsZoneName, type DnsZoneProps } from "./DnsZone.ts";
 export { FlexibleIp, FlexibleIpProvider, type FlexibleIpProps, type FlexibleIpType } from "./FlexibleIp.ts";
 export {
   Instance,

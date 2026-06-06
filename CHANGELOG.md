@@ -6,15 +6,29 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ### Added
 
+- Added `DnsZone` and `DnsRecord` resources for Scaleway Domains and DNS.
+  `DnsRecord` can manage explicit record values or infer records from existing
+  resources such as `Container`, `FlexibleIp`, `Instance`, `RegistryNamespace`,
+  and `Bucket`.
+- Extended the production smoke test to create a DNS record under
+  `alchemy-smoke.finnvid.org`, attach it as a container custom domain, and fetch
+  the live URL.
 - Added an opt-in live negative smoke test for `FlexibleIp` reverse-DNS create
   failures. It verifies failed initial reverse updates do not leave tagged IPs
   behind and deletes any leaked IPs before failing.
+- Added `Domain.waitForCname` to wait for CNAME visibility before creating a
+  Scaleway container custom domain.
 
 ### Fixed
 
 - `FlexibleIp` now deletes a just-created IP if the initial post-create reverse
   DNS update fails, avoiding untracked allocated IPs when Scaleway rejects the
   reverse value.
+- `Domain` now retries repeated transient Scaleway custom-domain deployment
+  errors by deleting the failed custom domain and recreating it within a bounded
+  retry loop.
+- The production smoke stack now sets the nginx container port explicitly so
+  custom-domain HTTP-01 validation reaches the container correctly.
 
 ## [0.1.4-beta.51] - 2026-06-05
 

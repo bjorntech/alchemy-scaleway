@@ -104,6 +104,66 @@ export interface ScalewayDomainRecord {
   error_message?: string;
 }
 
+export interface ScalewayDnsZoneRecord {
+  domain: string;
+  subdomain?: string;
+  ns?: string[];
+  ns_default?: string[];
+  ns_master?: string[];
+  status?: string;
+  message?: string | null;
+  updated_at?: string | null;
+  project_id?: string;
+  linked_products?: string[];
+}
+
+export type ScalewayDnsRecordType =
+  | "A"
+  | "AAAA"
+  | "CNAME"
+  | "TXT"
+  | "SRV"
+  | "TLSA"
+  | "MX"
+  | "NS"
+  | "PTR"
+  | "CAA"
+  | "ALIAS"
+  | "LOC"
+  | "SSHFP"
+  | "HINFO"
+  | "RP"
+  | "URI"
+  | "DS"
+  | "NAPTR"
+  | "DNAME"
+  | "SVCB"
+  | "HTTPS";
+
+export interface ScalewayDnsRecord {
+  id?: string;
+  name: string;
+  type: ScalewayDnsRecordType;
+  data: string;
+  ttl?: number;
+  priority?: number;
+  comment?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ScalewayDnsRecordIdentifier {
+  name: string;
+  type: ScalewayDnsRecordType;
+  data?: string;
+  ttl?: number;
+}
+
+export type ScalewayDnsRecordChange =
+  | { add: { records: ScalewayDnsRecord[] } }
+  | { set: { id?: string; id_fields?: ScalewayDnsRecordIdentifier; records: ScalewayDnsRecord[] } }
+  | { delete: { id?: string; id_fields?: ScalewayDnsRecordIdentifier } }
+  | { clear: Record<string, never> };
+
 export interface ScalewayRegistryNamespaceRecord {
   id: string;
   name: string;
@@ -372,6 +432,14 @@ export interface ScalewayClients {
     getDomain(domainId: string): Effect.Effect<ScalewayDomainRecord, ScalewayError>;
     deleteDomain(domainId: string): Effect.Effect<void, ScalewayError>;
   };
+  dns: {
+    listZones(input: { domain?: string; dnsZone?: string; projectId?: string }): Effect.Effect<ScalewayDnsZoneRecord[], ScalewayError>;
+    createZone(input: { domain: string; subdomain: string; project_id: string }): Effect.Effect<ScalewayDnsZoneRecord, ScalewayError>;
+    updateZone(input: { dnsZone: string; new_dns_zone: string; project_id: string }): Effect.Effect<ScalewayDnsZoneRecord, ScalewayError>;
+    deleteZone(input: { dnsZone: string; projectId: string }): Effect.Effect<void, ScalewayError>;
+    listRecords(input: { dnsZone: string; name?: string; type?: ScalewayDnsRecordType; id?: string; projectId?: string }): Effect.Effect<ScalewayDnsRecord[], ScalewayError>;
+    updateRecords(input: { dnsZone: string; changes: ScalewayDnsRecordChange[]; return_all_records?: boolean; disallow_new_zone_creation?: boolean }): Effect.Effect<ScalewayDnsRecord[], ScalewayError>;
+  };
   registry: {
     createNamespace(input: {
       name: string;
@@ -574,6 +642,7 @@ export const makeScalewayClients = Effect.gen(function* () {
   const registryBase = `/registry/v1/regions/${region}`;
   const secretManagerBase = `/secret-manager/v1beta1/regions/${region}`;
   const vpcBase = `/vpc/v2/regions/${region}`;
+  const dnsBase = "/domain/v2beta1";
 
   const request = <T>(
     method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
@@ -612,6 +681,14 @@ export const makeScalewayClients = Effect.gen(function* () {
     });
 
   const objectStorage = makeObjectStorageClient(credentials.accessKey, secretKey, region);
+  const query = (params: Record<string, string | number | undefined>) => {
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined) search.set(key, String(value));
+    }
+    const rendered = search.toString();
+    return rendered ? `?${rendered}` : "";
+  };
 
   return {
     region,
@@ -641,6 +718,35 @@ export const makeScalewayClients = Effect.gen(function* () {
         request("POST", `${base}/domains`, input).pipe(Effect.map(decodeDomain)),
       getDomain: (id) => request("GET", `${base}/domains/${id}`).pipe(Effect.map(decodeDomain)),
       deleteDomain: (id) => request<void>("DELETE", `${base}/domains/${id}`),
+    },
+    dns: {
+      listZones: ({ domain, dnsZone, projectId }) =>
+        request<{ dns_zones?: ScalewayDnsZoneRecord[] }>(
+          "GET",
+          `${dnsBase}/dns-zones${query({ domain, dns_zone: dnsZone, project_id: projectId })}`,
+        ).pipe(Effect.map((response) => response.dns_zones ?? [])),
+      createZone: (input) =>
+        request("POST", `${dnsBase}/dns-zones`, input).pipe(Effect.map(decodeDnsZone)),
+      updateZone: ({ dnsZone, ...input }) =>
+        request("PATCH", `${dnsBase}/dns-zones/${encodeURIComponent(dnsZone)}`, input).pipe(
+          Effect.map(decodeDnsZone),
+        ),
+      deleteZone: ({ dnsZone, projectId }) =>
+        request<void>(
+          "DELETE",
+          `${dnsBase}/dns-zones/${encodeURIComponent(dnsZone)}${query({ project_id: projectId })}`,
+        ),
+      listRecords: ({ dnsZone, name, type, id, projectId }) =>
+        request<{ records?: ScalewayDnsRecord[] }>(
+          "GET",
+          `${dnsBase}/dns-zones/${encodeURIComponent(dnsZone)}/records${query({ name, type, id, project_id: projectId })}`,
+        ).pipe(Effect.map((response) => response.records ?? [])),
+      updateRecords: ({ dnsZone, ...input }) =>
+        request<{ records?: ScalewayDnsRecord[] }>(
+          "PATCH",
+          `${dnsBase}/dns-zones/${encodeURIComponent(dnsZone)}/records`,
+          input,
+        ).pipe(Effect.map((response) => response.records ?? [])),
     },
     registry: {
       createNamespace: (input) =>
@@ -1077,6 +1183,7 @@ const decodeNamespace = (value: unknown) => value as ScalewayNamespaceRecord;
 const decodeContainer = (value: unknown) => value as ScalewayContainerRecord;
 const decodeTrigger = (value: unknown) => value as ScalewayTriggerRecord;
 const decodeDomain = (value: unknown) => value as ScalewayDomainRecord;
+const decodeDnsZone = (value: unknown) => value as ScalewayDnsZoneRecord;
 const decodeRegistryNamespace = (value: unknown) => value as ScalewayRegistryNamespaceRecord;
 const decodeSecret = (value: unknown) => value as ScalewaySecretRecord;
 const decodeSecretVersion = (value: unknown) => value as ScalewaySecretVersionRecord;

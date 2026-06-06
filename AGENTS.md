@@ -50,6 +50,8 @@ Current resources:
 - `Container` - Scaleway Serverless Container with deployment readiness polling and optional companion domains/cron triggers.
 - `Trigger` - container trigger (v1 `/triggers`): cron, SQS, or NATS source.
 - `Domain` - container custom domain.
+- `DnsZone` - Scaleway Domains and DNS zone.
+- `DnsRecord` - Scaleway Domains and DNS record set with resource target support.
 - `RegistryNamespace` - Scaleway Container Registry namespace.
 - `Secret` - Scaleway Secret Manager secret and value version lifecycle.
 - `Bucket` - Scaleway Object Storage bucket via S3-compatible API.

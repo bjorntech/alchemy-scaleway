@@ -19,6 +19,8 @@ const vpcLifecycleLayer = Layer.mergeAll(
   Scaleway.SecurityGroupProvider(),
   Scaleway.FlexibleIpProvider(),
   Scaleway.PrivateNicProvider(),
+  Scaleway.DnsZoneProvider(),
+  Scaleway.DnsRecordProvider(),
 ).pipe(
   Layer.provideMerge(
     Layer.succeed(
@@ -624,6 +626,26 @@ describe("Domain", () => {
       expect(replaced.hostname).toBe("www.example.com");
       expect(replaced.domainId).not.toBe(created.domainId);
       expect(requests("DELETE", "/domains/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("recreates after transient deployment errors", (stack) =>
+    Effect.gen(function* () {
+      mock.failNextDomainDeploys(2);
+      const created = yield* stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          const api = yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+          });
+          return yield* Scaleway.Domain("Domain", { container: api, hostname: "api.example.com" });
+        }),
+      );
+
+      expect(created.domainId).toMatch(/^dom-/);
+      expect(requests("POST", "/domains")).toHaveLength(3);
+      expect(requests("DELETE", "/domains/")).toHaveLength(2);
     }),
   );
 });
@@ -1565,6 +1587,145 @@ describe("FlexibleIp", () => {
         output: created,
       });
       expect(missing).toBeUndefined();
+    }),
+  );
+});
+
+describe("DnsZone", () => {
+  test.provider("creates and reads a DNS zone", (stack) =>
+    Effect.gen(function* () {
+      const zone = yield* stack.deploy(
+        Scaleway.DnsZone("Zone", { domain: "example.test", subdomain: "app" }),
+      );
+      expect(zone.dnsZone).toBe("app.example.test");
+      expect(zone.nameServers).toContain("ns0.dom.scw.cloud");
+
+      const provider = yield* Scaleway.DnsZone.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "Zone",
+        instanceId: "test",
+        olds: { domain: "example.test", subdomain: "app" },
+        output: zone,
+      });
+      expect(read?.dnsZone).toBe("app.example.test");
+    }),
+  );
+});
+
+describe("DnsRecord", () => {
+  test.provider("upserts records into a zone name", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Scaleway.DnsZone("Zone", { domain: "example.test" }),
+      );
+
+      const created = yield* stack.deploy(
+        Scaleway.DnsRecord("ApexRecord", {
+          zone: "example.test",
+          name: "@",
+          type: "TXT",
+          records: [{ data: "v=spf1 -all", comment: "mail policy" }],
+        }),
+      );
+
+      expect(created.dnsZone).toBe("example.test");
+      expect(created.name).toBe("");
+      expect(created.type).toBe("TXT");
+      expect(created.records).toEqual([
+        expect.objectContaining({ data: "v=spf1 -all", comment: "mail policy" }),
+      ]);
+    }),
+  );
+
+  test.provider("upserts explicit DNS records", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Effect.gen(function* () {
+          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" });
+          return yield* Scaleway.DnsRecord("WebRecord", {
+            zone,
+            name: "www",
+            type: "A",
+            ttl: 60,
+            records: ["192.0.2.10", "192.0.2.11"],
+          });
+        }),
+      );
+      expect(created.dnsZone).toBe("example.test");
+      expect(created.name).toBe("www");
+      expect(created.type).toBe("A");
+      expect(created.records.map((record) => record.data).sort()).toEqual(["192.0.2.10", "192.0.2.11"]);
+
+      const updated = yield* stack.deploy(
+        Effect.gen(function* () {
+          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" });
+          return yield* Scaleway.DnsRecord("WebRecord", {
+            zone,
+            name: "www",
+            type: "A",
+            ttl: 120,
+            records: ["192.0.2.12"],
+          });
+        }),
+      );
+      expect(updated.records.map((record) => record.data)).toEqual(["192.0.2.12"]);
+      expect(updated.records[0].ttl).toBe(120);
+    }),
+  );
+
+  test.provider("writes CNAME targets as absolute hostnames", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Effect.gen(function* () {
+          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" });
+          return yield* Scaleway.DnsRecord("AliasRecord", {
+            zone,
+            name: "api",
+            type: "CNAME",
+            records: ["target.example.net"],
+          });
+        }),
+      );
+
+      expect(created.records[0].data).toBe("target.example.net.");
+    }),
+  );
+
+  test.provider("infers an A record from a FlexibleIp target", (stack) =>
+    Effect.gen(function* () {
+      const result = yield* stack.deploy(
+        Effect.gen(function* () {
+          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" });
+          const ip = yield* Scaleway.FlexibleIp("PublicIp", { zone: "fr-par-1" });
+          const record = yield* Scaleway.DnsRecord("PublicRecord", {
+            zone,
+            name: "app",
+            target: ip,
+          });
+          return { record, ipAddress: ip.address };
+        }),
+      );
+      expect(result.record.type).toBe("A");
+      expect(result.record.records[0].data).toBe(result.ipAddress);
+    }),
+  );
+
+  test.provider("infers a hostname-only CNAME from a RegistryNamespace target", (stack) =>
+    Effect.gen(function* () {
+      const result = yield* stack.deploy(
+        Effect.gen(function* () {
+          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" });
+          const registry = yield* Scaleway.RegistryNamespace("Registry", { name: "demo-registry" });
+          return yield* Scaleway.DnsRecord("RegistryRecord", {
+            zone,
+            name: "registry",
+            target: registry,
+          });
+        }),
+      );
+
+      expect(result.type).toBe("CNAME");
+      expect(result.records[0].data).toBe("rg.fr-par.scw.cloud.");
     }),
   );
 });

@@ -7,6 +7,8 @@ import { Bucket, BucketProvider } from "./Bucket.ts";
 import { Container, ContainerProvider } from "./Container.ts";
 import * as Credentials from "./Credentials.ts";
 import { Domain, DomainProvider } from "./Domain.ts";
+import { DnsRecord, DnsRecordProvider } from "./DnsRecord.ts";
+import { DnsZone, DnsZoneProvider } from "./DnsZone.ts";
 import { FlexibleIp, FlexibleIpProvider } from "./FlexibleIp.ts";
 import { Instance, InstanceProvider } from "./Instance.ts";
 import { Namespace, NamespaceProvider } from "./Namespace.ts";
@@ -33,6 +35,8 @@ export const providers = () =>
       Container,
       Trigger,
       Domain,
+      DnsZone,
+      DnsRecord,
       RegistryNamespace,
       Secret,
       Bucket,
@@ -53,6 +57,8 @@ export const providers = () =>
         ContainerProvider(),
         TriggerProvider(),
         DomainProvider(),
+        DnsZoneProvider(),
+        DnsRecordProvider(),
         RegistryNamespaceProvider(),
         SecretProvider(),
         BucketProvider(),
