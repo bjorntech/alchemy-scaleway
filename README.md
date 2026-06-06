@@ -63,7 +63,7 @@ SCW_LIVE_TEST=1 op run --environment <1password-environment-id> -- bun run smoke
 `op run --environment` requires the 1Password Environment ID, not the environment name.
 This flag requires the beta 1Password CLI version that supports Environments.
 
-The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_ORGANIZATION_ID`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, optional `SCW_DOMAIN_PROJECT_ID`, `SCW_DEFAULT_ZONE`, and `SCW_API_URL` from the environment. It creates and deletes a managed Scaleway project, then verifies new project-scoped resources are created in that project while DNS/domain resources stay explicitly scoped to the DNS project. It also creates Containers, a custom container domain under `alchemy-smoke.finnvid.org`, DNS records, Registry, Secret Manager, Object Storage, VPC, VPC route, VPC connector, security group, flexible IP, Instance, and private NIC resources. Set `SCW_DOMAIN_PROJECT_ID` when the smoke-test DNS zone lives in a different project from `SCW_DEFAULT_PROJECT_ID`. Set `SCW_SMOKE_DNS_ZONE` and `SCW_SMOKE_DNS_LABEL` to override the smoke-test DNS hostname.
+The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_ORGANIZATION_ID`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, optional `SCW_DOMAIN_PROJECT_ID`, `SCW_DEFAULT_ZONE`, and `SCW_API_URL` from the environment. It creates and deletes a managed Scaleway project, then verifies new project-scoped resources are created in that project while DNS/domain resources stay explicitly scoped to the DNS project. It also creates Containers, a custom container domain under `alchemy-smoke.finnvid.org`, DNS records, Registry, Secret Manager, Managed Database for PostgreSQL/MySQL, Object Storage, VPC, VPC route, VPC connector, security group, flexible IP, Instance, and private NIC resources. Set `SCW_DOMAIN_PROJECT_ID` when the smoke-test DNS zone lives in a different project from `SCW_DEFAULT_PROJECT_ID`. Set `SCW_SMOKE_DNS_ZONE` and `SCW_SMOKE_DNS_LABEL` to override the smoke-test DNS hostname.
 
 By default each smoke run uses a random Alchemy stage and resource prefix. If a run is interrupted, rerun with the same `SCW_SMOKE_RUN_ID`, or set both `SCW_SMOKE_STAGE` and `SCW_SMOKE_PREFIX`, so Alchemy can reuse the same local state and destroy or reconcile the same resources.
 
@@ -99,6 +99,15 @@ export default Alchemy.Stack(
     const apiToken = yield* Scaleway.Secret("ApiToken", {
       description: "Token used by the API",
       value: Redacted.make(process.env.API_TOKEN!),
+    });
+
+    const database = yield* Scaleway.DatabaseInstance("Database", {
+      engine: "PostgreSQL-15",
+      nodeType: "db-dev-s",
+      userName: "app",
+      password: Redacted.make(process.env.DB_ADMIN_PASSWORD!),
+      volumeType: "sbs_5k",
+      volumeSize: 30_000_000_000,
     });
 
     const vpc = yield* Scaleway.Vpc("Network", {
@@ -152,6 +161,7 @@ export default Alchemy.Stack(
       apiUrl: api.url,
       imagePrefix: registry.imagePrefix,
       secretId: apiToken.secretId,
+      databaseEndpoint: database.endpointHostname ?? database.endpointIp,
       bucket: bucket.bucketName,
       privateNetworkId: privateNetwork.privateNetworkId,
     };
@@ -192,6 +202,7 @@ Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJE
 - `DnsRecord` - Scaleway Domains and DNS record-set lifecycle. Records are scoped through their `DnsZone`, including its project, or through an explicit `project`; otherwise DNS operations use `SCW_DEFAULT_PROJECT_ID`. Records can use explicit values or infer a target from resources such as `Container`, `FlexibleIp`, `Instance`, `RegistryNamespace`, and `Bucket`. Initial creates refuse to replace an existing same-name/type record set unless `overwriteExisting: true` is set.
 - `RegistryNamespace` - Scaleway Container Registry namespace lifecycle with ready-to-use image prefix output.
 - `Secret` - Scaleway Secret Manager secret metadata and version lifecycle. Secret values are accepted as `Redacted<string>` and are never returned in outputs.
+- `DatabaseInstance` - Scaleway Managed Database for PostgreSQL/MySQL instance lifecycle with readiness polling, project defaults, endpoint outputs, and redacted admin password input. Engine, node type, default user, password, HA mode, and volume shape changes replace the instance; name, tags, and backup schedule update in place.
 - `Bucket` - Scaleway Object Storage bucket lifecycle via the S3-compatible API.
 - `Vpc` - Scaleway VPC lifecycle with optional routing and custom route propagation enablement.
 - `PrivateNetwork` - Scaleway Private Network lifecycle, including optional VPC binding, subnets, DHCP enablement, and default route propagation.

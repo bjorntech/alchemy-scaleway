@@ -361,6 +361,142 @@ describe("Secret", () => {
   );
 });
 
+describe("DatabaseInstance", () => {
+  const databasePassword = () => Redacted.make("S3cure-db-password!");
+
+  test.provider("creates then updates database instance metadata in place", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.DatabaseInstance("Database", {
+          engine: "PostgreSQL-15",
+          nodeType: "db-dev-s",
+          userName: "app",
+          password: databasePassword(),
+          tags: ["first"],
+          volumeType: "sbs_5k",
+          volumeSize: 30_000_000_000,
+          backupSchedule: { disabled: false, frequencyHours: 24, retentionDays: 7 },
+        }),
+      );
+
+      expect(created.databaseInstanceId).toMatch(/^rdb-/);
+      expect(created.projectId).toBe("proj-test");
+      expect(created.region).toBe("fr-par");
+      expect(created.engine).toBe("PostgreSQL-15");
+      expect(created.nodeType).toBe("db-dev-s");
+      expect(created.endpointPort).toBe(5432);
+      expect(JSON.stringify(created)).not.toContain("S3cure-db-password");
+
+      const updated = yield* stack.deploy(
+        Scaleway.DatabaseInstance("Database", {
+          engine: "PostgreSQL-15",
+          nodeType: "db-dev-s",
+          userName: "app",
+          password: databasePassword(),
+          tags: ["second"],
+          volumeType: "sbs_5k",
+          volumeSize: 30_000_000_000,
+          disableBackup: true,
+          backupSchedule: { frequencyHours: 48, retentionDays: 14 },
+        }),
+      );
+
+      expect(updated.databaseInstanceId).toBe(created.databaseInstanceId);
+      expect(updated.tags).toEqual(["second"]);
+      expect(updated.backupSchedule?.disabled).toBe(true);
+      expect(updated.backupSchedule?.frequencyHours).toBe(48);
+      expect(requests("PATCH", "/rdb/v1/regions/fr-par/instances/").length).toBeGreaterThan(0);
+
+      const backupEnabled = yield* stack.deploy(
+        Scaleway.DatabaseInstance("Database", {
+          engine: "PostgreSQL-15",
+          nodeType: "db-dev-s",
+          userName: "app",
+          password: databasePassword(),
+          tags: ["second"],
+          volumeType: "sbs_5k",
+          volumeSize: 30_000_000_000,
+          disableBackup: false,
+          backupSchedule: { frequencyHours: 48, retentionDays: 14 },
+        }),
+      );
+
+      expect(backupEnabled.databaseInstanceId).toBe(created.databaseInstanceId);
+      expect(backupEnabled.backupSchedule?.disabled).toBe(false);
+    }),
+  );
+
+  test.provider("waits through asynchronous create and delete states", (stack) =>
+    Effect.gen(function* () {
+      mock.enableAsyncLifecycle();
+      const created = yield* stack.deploy(
+        Scaleway.DatabaseInstance("Database", {
+          engine: "PostgreSQL-15",
+          nodeType: "db-dev-s",
+          userName: "app",
+          password: databasePassword(),
+          backupSchedule: { disabled: false, frequencyHours: 24, retentionDays: 7 },
+        }),
+      );
+
+      expect(created.status).toBe("ready");
+      expect(requests("GET", `/rdb/v1/regions/fr-par/instances/${created.databaseInstanceId}`).length).toBeGreaterThan(0);
+
+      yield* stack.destroy();
+
+      expect(requests("DELETE", `/rdb/v1/regions/fr-par/instances/${created.databaseInstanceId}`)).toHaveLength(1);
+      expect(requests("GET", `/rdb/v1/regions/fr-par/instances/${created.databaseInstanceId}`).length).toBeGreaterThan(1);
+    }),
+  );
+
+  test.provider("changing project forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(
+        Scaleway.DatabaseInstance("Database", {
+          project: "proj-a",
+          engine: "PostgreSQL-15",
+          nodeType: "db-dev-s",
+          userName: "app",
+          password: databasePassword(),
+        }),
+      );
+      const second = yield* stack.deploy(
+        Scaleway.DatabaseInstance("Database", {
+          project: "proj-b",
+          engine: "PostgreSQL-15",
+          nodeType: "db-dev-s",
+          userName: "app",
+          password: databasePassword(),
+        }),
+      );
+
+      expect(second.projectId).toBe("proj-b");
+      expect(second.databaseInstanceId).not.toBe(first.databaseInstanceId);
+      expect(requests("DELETE", "/rdb/v1/regions/fr-par/instances/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("defaults to the single managed project", (stack) =>
+    Effect.gen(function* () {
+      const out = yield* stack.deploy(
+        Effect.gen(function* () {
+          const project = yield* Scaleway.Project("AppProject", { organizationId: "org-test" });
+          const database = yield* Scaleway.DatabaseInstance("Database", {
+            engine: "PostgreSQL-15",
+            nodeType: "db-dev-s",
+            userName: "app",
+            password: databasePassword(),
+          });
+          return { project, database };
+        }),
+      );
+
+      expect(out.database.projectId).toBe(out.project.projectId);
+      expect(out.database.projectId).not.toBe("proj-test");
+    }),
+  );
+});
+
 describe("Container", () => {
   test.provider("creates with a namespace dependency and resolves its url", (stack) =>
     Effect.gen(function* () {
@@ -774,6 +910,28 @@ describe("Domain", () => {
       expect(created.domainId).toMatch(/^dom-/);
       expect(requests("POST", "/domains")).toHaveLength(3);
       expect(requests("DELETE", "/domains/")).toHaveLength(2);
+    }),
+  );
+
+  test.provider("fails after repeated transient deployment errors", (stack) =>
+    Effect.gen(function* () {
+      mock.failNextDomainDeploys(4);
+      const deploy = stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          const api = yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+          });
+          return yield* Scaleway.Domain("Domain", { container: api, hostname: "api.example.com" });
+        }),
+      );
+
+      yield* Effect.flip(deploy).pipe(
+        Effect.map((error) => expect(String(error)).toContain("kept failing deployment after retries")),
+      );
+      expect(requests("POST", "/domains")).toHaveLength(4);
+      expect(requests("DELETE", "/domains/")).toHaveLength(3);
     }),
   );
 });
@@ -1419,6 +1577,21 @@ systemctl start docker
       expect(requests("DELETE", "/block/v1alpha1/zones/fr-par-1/volumes/").map((call) => call.url)).toEqual(
         expect.arrayContaining(created.createdVolumeIds!.map((id) => expect.stringContaining(`/volumes/${id}`))),
       );
+    }),
+  );
+
+  test.provider("waits through asynchronous instance state and delete transitions", (stack) =>
+    Effect.gen(function* () {
+      mock.enableAsyncLifecycle();
+      const created = yield* stack.deploy(Scaleway.Instance("App", { commercialType: "DEV1-S", desiredState: "running" }));
+
+      expect(created.state).toBe("running");
+      expect(requests("GET", `/zones/fr-par-1/servers/${created.serverId}`).length).toBeGreaterThan(0);
+
+      yield* stack.destroy();
+
+      expect(instanceDeleteRequests()).toBe(1);
+      expect(requests("GET", `/zones/fr-par-1/servers/${created.serverId}`).length).toBeGreaterThan(1);
     }),
   );
 

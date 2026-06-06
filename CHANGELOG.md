@@ -2,6 +2,15 @@
 
 All notable changes to `@finnvid/alchemy-scaleway` are documented here. The package follows the alchemy beta line — see [README › Compatibility](./README.md#compatibility).
 
+## Unreleased
+
+### Added
+
+- Added `DatabaseInstance` for Scaleway Managed Database for PostgreSQL/MySQL
+  instance lifecycle, with project defaults, readiness polling, endpoint outputs,
+  and redacted admin password input.
+- Added `DatabaseInstance` coverage to the production Scaleway smoke test.
+
 ## [0.2.0-beta.51] - 2026-06-06
 
 ### Added

@@ -7,6 +7,7 @@ import * as Provider from "alchemy/Provider";
 import { Bucket, BucketProvider } from "../../src/Bucket.ts";
 import { Container, ContainerProvider } from "../../src/Container.ts";
 import { ScalewayCredentials } from "../../src/Credentials.ts";
+import { DatabaseInstance, DatabaseInstanceProvider } from "../../src/DatabaseInstance.ts";
 import { Domain, DomainProvider } from "../../src/Domain.ts";
 import { DnsRecord, DnsRecordProvider } from "../../src/DnsRecord.ts";
 import { DnsZone, DnsZoneProvider } from "../../src/DnsZone.ts";
@@ -51,6 +52,7 @@ export const testProviders = (options: { project?: ProjectRef } = {}) =>
       DnsRecord,
       RegistryNamespace,
       Secret,
+      DatabaseInstance,
       Bucket,
       Vpc,
       PrivateNetwork,
@@ -74,6 +76,7 @@ export const testProviders = (options: { project?: ProjectRef } = {}) =>
         DnsRecordProvider(),
         RegistryNamespaceProvider(),
         SecretProvider(),
+        DatabaseInstanceProvider(),
         BucketProvider(),
         VpcProvider(),
         PrivateNetworkProvider(),

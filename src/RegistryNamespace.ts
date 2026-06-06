@@ -64,10 +64,10 @@ export const RegistryNamespaceProvider = () =>
 
       const waitForReady = (
         registryNamespaceId: string,
-        attempts = 20,
+        session: { note(message: string): Effect.Effect<void> },
       ): Effect.Effect<RegistryNamespace["Attributes"], unknown> =>
         Effect.gen(function* () {
-          for (let attempt = 0; attempt < attempts; attempt++) {
+          while (true) {
             const record = yield* clients.registry.getNamespace(registryNamespaceId);
             const status = record.status?.toLowerCase();
             if (!status || status === "ready") return toAttributes(record);
@@ -77,11 +77,9 @@ export const RegistryNamespaceProvider = () =>
                 status: record.status ?? "unknown",
               });
             }
+            yield* session.note(`waiting registry namespace ready status=${record.status ?? "unknown"}`);
             yield* Effect.sleep("1 second");
           }
-          throw new Error(
-            `Timed out waiting for Scaleway registry namespace ${registryNamespaceId}`,
-          );
         });
 
       return RegistryNamespace.Provider.of({
@@ -116,7 +114,7 @@ export const RegistryNamespaceProvider = () =>
             );
             return updated.status?.toLowerCase() === "ready"
               ? toAttributes(updated)
-              : yield* waitForReady(output.registryNamespaceId);
+              : yield* waitForReady(output.registryNamespaceId, session);
           }
           const created = yield* clients.registry.createNamespace({
             name,
@@ -127,7 +125,7 @@ export const RegistryNamespaceProvider = () =>
           yield* session.note(`Created Scaleway registry namespace ${created.id}`);
           return created.status?.toLowerCase() === "ready"
             ? toAttributes(created)
-            : yield* waitForReady(created.id);
+            : yield* waitForReady(created.id, session);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
           yield* clients.registry

@@ -56,6 +56,7 @@ Current resources:
 - `DnsRecord` - Scaleway Domains and DNS record set with resource target support.
 - `RegistryNamespace` - Scaleway Container Registry namespace.
 - `Secret` - Scaleway Secret Manager secret and value version lifecycle.
+- `DatabaseInstance` - Scaleway Managed Database for PostgreSQL/MySQL instance lifecycle with redacted admin password input.
 - `Bucket` - Scaleway Object Storage bucket via S3-compatible API.
 - `Vpc` - Scaleway VPC lifecycle with one-way routing and custom route propagation enablement.
 - `PrivateNetwork` - Scaleway Private Network with optional VPC binding, subnets, DHCP, and default route propagation.
@@ -105,3 +106,4 @@ The CRAP script supports `// @crap-ignore` only for wrapper/factory functions th
 - Object Storage requires `SCW_ACCESS_KEY` and `SCW_SECRET_KEY`.
 - Containers require `SCW_SECRET_KEY`, region, and a project id from credentials or resource props.
 - Secret Manager requires `SCW_SECRET_KEY`, region, and a project id from credentials or resource props.
+- Managed Database for PostgreSQL/MySQL requires `SCW_SECRET_KEY`, region, and a project id from credentials or resource props.

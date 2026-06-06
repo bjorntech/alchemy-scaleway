@@ -23,6 +23,13 @@ export {
   ScalewayCredentials,
   type ScalewayCredentialsService,
 } from "./Credentials.ts";
+export {
+  DatabaseInstance,
+  type DatabaseBackupSchedule,
+  DatabaseInstanceProvider,
+  type DatabaseInstanceProps,
+  type DatabaseVolumeType,
+} from "./DatabaseInstance.ts";
 export { Domain, DomainProvider, type DomainContainerRef, type DomainProps } from "./Domain.ts";
 export {
   DnsRecord,

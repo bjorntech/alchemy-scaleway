@@ -16,6 +16,7 @@ const phase = process.env.SCW_SMOKE_PHASE === "create" ? "create" : process.env.
 
 const tags = ["alchemy-smoke-test"];
 const updatedTags = ["alchemy-smoke-test", "updated"];
+const databasePassword = Redacted.make(`AlchemySmokeDb1!${prefix.replace(/[^A-Za-z0-9]/g, "").slice(0, 32) || "default"}`);
 
 export default Alchemy.Stack(
   "alchemy-scaleway-production-smoke",
@@ -83,6 +84,22 @@ export default Alchemy.Stack(
         : "alchemy-scaleway production smoke test",
       tags: activeTags,
       value: Redacted.make(updated ? "smoke-test-value-updated" : "smoke-test-value"),
+    });
+
+    const database = yield* Scaleway.DatabaseInstance("Database", {
+      name: `${prefix}-db`,
+      engine: "PostgreSQL-15",
+      nodeType: "db-dev-s",
+      userName: "alchemy",
+      password: databasePassword,
+      tags: activeTags,
+      volumeType: "sbs_5k",
+      volumeSize: 30_000_000_000,
+      backupSchedule: {
+        disabled: updated,
+        frequencyHours: updated ? 48 : 24,
+        retentionDays: updated ? 14 : 7,
+      },
     });
 
     const bucket = yield* Scaleway.Bucket("Bucket", {
@@ -202,29 +219,39 @@ echo "Alchemy Scaleway smoke VM setup complete"
       tags: activeTags,
     });
 
-    const managedProjectResources = {
-      namespace: namespace.projectId,
-      container: container.projectId,
-      registry: registry.projectId,
-      secret: secret.projectId,
-      vpc: vpc.projectId,
-      targetVpc: targetVpc.projectId,
-      privateNetwork: privateNetwork.projectId,
-      vpcConnector: connector.projectId,
-      securityGroup: securityGroup.projectId,
-      flexibleIp: flexibleIp.projectId,
-      instance: instance.projectId,
-    };
-    for (const [resource, projectId] of Object.entries(managedProjectResources)) {
-      if (projectId !== project.projectId) {
-        throw new Error(`${resource} expected project ${project.projectId}, got ${projectId}`);
+    const managedProjectAssertion = Output.map(
+      Output.all(
+        project.projectId,
+        namespace.projectId,
+        registry.projectId,
+        secret.projectId,
+        database.projectId,
+        vpc.projectId,
+        targetVpc.projectId,
+        privateNetwork.projectId,
+        connector.projectId,
+        securityGroup.projectId,
+        flexibleIp.projectId,
+        instance.projectId,
+      ),
+      ([expected, ...actuals]) => {
+        const resources = ["namespace", "registry", "secret", "database", "vpc", "targetVpc", "privateNetwork", "vpcConnector", "securityGroup", "flexibleIp", "instance"];
+        for (const [index, actual] of actuals.entries()) {
+          if (actual !== expected) throw new Error(`${resources[index]} expected project ${expected}, got ${actual}`);
+        }
+        return true;
+      },
+    );
+    const dnsProjectAssertion = Output.map(dnsRecord.projectId, (projectId) => {
+      if (projectId !== domainProjectId) {
+        throw new Error(`dnsRecord expected project ${domainProjectId}, got ${projectId}`);
       }
-    }
-    if (dnsRecord.projectId !== domainProjectId) {
-      throw new Error(`dnsRecord expected project ${domainProjectId}, got ${dnsRecord.projectId}`);
-    }
+      return true;
+    });
 
     return {
+      managedProjectAssertion,
+      dnsProjectAssertion,
       projectId: project.projectId,
       namespaceId: namespace.namespaceId,
       namespaceProjectId: namespace.projectId,
@@ -238,6 +265,10 @@ echo "Alchemy Scaleway smoke VM setup complete"
       registryProjectId: registry.projectId,
       secretId: secret.secretId,
       secretProjectId: secret.projectId,
+      databaseInstanceId: database.databaseInstanceId,
+      databaseProjectId: database.projectId,
+      databaseStatus: database.status,
+      databaseEndpoint: database.endpointHostname ?? database.endpointIp,
       bucketName: bucket.bucketName,
       vpcId: vpc.vpcId,
       vpcProjectId: vpc.projectId,

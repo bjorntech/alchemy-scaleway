@@ -23,6 +23,7 @@ src/
   DnsRecord.ts      Domains and DNS record-set resource
   RegistryNamespace.ts Container Registry namespace resource
   Secret.ts         Secret Manager secret resource
+  DatabaseInstance.ts Managed Database for PostgreSQL/MySQL instance resource
   Bucket.ts         Object Storage bucket resource
   Vpc.ts            VPC resource
   PrivateNetwork.ts Private Network resource
@@ -70,6 +71,7 @@ Apply the same rule to Scaleway:
 - `DnsRecord` owns one complete record set for a zone/name/type, using Scaleway's record `set` operation for convergent upserts. When passed a `DnsZone` resource it carries the zone project into DNS record operations, which supports shared DNS projects pointing at resources in separate application projects. It can target existing resources that expose IP addresses or hostnames, while explicit `records` remain available for advanced DNS data.
 - `RegistryNamespace` provisions the Container Registry namespace needed to host images consumed by `Container.image`; image/tag pushes remain an external CI/build concern.
 - `Secret` provisions Secret Manager metadata and current value versions. Secret values use `Redacted<string>` and are never returned in resource attributes.
+- `DatabaseInstance` provisions Scaleway Managed Database for PostgreSQL/MySQL instances through `/rdb/v1/regions/{region}/instances`. It is the database server primitive: initial admin credentials are required as `Redacted<string>` input and are never returned; logical databases, users, privileges, ACLs, and higher-level connection helpers should remain separate resources or future convenience composition. Project, engine, node, user, password, HA, and volume identity changes are conservative replacements, while name, tags, and backup schedule reconcile in place.
 - `Vpc` provisions Scaleway VPCs and can enable routing and custom route propagation. Both are one-way provider operations; attempting to disable an already-enabled flag fails locally.
 - `PrivateNetwork` provisions Scaleway Private Networks, optional VPC attachment, subnet membership, DHCP enablement, and default route propagation. VPC and project changes replace the resource.
 - `VpcAcl` owns the complete ACL rule set for a single VPC and IP version. Deleting it resets that ACL set to `defaultPolicy: "accept"` and no rules; do not use multiple `VpcAcl` resources for the same VPC/IP version.

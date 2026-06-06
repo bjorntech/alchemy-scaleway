@@ -199,18 +199,18 @@ export const TriggerProvider = () =>
         }) as Trigger["Attributes"];
       const waitForReady = (
         triggerIdValue: string,
-        attempts = 20,
+        session: { note(message: string): Effect.Effect<void> },
       ): Effect.Effect<Trigger["Attributes"], unknown> =>
         Effect.gen(function* () {
-          for (let attempt = 0; attempt < attempts; attempt++) {
+          while (true) {
             const record = yield* clients.containers.getTrigger(triggerIdValue);
             const status = record.status?.toLowerCase();
             if (!status || status === "ready") return toAttributes(record);
             if (status === "error")
               throw new Error(`Scaleway trigger ${triggerIdValue} entered error state`);
+            yield* session.note(`waiting trigger ready status=${record.status ?? "unknown"}`);
             yield* Effect.sleep("1 second");
           }
-          throw new Error(`Timed out waiting for Scaleway trigger ${triggerIdValue}`);
         });
 
       return Trigger.Provider.of({
@@ -256,7 +256,7 @@ export const TriggerProvider = () =>
             yield* session.note(`Updated Scaleway trigger ${output.triggerId}`);
             return updated.status?.toLowerCase() === "ready"
               ? toAttributes(updated)
-              : yield* waitForReady(output.triggerId);
+              : yield* waitForReady(output.triggerId, session);
           }
           const created = yield* clients.containers.createTrigger({
             container_id: yield* containerId(news.container),
@@ -266,7 +266,7 @@ export const TriggerProvider = () =>
             ...sourceConfig(news.source),
           });
           yield* session.note(`Created Scaleway trigger ${created.id}`);
-          return yield* waitForReady(created.id);
+          return yield* waitForReady(created.id, session);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
           yield* clients.containers

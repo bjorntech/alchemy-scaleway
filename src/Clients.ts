@@ -215,6 +215,37 @@ export interface ScalewaySecretVersionRecord {
   region?: string;
 }
 
+export interface ScalewayRdbEndpointRecord {
+  ip?: string;
+  port?: number;
+  name?: string | null;
+  hostname?: string;
+  private_network?: { id?: string } | null;
+}
+
+export interface ScalewayRdbVolumeRecord {
+  type?: string;
+  size?: number;
+}
+
+export interface ScalewayRdbInstanceRecord {
+  id: string;
+  name: string;
+  project_id: string;
+  region?: string;
+  status?: string;
+  engine?: string;
+  node_type?: string;
+  is_ha_cluster?: boolean;
+  tags?: string[];
+  endpoint?: ScalewayRdbEndpointRecord | null;
+  endpoints?: ScalewayRdbEndpointRecord[];
+  volume?: ScalewayRdbVolumeRecord;
+  backup_schedule?: { disabled?: boolean; frequency?: number; retention?: number };
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface ObjectStorageBucketRecord {
   name: string;
   region: string;
@@ -505,6 +536,12 @@ export interface ScalewayClients {
       secretId: string,
       revision: string | number,
     ): Effect.Effect<ScalewaySecretVersionRecord, ScalewayError>;
+  };
+  rdb: {
+    createInstance(input: { region: string } & Record<string, unknown>): Effect.Effect<ScalewayRdbInstanceRecord, ScalewayError>;
+    getInstance(input: { region: string; instanceId: string }): Effect.Effect<ScalewayRdbInstanceRecord, ScalewayError>;
+    updateInstance(input: { region: string; instanceId: string } & Record<string, unknown>): Effect.Effect<ScalewayRdbInstanceRecord, ScalewayError>;
+    deleteInstance(input: { region: string; instanceId: string }): Effect.Effect<void, ScalewayError>;
   };
   objectStorage: {
     createBucket(input: {
@@ -848,6 +885,16 @@ export const makeScalewayClients = Effect.gen(function* () {
         request("GET", `${secretManagerBase}/secrets/${id}/versions/${revision}`).pipe(
           Effect.map(decodeSecretVersion),
         ),
+    },
+    rdb: {
+      createInstance: ({ region, ...input }) =>
+        request("POST", `/rdb/v1/regions/${region}/instances`, input).pipe(Effect.map(decodeRdbInstance)),
+      getInstance: ({ region, instanceId }) =>
+        request("GET", `/rdb/v1/regions/${region}/instances/${instanceId}`).pipe(Effect.map(decodeRdbInstance)),
+      updateInstance: ({ region, instanceId, ...input }) =>
+        request("PATCH", `/rdb/v1/regions/${region}/instances/${instanceId}`, input).pipe(Effect.map(decodeRdbInstance)),
+      deleteInstance: ({ region, instanceId }) =>
+        request<void>("DELETE", `/rdb/v1/regions/${region}/instances/${instanceId}`),
     },
     objectStorage,
     vpc: {
@@ -1311,6 +1358,10 @@ const decodeDnsZone = (value: unknown) => value as ScalewayDnsZoneRecord;
 const decodeRegistryNamespace = (value: unknown) => value as ScalewayRegistryNamespaceRecord;
 const decodeSecret = (value: unknown) => value as ScalewaySecretRecord;
 const decodeSecretVersion = (value: unknown) => value as ScalewaySecretVersionRecord;
+const decodeRdbInstance = (value: unknown) =>
+  typeof value === "object" && value !== null && "instance" in value
+    ? envelope<ScalewayRdbInstanceRecord>(value, "instance")
+    : value as ScalewayRdbInstanceRecord;
 const envelope = <T>(value: unknown, key: string) =>
   typeof value === "object" && value !== null && key in value
     ? ((value as Record<string, unknown>)[key] as T)
