@@ -4,6 +4,18 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## [Unreleased]
 
+### Added
+
+- Added an opt-in live negative smoke test for `FlexibleIp` reverse-DNS create
+  failures. It verifies failed initial reverse updates do not leave tagged IPs
+  behind and deletes any leaked IPs before failing.
+
+### Fixed
+
+- `FlexibleIp` now deletes a just-created IP if the initial post-create reverse
+  DNS update fails, avoiding untracked allocated IPs when Scaleway rejects the
+  reverse value.
+
 ## [0.1.4-beta.51] - 2026-06-05
 
 ### Added
