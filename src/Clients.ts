@@ -596,7 +596,6 @@ export interface ScalewayClients {
     deleteInstance(input: { zone: string; serverId: string }): Effect.Effect<void, ScalewayError>;
     instanceAction(input: { zone: string; serverId: string; action: string }): Effect.Effect<void, ScalewayError>;
     setInstanceUserData(input: { zone: string; serverId: string; key: string; value: string }): Effect.Effect<void, ScalewayError>;
-    deleteVolume(input: { zone: string; volumeId: string }): Effect.Effect<void, ScalewayError>;
     createSecurityGroup(input: {
       zone: string;
       name: string;
@@ -631,6 +630,9 @@ export interface ScalewayClients {
     getPrivateNic(input: { zone: string; serverId: string; privateNicId: string }): Effect.Effect<ScalewayPrivateNicRecord, ScalewayError>;
     updatePrivateNic(input: { zone: string; serverId: string; privateNicId: string; tags?: string[] }): Effect.Effect<ScalewayPrivateNicRecord, ScalewayError>;
     deletePrivateNic(input: { zone: string; serverId: string; privateNicId: string }): Effect.Effect<void, ScalewayError>;
+  };
+  block: {
+    deleteVolume(input: { zone: string; volumeId: string }): Effect.Effect<void, ScalewayError>;
   };
 }
 
@@ -909,7 +911,6 @@ export const makeScalewayClients = Effect.gen(function* () {
               ? (cause as ScalewayError)
               : scalewayError({ operation: `PATCH /instance/v1/zones/${zone}/servers/${serverId}/user_data/${key}`, cause }),
         }),
-      deleteVolume: ({ zone, volumeId }) => request<void>("DELETE", `/instance/v1/zones/${zone}/volumes/${volumeId}`),
       createSecurityGroup: ({ zone, ...input }) =>
         request("POST", `/instance/v1/zones/${zone}/security_groups`, input).pipe(Effect.map(decodeSecurityGroup)),
       getSecurityGroup: ({ zone, securityGroupId }) =>
@@ -935,6 +936,9 @@ export const makeScalewayClients = Effect.gen(function* () {
       updatePrivateNic: ({ zone, serverId, privateNicId, ...input }) =>
         request("PATCH", `/instance/v1/zones/${zone}/servers/${serverId}/private_nics/${privateNicId}`, input).pipe(Effect.map(decodePrivateNic)),
       deletePrivateNic: ({ zone, serverId, privateNicId }) => request<void>("DELETE", `/instance/v1/zones/${zone}/servers/${serverId}/private_nics/${privateNicId}`),
+    },
+    block: {
+      deleteVolume: ({ zone, volumeId }) => request<void>("DELETE", `/block/v1alpha1/zones/${zone}/volumes/${volumeId}`),
     },
   } satisfies ScalewayClients;
 });

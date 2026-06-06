@@ -216,7 +216,7 @@ systemctl start docker
 
 `Instance.securityGroup` can attach or switch to a security group by ID. Omitting it leaves the current attachment unchanged; Scaleway's Instance update API does not expose a documented raw security-group detach operation.
 
-When deleting an `Instance`, the provider terminates the Scaleway server and deletes Block Storage (`sbs_volume`) volumes that were created by that Instance resource. Volumes passed with an explicit `id` are treated as externally owned and are preserved.
+When deleting an `Instance`, the provider terminates the Scaleway server and deletes Block Storage volumes that were created by that Instance resource. Volumes passed with an explicit `id` are treated as externally owned and are preserved.
 
 ### VPC Caveats
 

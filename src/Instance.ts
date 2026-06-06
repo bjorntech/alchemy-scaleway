@@ -21,7 +21,7 @@ export interface InstanceVolume {
   boot?: boolean;
   name?: string;
   size?: number;
-  volumeType?: "l_ssd" | "scratch" | "sbs_volume" | "sbs_snapshot";
+  volumeType?: "l_ssd" | "scratch" | "sbs_volume" | "sbs_5k" | "sbs_15k" | "sbs_snapshot";
   baseSnapshot?: string;
   projectId?: string;
 }
@@ -119,9 +119,9 @@ const createdVolumeIds = (volumes: Record<string, ScalewayInstanceVolumeRecord> 
   }
   return entries.flatMap(([key, volume]) => volume.id && requested?.[key]?.id === undefined ? [volume.id] : []);
 };
-const createdSbsVolumeIds = (volumes: Record<string, InstanceVolume> | undefined, createdIds: string[] | undefined) => {
+const createdVolumeIdsToDelete = (volumes: Record<string, InstanceVolume> | undefined, createdIds: string[] | undefined) => {
   const created = new Set(createdIds ?? []);
-  return Object.values(volumes ?? {}).flatMap((volume) => volume.id && volume.volumeType === "sbs_volume" && created.has(volume.id) ? [volume.id] : []);
+  return Object.values(volumes ?? {}).flatMap((volume) => volume.id !== undefined && created.has(volume.id) ? [volume.id] : []);
 };
 const replacementVolumeFields = ["id", "boot", "name", "size", "volumeType", "projectId"] as const;
 const volumeChanged = (desired: InstanceVolume, current: InstanceVolume | undefined) =>
@@ -180,10 +180,10 @@ export const InstanceProvider = () =>
           }
           throw new Error(`Timed out waiting for Scaleway instance ${serverId} to be deleted`);
         });
-      const retryDeleteVolume = (zone: string, volumeId: string, attempts = 30): Effect.Effect<void, unknown> =>
-        clients.instance.deleteVolume({ zone, volumeId }).pipe(
+      const retryDeleteBlockVolume = (zone: string, volumeId: string, attempts = 30): Effect.Effect<void, unknown> =>
+        clients.block.deleteVolume({ zone, volumeId }).pipe(
           Effect.catchIf(isNotFound, () => Effect.void),
-          Effect.catchIf((error) => attempts > 1 && isPreconditionError(error), () => Effect.sleep("2 seconds").pipe(Effect.flatMap(() => retryDeleteVolume(zone, volumeId, attempts - 1)))),
+          Effect.catchIf((error) => attempts > 1 && isPreconditionError(error), () => Effect.sleep("2 seconds").pipe(Effect.flatMap(() => retryDeleteBlockVolume(zone, volumeId, attempts - 1)))),
         );
       const toAttributes = (record: ScalewayInstanceRecord, requestedVolumes?: Record<string, InstanceVolume>, requestedImage?: string, requestedCloudInitHash?: string, previousCreatedVolumeIds?: string[]): Instance["Attributes"] =>
         omitUndefined({
@@ -311,7 +311,7 @@ export const InstanceProvider = () =>
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
           const current = yield* clients.instance.getInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
-          const volumesToDelete = createdSbsVolumeIds(output.volumes, output.createdVolumeIds);
+          const volumesToDelete = createdVolumeIdsToDelete(output.volumes, output.createdVolumeIds);
           if (current) {
             yield* clients.instance.updateInstance({ zone: output.zone, serverId: output.serverId, protected: false }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
             for (const publicIp of managedPublicIpIdsFromRecord(current)) {
@@ -327,7 +327,7 @@ export const InstanceProvider = () =>
             yield* clients.instance.deleteInstance({ zone: output.zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
           }
           for (const volumeId of volumesToDelete) {
-            yield* retryDeleteVolume(output.zone, volumeId);
+            yield* retryDeleteBlockVolume(output.zone, volumeId);
           }
           yield* session.note(`Deleted Scaleway instance ${output.serverId}`);
         }),
