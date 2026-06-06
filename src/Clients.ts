@@ -498,6 +498,28 @@ export interface ScalewayClients {
       versioning?: boolean;
     }): Effect.Effect<ObjectStorageBucketRecord, ScalewayError>;
     deleteBucket(input: { name: string; region: string }): Effect.Effect<void, ScalewayError>;
+    getObject(input: {
+      bucket: string;
+      region: string;
+      key: string;
+    }): Effect.Effect<string | undefined, ScalewayError>;
+    putObject(input: {
+      bucket: string;
+      region: string;
+      key: string;
+      body: string;
+      contentType?: string;
+    }): Effect.Effect<void, ScalewayError>;
+    deleteObject(input: {
+      bucket: string;
+      region: string;
+      key: string;
+    }): Effect.Effect<void, ScalewayError>;
+    listObjects(input: {
+      bucket: string;
+      region: string;
+      prefix: string;
+    }): Effect.Effect<readonly string[], ScalewayError>;
   };
   vpc: {
     createVpc(input: {
@@ -968,6 +990,7 @@ function makeObjectStorageClient(
   const bucketVirtualHostEndpoint = (bucket: string, region: string) =>
     `https://${bucket}.s3.${region}.scw.cloud`;
   const bucketPath = (bucket: string, path: string) => `/${bucket}${path}`;
+  const objectPath = (key: string) => `/${key.split("/").map(encodeURIComponent).join("/")}`;
   const request = (
     bucket: string,
     region: string,
@@ -1102,6 +1125,9 @@ function makeObjectStorageClient(
             yield* ensureOk(response, "PUT", "/?tagging");
           });
 
+  const objectKeysFromList = (body: string) =>
+    [...body.matchAll(/<Key>([^<]*)<\/Key>/g)].map(([, key]) => unescapeXml(key));
+
   return {
     createBucket: ({
       name,
@@ -1148,6 +1174,64 @@ function makeObjectStorageClient(
       Effect.gen(function* () {
         const response = yield* request(name, region, "DELETE", "/");
         yield* ensureOk(response, "DELETE", "/");
+      }),
+    getObject: ({ bucket, region, key }: { bucket: string; region: string; key: string }) =>
+      Effect.gen(function* () {
+        const path = objectPath(key);
+        const response = yield* request(bucket, region, "GET", path);
+        if (response.status === 404) return undefined;
+        const ok = yield* ensureOk(response, "GET", path);
+        return yield* Effect.tryPromise({
+          try: () => ok.text(),
+          catch: (cause) => scalewayError({ operation: "read Object Storage object", resource: key, cause }),
+        });
+      }),
+    putObject: ({
+      bucket,
+      region,
+      key,
+      body,
+      contentType,
+    }: {
+      bucket: string;
+      region: string;
+      key: string;
+      body: string;
+      contentType?: string;
+    }) =>
+      Effect.gen(function* () {
+        const path = objectPath(key);
+        const response = yield* request(bucket, region, "PUT", path, {
+          body,
+          headers: contentType ? { "content-type": contentType } : undefined,
+        });
+        yield* ensureOk(response, "PUT", path);
+      }),
+    deleteObject: ({ bucket, region, key }: { bucket: string; region: string; key: string }) =>
+      Effect.gen(function* () {
+        const path = objectPath(key);
+        const response = yield* request(bucket, region, "DELETE", path);
+        if (response.status === 404) return;
+        yield* ensureOk(response, "DELETE", path);
+      }),
+    listObjects: ({ bucket, region, prefix }: { bucket: string; region: string; prefix: string }) =>
+      Effect.gen(function* () {
+        const keys: string[] = [];
+        let continuation: string | undefined;
+        do {
+          const query = new URLSearchParams({ "list-type": "2", prefix });
+          if (continuation) query.set("continuation-token", continuation);
+          const path = `/?${query.toString()}`;
+          const response = yield* request(bucket, region, "GET", path);
+          const ok = yield* ensureOk(response, "GET", path);
+          const body = yield* Effect.tryPromise({
+            try: () => ok.text(),
+            catch: (cause) => scalewayError({ operation: "list Object Storage objects", resource: bucket, cause }),
+          });
+          keys.push(...objectKeysFromList(body));
+          continuation = body.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/)?.[1];
+        } while (continuation);
+        return keys;
       }),
   };
 }

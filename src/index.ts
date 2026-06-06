@@ -83,6 +83,12 @@ export {
   type SecurityGroupRule,
 } from "./SecurityGroup.ts";
 export {
+  makeObjectStorageState,
+  objectStorageState,
+  state,
+  type ObjectStorageStateProps,
+} from "./State.ts";
+export {
   type ContainerRef,
   type CronTriggerSource,
   type NatsTriggerSource,
