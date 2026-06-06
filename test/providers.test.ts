@@ -1770,6 +1770,127 @@ describe("DnsRecord", () => {
     }),
   );
 
+  test.provider("scopes DNS records to an explicit project for string zones", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Scaleway.DnsZone("SharedProjectZone", {
+          domain: "string-zone.example.test",
+          projectId: "proj-domain",
+        }),
+      );
+
+      const created = yield* stack.deploy(
+        Scaleway.DnsRecord("SharedRecord", {
+          zone: "string-zone.example.test",
+          projectId: "proj-domain",
+          name: "api",
+          type: "A",
+          records: ["192.0.2.70"],
+        }),
+      );
+
+      expect(created.projectId).toBe("proj-domain");
+      expect(requests("PATCH", "/dns-zones/string-zone.example.test/records").at(-1)?.url)
+        .toContain("project_id=proj-domain");
+
+      const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "SharedRecord",
+        instanceId: "test",
+        olds: {
+          zone: "string-zone.example.test",
+          projectId: "proj-domain",
+          name: "api",
+          type: "A",
+          records: ["192.0.2.70"],
+        },
+        output: created,
+      });
+      expect(read?.projectId).toBe("proj-domain");
+      expect(requests("GET", "/dns-zones/string-zone.example.test/records").at(-1)?.url)
+        .toContain("project_id=proj-domain");
+    }),
+  );
+
+  test.provider("refuses to overwrite an existing unmanaged DNS record by default", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Scaleway.DnsZone("Zone", {
+          domain: "conflict.example.test",
+          projectId: "proj-domain",
+        }),
+      );
+      yield* stack.deploy(
+        Scaleway.DnsRecord("ExistingRecord", {
+          zone: "conflict.example.test",
+          projectId: "proj-domain",
+          name: "api",
+          type: "A",
+          records: ["192.0.2.80"],
+        }),
+      );
+
+      const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const create = provider.reconcile!({
+        id: "ReplacementRecord",
+        instanceId: "test",
+        olds: undefined,
+        news: {
+          zone: "conflict.example.test",
+          projectId: "proj-domain",
+          name: "api",
+          type: "A",
+          records: ["192.0.2.81"],
+        },
+        output: undefined,
+        session: { note: () => Effect.void },
+      } as any);
+
+      yield* Effect.flip(create).pipe(
+        Effect.map((error) => expect(String((error as Error).message)).toContain("set overwriteExisting: true")),
+      );
+    }),
+  );
+
+  test.provider("overwrites an existing DNS record when explicitly allowed", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Scaleway.DnsZone("Zone", {
+          domain: "overwrite.example.test",
+          projectId: "proj-domain",
+        }),
+      );
+      yield* stack.deploy(
+        Scaleway.DnsRecord("ExistingRecord", {
+          zone: "overwrite.example.test",
+          projectId: "proj-domain",
+          name: "api",
+          type: "A",
+          records: ["192.0.2.90"],
+        }),
+      );
+
+      const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const created = yield* provider.reconcile!({
+        id: "ReplacementRecord",
+        instanceId: "test",
+        olds: undefined,
+        news: {
+          zone: "overwrite.example.test",
+          projectId: "proj-domain",
+          name: "api",
+          type: "A",
+          records: ["192.0.2.91"],
+          overwriteExisting: true,
+        },
+        output: undefined,
+        session: { note: () => Effect.void },
+      } as any);
+
+      expect(created.records.map((record) => record.data)).toEqual(["192.0.2.91"]);
+    }),
+  );
+
   test.provider("recovers zone project when reading legacy DNS record output", (stack) =>
     Effect.gen(function* () {
       yield* stack.deploy(

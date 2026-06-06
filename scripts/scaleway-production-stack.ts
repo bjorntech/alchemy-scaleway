@@ -9,6 +9,7 @@ const zone = process.env.SCW_DEFAULT_ZONE || `${region}-1`;
 const prefix = process.env.SCW_SMOKE_PREFIX ?? "alchemy-smoke";
 const dnsZone = process.env.SCW_SMOKE_DNS_ZONE ?? "alchemy-smoke.finnvid.org";
 const dnsLabel = process.env.SCW_SMOKE_DNS_LABEL ?? prefix;
+const domainProjectId = process.env.SCW_DOMAIN_PROJECT_ID;
 const smokeHostname = `${dnsLabel}.${dnsZone}`;
 const phase = process.env.SCW_SMOKE_PHASE === "create" ? "create" : process.env.SCW_SMOKE_PHASE === "settle" ? "settle" : "update";
 
@@ -44,6 +45,7 @@ export default Alchemy.Stack(
 
     const dnsRecord = yield* Scaleway.DnsRecord("ContainerDns", {
       zone: dnsZone,
+      projectId: domainProjectId,
       name: dnsLabel,
       target: container,
     });

@@ -58,7 +58,7 @@ SCW_LIVE_TEST=1 op run --environment <1password-environment-id> -- bun run smoke
 `op run --environment` requires the 1Password Environment ID, not the environment name.
 This flag requires the beta 1Password CLI version that supports Environments.
 
-The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, optional `SCW_DEFAULT_ZONE`, and `SCW_API_URL` from the environment. It creates and deletes Containers, a custom container domain under `alchemy-smoke.finnvid.org`, DNS records, Registry, Secret Manager, Object Storage, VPC, VPC route, VPC connector, security group, flexible IP, Instance, and private NIC resources. Set `SCW_SMOKE_DNS_ZONE` and `SCW_SMOKE_DNS_LABEL` to override the smoke-test DNS hostname.
+The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, optional `SCW_DOMAIN_PROJECT_ID`, `SCW_DEFAULT_ZONE`, and `SCW_API_URL` from the environment. It creates and deletes Containers, a custom container domain under `alchemy-smoke.finnvid.org`, DNS records, Registry, Secret Manager, Object Storage, VPC, VPC route, VPC connector, security group, flexible IP, Instance, and private NIC resources. Set `SCW_DOMAIN_PROJECT_ID` when the smoke-test DNS zone lives in a different project from `SCW_DEFAULT_PROJECT_ID`. Set `SCW_SMOKE_DNS_ZONE` and `SCW_SMOKE_DNS_LABEL` to override the smoke-test DNS hostname.
 
 By default each smoke run uses a random Alchemy stage and resource prefix. If a run is interrupted, rerun with the same `SCW_SMOKE_RUN_ID`, or set both `SCW_SMOKE_STAGE` and `SCW_SMOKE_PREFIX`, so Alchemy can reuse the same local state and destroy or reconcile the same resources.
 
@@ -161,7 +161,7 @@ export default Alchemy.Stack(
 - `Trigger` - Container trigger lifecycle (cron, SQS, or NATS source).
 - `Domain` - Container custom domain lifecycle. Set `waitForCname: true` when the stack also creates the CNAME and Scaleway should wait for DNS visibility before custom-domain creation.
 - `DnsZone` - Scaleway Domains and DNS zone lifecycle. Zones default to retain on stack removal.
-- `DnsRecord` - Scaleway Domains and DNS record-set lifecycle. Records are scoped through their `DnsZone`, including its `projectId`, and can use explicit values or infer a target from resources such as `Container`, `FlexibleIp`, `Instance`, `RegistryNamespace`, and `Bucket`.
+- `DnsRecord` - Scaleway Domains and DNS record-set lifecycle. Records are scoped through their `DnsZone`, including its `projectId`, and can use explicit values or infer a target from resources such as `Container`, `FlexibleIp`, `Instance`, `RegistryNamespace`, and `Bucket`. Initial creates refuse to replace an existing same-name/type record set unless `overwriteExisting: true` is set.
 - `RegistryNamespace` - Scaleway Container Registry namespace lifecycle with ready-to-use image prefix output.
 - `Secret` - Scaleway Secret Manager secret metadata and version lifecycle. Secret values are accepted as `Redacted<string>` and are never returned in outputs.
 - `Bucket` - Scaleway Object Storage bucket lifecycle via the S3-compatible API.
@@ -178,6 +178,8 @@ export default Alchemy.Stack(
 `Instance.cloudInit` accepts a multi-line `string` or `Redacted<string>` and writes it to Scaleway's `cloud-init` user-data key before the first boot. The script is treated as first-boot input: Alchemy stores only a SHA-256 hash in resource outputs, and changing the value replaces the Instance instead of mutating a running VM.
 
 `DnsRecord.target` chooses `A` or `AAAA` for IP addresses and `CNAME` for hostnames/endpoints. Use `records` plus an explicit `type` when you need full control over MX, TXT, SRV, CAA, or other record data:
+
+`DnsRecord` owns the complete record set for one zone/name/type. If the record set already exists outside Alchemy, initial creation fails by default to avoid replacing unmanaged DNS. Set `overwriteExisting: true` only when you intentionally want Alchemy to take over and replace that record set.
 
 DNS zones can live in a shared/default project while targets live in another project. Set `projectId` on the project-scoped app resource, and pass the shared `DnsZone` to `DnsRecord`; `Domain` remains scoped to the target container:
 
