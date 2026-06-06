@@ -9,7 +9,8 @@ const zone = process.env.SCW_DEFAULT_ZONE || `${region}-1`;
 const prefix = process.env.SCW_SMOKE_PREFIX ?? "alchemy-smoke";
 const dnsZone = process.env.SCW_SMOKE_DNS_ZONE ?? "alchemy-smoke.finnvid.org";
 const dnsLabel = process.env.SCW_SMOKE_DNS_LABEL ?? prefix;
-const domainProjectId = process.env.SCW_DOMAIN_PROJECT_ID;
+const domainProjectId = process.env.SCW_DOMAIN_PROJECT_ID ?? process.env.SCW_DEFAULT_PROJECT_ID;
+const organizationId = process.env.SCW_ORGANIZATION_ID;
 const smokeHostname = `${dnsLabel}.${dnsZone}`;
 const phase = process.env.SCW_SMOKE_PHASE === "create" ? "create" : process.env.SCW_SMOKE_PHASE === "settle" ? "settle" : "update";
 
@@ -23,8 +24,17 @@ export default Alchemy.Stack(
     state: Alchemy.localState(),
   },
   Effect.gen(function* () {
+    if (!organizationId) throw new Error("SCW_ORGANIZATION_ID is required");
     const updated = phase !== "create";
     const activeTags = updated ? updatedTags : tags;
+
+    const project = yield* Scaleway.Project("Project", {
+      name: `${prefix}-project`,
+      organizationId,
+      description: updated
+        ? "alchemy-scaleway production smoke test updated"
+        : "alchemy-scaleway production smoke test",
+    });
 
     const namespace = yield* Scaleway.Namespace("Namespace", {
       name: `${prefix}-ns`,
@@ -51,11 +61,11 @@ export default Alchemy.Stack(
     });
 
     const domain = updated
-        ? yield* Scaleway.Domain("ContainerDomain", {
-            container,
-            hostname: Output.interpolate`${dnsRecord.name}.${dnsRecord.dnsZone}`,
-            waitForCname: true,
-          })
+      ? yield* Scaleway.Domain("ContainerDomain", {
+          container,
+          hostname: Output.interpolate`${dnsRecord.name}.${dnsRecord.dnsZone}`,
+          waitForCname: true,
+        })
       : undefined;
 
     const registry = yield* Scaleway.RegistryNamespace("Registry", {
@@ -192,24 +202,59 @@ echo "Alchemy Scaleway smoke VM setup complete"
       tags: activeTags,
     });
 
+    const managedProjectResources = {
+      namespace: namespace.projectId,
+      container: container.projectId,
+      registry: registry.projectId,
+      secret: secret.projectId,
+      vpc: vpc.projectId,
+      targetVpc: targetVpc.projectId,
+      privateNetwork: privateNetwork.projectId,
+      vpcConnector: connector.projectId,
+      securityGroup: securityGroup.projectId,
+      flexibleIp: flexibleIp.projectId,
+      instance: instance.projectId,
+    };
+    for (const [resource, projectId] of Object.entries(managedProjectResources)) {
+      if (projectId !== project.projectId) {
+        throw new Error(`${resource} expected project ${project.projectId}, got ${projectId}`);
+      }
+    }
+    if (dnsRecord.projectId !== domainProjectId) {
+      throw new Error(`dnsRecord expected project ${domainProjectId}, got ${dnsRecord.projectId}`);
+    }
+
     return {
+      projectId: project.projectId,
       namespaceId: namespace.namespaceId,
+      namespaceProjectId: namespace.projectId,
       containerUrl: container.url,
+      containerProjectId: container.projectId,
       smokeHostname,
       dnsRecordType: dnsRecord.type,
+      dnsRecordProjectId: dnsRecord.projectId,
       customDomainUrl: domain?.url,
       registryEndpoint: registry.endpoint,
+      registryProjectId: registry.projectId,
       secretId: secret.secretId,
+      secretProjectId: secret.projectId,
       bucketName: bucket.bucketName,
       vpcId: vpc.vpcId,
+      vpcProjectId: vpc.projectId,
       targetVpcId: targetVpc.vpcId,
+      targetVpcProjectId: targetVpc.projectId,
       privateNetworkId: privateNetwork.privateNetworkId,
+      privateNetworkProjectId: privateNetwork.projectId,
       aclPolicy: acl.defaultPolicy,
       routeId: route.routeId,
       connectorId: connector.vpcConnectorId,
+      connectorProjectId: connector.projectId,
       securityGroupId: securityGroup.securityGroupId,
+      securityGroupProjectId: securityGroup.projectId,
       flexibleIpId: flexibleIp.ipId,
+      flexibleIpProjectId: flexibleIp.projectId,
       instanceId: instance.serverId,
+      instanceProjectId: instance.projectId,
       instanceState: instance.state,
       instanceCloudInitHash: instance.cloudInitHash,
       instanceCreatedVolumeIds: instance.createdVolumeIds,

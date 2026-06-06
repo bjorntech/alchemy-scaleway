@@ -12,6 +12,7 @@ if (process.env.SCW_LIVE_TEST !== "1") {
 
 required("SCW_SECRET_KEY");
 required("SCW_ACCESS_KEY");
+required("SCW_ORGANIZATION_ID");
 const defaultProjectId = required("SCW_DEFAULT_PROJECT_ID");
 const domainProjectId = process.env.SCW_DOMAIN_PROJECT_ID ?? defaultProjectId;
 
