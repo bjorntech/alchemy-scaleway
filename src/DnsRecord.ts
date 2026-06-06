@@ -46,6 +46,7 @@ export type DnsRecord = Resource<
   DnsRecordProps,
   {
     dnsZone: string;
+    projectId?: string;
     name: string;
     type: DnsRecordType;
     ttl?: number;
@@ -68,9 +69,19 @@ const isIpv6 = (value: string) => value.includes(":");
 const isIpv4 = (value: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(value);
 const typeFor = (data: string): DnsRecordType => (isIpv4(data) ? "A" : isIpv6(data) ? "AAAA" : "CNAME");
 
-function zoneName(zone: DnsZoneRef) {
-  return typeof zone === "string" ? Effect.succeed(zone) : resolveRef(zone.dnsZone);
-}
+const optionalRef = (ref: unknown): Effect.Effect<string | undefined> =>
+  ref === undefined
+    ? Effect.succeed(undefined)
+    : resolveRef(ref).pipe(Effect.map((value) => value || undefined));
+
+const zoneIdentity = (zone: DnsZoneRef) =>
+  Effect.gen(function* () {
+    if (typeof zone === "string") return { dnsZone: zone, projectId: undefined };
+    return {
+      dnsZone: yield* resolveRef(zone.dnsZone),
+      projectId: yield* optionalRef(zone.projectId),
+    };
+  });
 
 const resolveStringArray = (ref: unknown): Effect.Effect<string[] | undefined> =>
   Effect.gen(function* () {
@@ -141,38 +152,54 @@ export const DnsRecordProvider = () =>
     DnsRecord,
     Effect.gen(function* () {
       const clients = yield* makeScalewayClients;
-      const readRecords = (dnsZone: string, name: string, type: DnsRecordType) =>
-        clients.dns.listRecords({ dnsZone, name: recordName(name), type }).pipe(
+      const readRecords = (dnsZone: string, name: string, type: DnsRecordType, projectId?: string) =>
+        clients.dns.listRecords({ dnsZone, name: recordName(name), type, projectId }).pipe(
           Effect.catchIf(isNotFound, () => Effect.succeed([])),
         );
 
       return DnsRecord.Provider.of({
-        stables: ["dnsZone", "name", "type"],
+        stables: ["dnsZone", "projectId", "name", "type"],
         diff: Effect.fnUntraced(function* ({ news, output }) {
           if (!isResolved(news) || !output) return undefined;
-          const dnsZone = yield* zoneName(news.zone);
+          const zone = yield* zoneIdentity(news.zone);
           const desired = yield* desiredRecords(news);
-          if (output.dnsZone !== dnsZone || output.name !== recordName(news.name) || output.type !== desired[0].type) return { action: "replace" } as const;
+          if (
+            output.dnsZone !== zone.dnsZone ||
+            output.projectId !== zone.projectId ||
+            output.name !== recordName(news.name) ||
+            output.type !== desired[0].type
+          ) return { action: "replace" } as const;
           if (!recordsEqual(output.records, desired)) return { action: "update" } as const;
           return undefined;
         }),
         read: Effect.fnUntraced(function* ({ olds, output }) {
-          const dnsZone = output?.dnsZone ?? (olds ? yield* zoneName(olds.zone) : undefined);
-          if (!dnsZone) return undefined;
+          const oldZone = olds ? yield* zoneIdentity(olds.zone) : undefined;
+          const zone = output?.dnsZone
+            ? { dnsZone: output.dnsZone, projectId: output.projectId ?? oldZone?.projectId }
+            : oldZone;
+          if (!zone) return undefined;
           const type = output?.type ?? (olds ? (yield* desiredRecords(olds))[0].type : undefined);
           if (!type) return undefined;
           const name = output?.name ?? (olds ? recordName(olds.name) : undefined);
           if (name === undefined) return undefined;
-          const records = yield* readRecords(dnsZone, name, type);
+          const records = yield* readRecords(zone.dnsZone, name, type, zone.projectId);
           if (records.length === 0) return undefined;
-          return { dnsZone, name, type, ttl: records[0].ttl, records } satisfies DnsRecord["Attributes"];
+          return {
+            dnsZone: zone.dnsZone,
+            projectId: zone.projectId,
+            name,
+            type,
+            ttl: records[0].ttl,
+            records,
+          } satisfies DnsRecord["Attributes"];
         }),
         reconcile: Effect.fnUntraced(function* ({ news, session }) {
-          const dnsZone = yield* zoneName(news.zone);
+          const zone = yield* zoneIdentity(news.zone);
           const records = yield* desiredRecords(news);
           const type = records[0].type;
           const updated = yield* clients.dns.updateRecords({
-            dnsZone,
+            dnsZone: zone.dnsZone,
+            projectId: zone.projectId,
             return_all_records: false,
             disallow_new_zone_creation: true,
             changes: [
@@ -185,12 +212,20 @@ export const DnsRecordProvider = () =>
             ],
           });
           const current = updated.length > 0 ? updated : records;
-          yield* session.note(`Upserted Scaleway DNS ${type} ${recordName(news.name)} in ${dnsZone}`);
-          return { dnsZone, name: recordName(news.name), type, ttl: records[0].ttl, records: current } satisfies DnsRecord["Attributes"];
+          yield* session.note(`Upserted Scaleway DNS ${type} ${recordName(news.name)} in ${zone.dnsZone}`);
+          return {
+            dnsZone: zone.dnsZone,
+            projectId: zone.projectId,
+            name: recordName(news.name),
+            type,
+            ttl: records[0].ttl,
+            records: current,
+          } satisfies DnsRecord["Attributes"];
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
           yield* clients.dns.updateRecords({
             dnsZone: output.dnsZone,
+            projectId: output.projectId,
             return_all_records: false,
             disallow_new_zone_creation: true,
             changes: [{ delete: { id_fields: { name: output.name, type: output.type } } }],

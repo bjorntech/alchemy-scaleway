@@ -438,7 +438,7 @@ export interface ScalewayClients {
     updateZone(input: { dnsZone: string; new_dns_zone: string; project_id: string }): Effect.Effect<ScalewayDnsZoneRecord, ScalewayError>;
     deleteZone(input: { dnsZone: string; projectId: string }): Effect.Effect<void, ScalewayError>;
     listRecords(input: { dnsZone: string; name?: string; type?: ScalewayDnsRecordType; id?: string; projectId?: string }): Effect.Effect<ScalewayDnsRecord[], ScalewayError>;
-    updateRecords(input: { dnsZone: string; changes: ScalewayDnsRecordChange[]; return_all_records?: boolean; disallow_new_zone_creation?: boolean }): Effect.Effect<ScalewayDnsRecord[], ScalewayError>;
+    updateRecords(input: { dnsZone: string; changes: ScalewayDnsRecordChange[]; return_all_records?: boolean; disallow_new_zone_creation?: boolean; projectId?: string }): Effect.Effect<ScalewayDnsRecord[], ScalewayError>;
   };
   registry: {
     createNamespace(input: {
@@ -741,10 +741,10 @@ export const makeScalewayClients = Effect.gen(function* () {
           "GET",
           `${dnsBase}/dns-zones/${encodeURIComponent(dnsZone)}/records${query({ name, type, id, project_id: projectId })}`,
         ).pipe(Effect.map((response) => response.records ?? [])),
-      updateRecords: ({ dnsZone, ...input }) =>
+      updateRecords: ({ dnsZone, projectId, ...input }) =>
         request<{ records?: ScalewayDnsRecord[] }>(
           "PATCH",
-          `${dnsBase}/dns-zones/${encodeURIComponent(dnsZone)}/records`,
+          `${dnsBase}/dns-zones/${encodeURIComponent(dnsZone)}/records${query({ project_id: projectId })}`,
           input,
         ).pipe(Effect.map((response) => response.records ?? [])),
     },

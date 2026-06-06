@@ -246,6 +246,11 @@ export function installScalewayMock(): ScalewayMock {
     const subdomain = zone.subdomain as string | undefined;
     return subdomain ? `${subdomain}.${zone.domain}` : zone.domain as string;
   };
+  const zoneKeyOf = (zone: Record<string, unknown>) => `${zone.project_id ?? ""}:${zoneNameOf(zone)}`;
+  const zoneKey = (dnsZone: string, projectId: string | null) =>
+    projectId === null
+      ? [...dnsZones.entries()].find(([, zone]) => zoneNameOf(zone) === dnsZone)?.[0]
+      : `${projectId}:${dnsZone}`;
 
   const dnsHandler = (method: string, pathname: string, search: string, body: unknown): Response => {
     const segments = pathname.split("/").filter(Boolean); // [domain, v2beta1, dns-zones, zone?, records?]
@@ -277,18 +282,19 @@ export function installScalewayMock(): ScalewayMock {
           updated_at: "2026-06-06T00:00:00Z",
           ...input,
         };
-        dnsZones.set(zoneNameOf(record), record);
+        dnsZones.set(zoneKeyOf(record), record);
         return json(record);
       }
     }
 
-    const zone = id ? dnsZones.get(id) : undefined;
+    const currentZoneKey = id ? zoneKey(id, params.get("project_id")) : undefined;
+    const zone = currentZoneKey ? dnsZones.get(currentZoneKey) : undefined;
     if (!zone) return json({ message: "dns zone not found" }, 404);
 
     if (!nested) {
       if (method === "DELETE") {
-        dnsZones.delete(id as string);
-        dnsRecords.delete(id as string);
+        dnsZones.delete(currentZoneKey as string);
+        dnsRecords.delete(currentZoneKey as string);
         return json({});
       }
       if (method === "PATCH") {
@@ -297,14 +303,14 @@ export function installScalewayMock(): ScalewayMock {
         const updated = domainParts.length > 1
           ? { ...zone, domain: domainParts.join("."), subdomain }
           : { ...zone, domain: nextName, subdomain: "" };
-        dnsZones.delete(id as string);
-        dnsZones.set(zoneNameOf(updated), updated);
+        dnsZones.delete(currentZoneKey as string);
+        dnsZones.set(zoneKeyOf(updated), updated);
         return json(updated);
       }
     }
 
     if (nested === "records") {
-      const records = dnsRecords.get(id as string) ?? [];
+      const records = dnsRecords.get(currentZoneKey as string) ?? [];
       if (method === "GET") {
         const name = params.get("name");
         const type = params.get("type");
@@ -341,7 +347,7 @@ export function installScalewayMock(): ScalewayMock {
             });
           }
         }
-        dnsRecords.set(id as string, next);
+        dnsRecords.set(currentZoneKey as string, next);
         return json({ records: input.return_all_records ? next : next });
       }
     }
