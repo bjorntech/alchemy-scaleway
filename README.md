@@ -61,6 +61,14 @@ The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SC
 
 By default each smoke run uses a random Alchemy stage and resource prefix. If a run is interrupted, rerun with the same `SCW_SMOKE_RUN_ID`, or set both `SCW_SMOKE_STAGE` and `SCW_SMOKE_PREFIX`, so Alchemy can reuse the same local state and destroy or reconcile the same resources.
 
+The negative Flexible IP smoke test is separately opt-in. It intentionally deploys a Flexible IP with invalid reverse DNS, expects the deploy to fail, then audits and deletes any leaked tagged IPs before failing the test if cleanup regressed:
+
+```sh
+SCW_LIVE_NEGATIVE_TEST=1 op run --environment <1password-environment-id> -- bun run smoke:scaleway:negative
+```
+
+It reads `SCW_SECRET_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, optional `SCW_DEFAULT_ZONE`, `SCW_API_URL`, `SCW_NEGATIVE_SMOKE_RUN_ID`, `SCW_NEGATIVE_SMOKE_STAGE`, `SCW_NEGATIVE_SMOKE_PREFIX`, and `SCW_NEGATIVE_SMOKE_REVERSE`.
+
 ## Usage
 
 ```ts

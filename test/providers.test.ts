@@ -1514,6 +1514,37 @@ describe("FlexibleIp", () => {
     }),
   );
 
+  test.provider("deletes created flexible IP when initial reverse DNS update fails", (stack) =>
+    Effect.gen(function* () {
+      mock.failNext("/ips/ip-", 400, "reverse must resolve");
+
+      yield* Effect.flip(stack.deploy(Scaleway.FlexibleIp("PublicIp", { reverse: "edge.example.test" }))).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("reverse must resolve");
+        }),
+      );
+
+      const created = requests("POST", "/ips").at(0);
+      expect(JSON.parse(created?.body ?? "{}").tags).toContain("alchemy:logical-id=PublicIp");
+      expect(requests("DELETE", "/ips/ip-")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("surfaces cleanup failure after initial reverse DNS update fails", (stack) =>
+    Effect.gen(function* () {
+      mock.failNext("/ips/ip-", 400, "reverse must resolve");
+      mock.failNext("/ips/ip-", 500, "cleanup failed");
+
+      yield* Effect.flip(stack.deploy(Scaleway.FlexibleIp("PublicIp", { reverse: "edge.example.test" }))).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("cleanup failed");
+        }),
+      );
+
+      expect(requests("DELETE", "/ips/ip-")).toHaveLength(1);
+    }),
+  );
+
   test.provider("read returns existing flexible IPs and ignores missing ones", (stack) =>
     Effect.gen(function* () {
       const created = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { zone: "fr-par-1" }));

@@ -90,7 +90,14 @@ export const FlexibleIpProvider = () =>
           } else {
             record = yield* clients.instance.createFlexibleIp({ zone, project: yield* projectId(news.projectId), tags, server: news.serverId, type: news.type ?? "routed_ipv4" });
             if (news.reverse !== undefined) {
-              record = yield* clients.instance.updateFlexibleIp({ zone, ip: record.id, tags, server: news.serverId ?? null, reverse: news.reverse });
+              record = yield* clients.instance.updateFlexibleIp({ zone, ip: record.id, tags, server: news.serverId ?? null, reverse: news.reverse }).pipe(
+                Effect.catch((error) =>
+                  clients.instance.deleteFlexibleIp({ zone, ip: record.id }).pipe(
+                    Effect.catchIf(isNotFound, () => Effect.void),
+                    Effect.flatMap(() => Effect.fail(error)),
+                  ),
+                ),
+              );
             }
           }
           yield* session.note(`${output?.ipId ? "Updated" : "Created"} Scaleway flexible IP ${record.id}`);
