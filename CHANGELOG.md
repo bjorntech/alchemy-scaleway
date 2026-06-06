@@ -4,6 +4,12 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## [Unreleased]
 
+### Added
+
+- Added `Scaleway.state()` / `Scaleway.objectStorageState()` for Alchemy v2
+  remote state persisted in Scaleway Object Storage, including a project-derived
+  default bucket name that is created on first use when missing.
+
 ### Fixed
 
 - The production smoke test now scopes DNS record operations with

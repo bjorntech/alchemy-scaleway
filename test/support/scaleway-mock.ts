@@ -39,6 +39,7 @@ interface BucketState {
   region: string;
   versioning: boolean;
   tags: Record<string, string>;
+  objects: Map<string, string>;
 }
 
 const escapeXml = (value: string) =>
@@ -656,6 +657,11 @@ export function installScalewayMock(): ScalewayMock {
       .map(([k, v]) => `<Tag><Key>${escapeXml(k)}</Key><Value>${escapeXml(v)}</Value></Tag>`)
       .join("")}</TagSet></Tagging>`;
 
+  const objectListXml = (keys: string[]) =>
+    `<?xml version="1.0"?><ListBucketResult>${keys
+      .map((key) => `<Contents><Key>${escapeXml(key)}</Key></Contents>`)
+      .join("")}</ListBucketResult>`;
+
   const objectStorageHandler = (
     method: string,
     host: string,
@@ -664,9 +670,20 @@ export function installScalewayMock(): ScalewayMock {
     body: string,
   ): Response => {
     const region = host.split(".")[1] ?? "fr-par";
-    const bucketName = pathname.split("/").filter(Boolean)[0];
+    const pathParts = pathname.split("/").filter(Boolean);
+    const bucketName = pathParts[0];
+    const objectKey = pathParts.slice(1).map(decodeURIComponent).join("/");
     const query = search.replace(/^\?/, "");
     const existing = buckets.get(bucketName);
+
+    if (query.startsWith("list-type=2")) {
+      if (!existing) return xmlError("NoSuchBucket", "The specified bucket does not exist", 404);
+      const params = new URLSearchParams(query);
+      const prefix = params.get("prefix") ?? "";
+      return new Response(objectListXml([...existing.objects.keys()].filter((key) => key.startsWith(prefix))), {
+        status: 200,
+      });
+    }
 
     if (query === "versioning") {
       if (method === "PUT") {
@@ -700,8 +717,25 @@ export function installScalewayMock(): ScalewayMock {
     }
 
     // Bucket-level (no query).
+    if (objectKey) {
+      if (!existing) return xmlError("NoSuchBucket", "The specified bucket does not exist", 404);
+      if (method === "PUT") {
+        existing.objects.set(objectKey, body);
+        return new Response("", { status: 200 });
+      }
+      if (method === "GET") {
+        const value = existing.objects.get(objectKey);
+        if (value === undefined) return xmlError("NoSuchKey", "The specified key does not exist", 404);
+        return new Response(value, { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (method === "DELETE") {
+        existing.objects.delete(objectKey);
+        return noContent();
+      }
+    }
+
     if (method === "PUT") {
-      buckets.set(bucketName, { region, versioning: false, tags: {} });
+      buckets.set(bucketName, { region, versioning: false, tags: {}, objects: new Map() });
       return new Response("", { status: 200 });
     }
     if (method === "HEAD") {
@@ -1063,7 +1097,8 @@ export function installScalewayMock(): ScalewayMock {
     removeFlexibleIp: (id) => flexibleIps.delete(id),
     removePrivateNic: (serverId, id) => privateNics.delete(`${serverId}:${id}`),
     removeBucket: (name) => buckets.delete(name),
-    seedBucket: (name, region, tags = {}) => buckets.set(name, { region, versioning: false, tags }),
+    seedBucket: (name, region, tags = {}) =>
+      buckets.set(name, { region, versioning: false, tags, objects: new Map() }),
     failNextDomainDeploys: (count) => {
       domainDeployErrorsRemaining = count;
     },

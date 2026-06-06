@@ -154,6 +154,28 @@ export default Alchemy.Stack(
 );
 ```
 
+## Remote State
+
+`Scaleway.state()` stores Alchemy state in a Scaleway Object Storage bucket, using Scaleway's S3-compatible API. When `bucket` is omitted, the provider uses `alchemy-state-${SCW_DEFAULT_PROJECT_ID}` and creates it on first use if it does not exist. `prefix` isolates projects, stacks, or environments sharing the same bucket and defaults to `alchemy/state`.
+
+```ts
+export default Alchemy.Stack(
+  "scaleway-demo",
+  {
+    providers: Scaleway.providers(),
+    state: Scaleway.state({
+      region: "fr-par",
+      prefix: "alchemy/project-a",
+    }),
+  },
+  Effect.gen(function* () {
+    // resources
+  }),
+);
+```
+
+Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJECT_ID` is used only to derive the default bucket name; the Object Storage credentials decide which project/account owns the bucket. Bucket names are globally unique, so pass `bucket` explicitly if the derived name is unavailable or if you want a shared state bucket. For multiple Scaleway projects, either use separate buckets or separate prefixes such as `alchemy/project-a` and `alchemy/project-b`. Do not run concurrent deploys against the same `bucket + prefix + stack + stage`; the Object Storage backend does not provide a distributed lock.
+
 ## Resources
 
 - `Namespace` - Scaleway Serverless Containers namespace lifecycle.
