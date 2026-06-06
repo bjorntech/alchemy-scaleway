@@ -5,6 +5,7 @@ import * as Provider from "alchemy/Provider";
 import { ScalewayAuth } from "./AuthProvider.ts";
 import { Bucket, BucketProvider } from "./Bucket.ts";
 import { Container, ContainerProvider } from "./Container.ts";
+import { ContainerImage, ContainerImageProvider } from "./ContainerImage.ts";
 import * as Credentials from "./Credentials.ts";
 import { DatabaseInstance, DatabaseInstanceProvider } from "./DatabaseInstance.ts";
 import { Domain, DomainProvider } from "./Domain.ts";
@@ -41,6 +42,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
       Namespace,
       Project,
       Container,
+      ContainerImage,
       Trigger,
       Domain,
       DnsZone,
@@ -65,6 +67,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
         NamespaceProvider(),
         ProjectProvider(),
         ContainerProvider(),
+        ContainerImageProvider(),
         TriggerProvider(),
         DomainProvider(),
         DnsZoneProvider(),

@@ -64,7 +64,7 @@ SCW_LIVE_TEST=1 op run --environment <1password-environment-id> -- bun run smoke
 `op run --environment` requires the 1Password Environment ID, not the environment name.
 This flag requires the beta 1Password CLI version that supports Environments.
 
-The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_ORGANIZATION_ID`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, optional `SCW_DOMAIN_PROJECT_ID`, `SCW_DEFAULT_ZONE`, and `SCW_API_URL` from the environment. It creates and deletes a managed Scaleway project, then verifies new project-scoped resources are created in that project while DNS/domain resources stay explicitly scoped to the DNS project. It also creates Containers, a custom container domain under `alchemy-smoke.finnvid.org`, DNS records, Registry, Secret Manager, Managed Database for PostgreSQL/MySQL, Object Storage, VPC, VPC route, VPC connector, security group, flexible IP, Instance, and private NIC resources. Set `SCW_DOMAIN_PROJECT_ID` when the smoke-test DNS zone lives in a different project from `SCW_DEFAULT_PROJECT_ID`. Set `SCW_SMOKE_DNS_ZONE` and `SCW_SMOKE_DNS_LABEL` to override the smoke-test DNS hostname.
+The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_ORGANIZATION_ID`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, optional `SCW_DOMAIN_PROJECT_ID`, `SCW_DEFAULT_ZONE`, and `SCW_API_URL` from the environment, and requires a working local Docker CLI. It creates and deletes a managed Scaleway project, then verifies new project-scoped resources are created in that project while DNS/domain resources stay explicitly scoped to the DNS project. It also creates Containers, builds and pushes a `ContainerImage` through Registry, creates a custom container domain under `alchemy-smoke.finnvid.org`, DNS records, Secret Manager, Managed Database for PostgreSQL/MySQL, Object Storage, VPC, VPC route, VPC connector, security group, flexible IP, Instance, and private NIC resources. Set `SCW_DOMAIN_PROJECT_ID` when the smoke-test DNS zone lives in a different project from `SCW_DEFAULT_PROJECT_ID`. Set `SCW_SMOKE_DNS_ZONE` and `SCW_SMOKE_DNS_LABEL` to override the smoke-test DNS hostname.
 
 By default each smoke run uses a random Alchemy stage and resource prefix. If a run is interrupted, rerun with the same `SCW_SMOKE_RUN_ID`, or set both `SCW_SMOKE_STAGE` and `SCW_SMOKE_PREFIX`, so Alchemy can reuse the same local state and destroy or reconcile the same resources.
 
@@ -95,6 +95,14 @@ export default Alchemy.Stack(
     const registry = yield* Scaleway.RegistryNamespace("Registry", {
       description: "Demo container images",
       public: false,
+    });
+
+    const apiImage = yield* Scaleway.ContainerImage("ApiImage", {
+      registry,
+      context: ".",
+      dockerfile: "docker/api/Dockerfile",
+      repository: "api",
+      tag: "latest",
     });
 
     const apiToken = yield* Scaleway.Secret("ApiToken", {
@@ -135,7 +143,7 @@ export default Alchemy.Stack(
 
     const api = yield* Scaleway.Container("Api", {
       namespace,
-      image: "rg.fr-par.scw.cloud/my-registry/api:latest",
+      image: apiImage.ref,
       secretEnvironmentVariables: { API_TOKEN: Redacted.make(process.env.API_TOKEN!) },
       port: 3000,
       protocol: "http1",
@@ -194,17 +202,18 @@ Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJE
 
 ## Resources
 
-- `Project` - Scaleway Account project lifecycle. Requires `organizationId`; changing `organizationId` replaces the project, while name and description update in place. If exactly one `Project` is declared, new application resources use it unless they set `project` explicitly or the provider is configured with `providers({ project })`.
+- `Project` - Scaleway Account project lifecycle. Requires `organizationId`; changing `organizationId` replaces the project, while name and description update in place. If exactly one `Project` is declared, new application resources use it unless they set `project` explicitly or the provider is configured with `providers({ project })`. Same-name project rediscovery requires explicit adoption because Scaleway projects do not expose a reliable ownership marker.
 - `Namespace` - Scaleway Serverless Containers namespace lifecycle.
 - `Container` - Scaleway Serverless Container lifecycle with deployment readiness polling, optional custom domains, and optional cron triggers.
+- `ContainerImage` - Local Docker image build and push lifecycle for Scaleway Container Registry. It logs in with `SCW_SECRET_KEY`, runs `docker build`, runs `docker push`, returns content-tagged `ref` plus requested-tag `stableRef`, and can feed `Container.image` directly.
 - `Trigger` - Container trigger lifecycle (cron, SQS, or NATS source).
 - `Domain` - Container custom domain lifecycle. Set `waitForCname: true` when the stack also creates the CNAME and Scaleway should wait for DNS visibility before custom-domain creation.
 - `DnsZone` - Scaleway Domains and DNS zone lifecycle. Zones default to `SCW_DEFAULT_PROJECT_ID` and retain on stack removal.
 - `DnsRecord` - Scaleway Domains and DNS record-set lifecycle. Records are scoped through their `DnsZone`, including its project, or through an explicit `project`; otherwise DNS operations use `SCW_DEFAULT_PROJECT_ID`. Records can use explicit values or infer a target from resources such as `Container`, `FlexibleIp`, `Instance`, `RegistryNamespace`, and `Bucket`. Initial creates refuse to replace an existing same-name/type record set unless `overwriteExisting: true` is set.
 - `RegistryNamespace` - Scaleway Container Registry namespace lifecycle with ready-to-use image prefix output.
 - `Secret` - Scaleway Secret Manager secret metadata and version lifecycle. Secret values are accepted as `Redacted<string>` and are never returned in outputs.
-- `DatabaseInstance` - Scaleway Managed Database for PostgreSQL/MySQL instance lifecycle with readiness polling, project defaults, endpoint outputs, and redacted admin password input. Engine, node type, default user, password, HA mode, and volume shape changes replace the instance; name, tags, and backup schedule update in place.
-- `Bucket` - Scaleway Object Storage bucket lifecycle via the S3-compatible API.
+- `DatabaseInstance` - Scaleway Managed Database for PostgreSQL/MySQL instance lifecycle with readiness polling, project defaults, endpoint outputs, and redacted admin password input. Engine, node type, default user, password, HA mode, and volume shape changes replace the instance; name, tags, and backup schedule update in place. Defaults to `retain()` on removal and uses `alchemy:logical-id` tags for later rediscovery.
+- `Bucket` - Scaleway Object Storage bucket lifecycle via the S3-compatible API. Defaults to `retain()` on removal and uses S3 `alchemy:logical-id` tags for later rediscovery.
 - `Vpc` - Scaleway VPC lifecycle with optional routing and custom route propagation enablement.
 - `PrivateNetwork` - Scaleway Private Network lifecycle, including optional VPC binding, subnets, DHCP enablement, and default route propagation.
 - `VpcAcl` - Scaleway VPC ACL lifecycle for one VPC/IP version. This resource owns the full ACL rule set for that `vpc` plus `ipVersion` and resets it to `defaultPolicy: "accept"` with no rules on delete.
@@ -212,10 +221,16 @@ Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJE
 - `VpcConnector` - Scaleway VPC connector lifecycle for connecting two VPCs, with name and tag updates in place.
 - `Instance` - Scaleway Instance lifecycle for virtual machines, with conservative replacement for image/type/volume/cloud-init identity changes and action-based power state convergence.
 - `SecurityGroup` - Scaleway Instance security group lifecycle. This resource owns the complete security group rule set.
-- `FlexibleIp` - Scaleway Instance flexible IP reservation lifecycle, including tag, reverse DNS, and server attachment updates.
+- `FlexibleIp` - Scaleway Instance flexible IP reservation lifecycle, including tag, reverse DNS, and server attachment updates. Defaults to `retain()` on removal and uses `alchemy:logical-id` tags for later rediscovery.
 - `PrivateNic` - Scaleway Instance private NIC lifecycle for attaching one Instance to one Private Network.
 
 `Instance.cloudInit` accepts a multi-line `string` or `Redacted<string>` and writes it to Scaleway's `cloud-init` user-data key before the first boot. The script is treated as first-boot input: Alchemy stores only a SHA-256 hash in resource outputs, and changing the value replaces the Instance instead of mutating a running VM.
+
+`Container.image` accepts plain image strings, `ContainerImage.ref`, or helper-built refs such as `dockerHubImage("library/nginx", "1.27")` and `ghcrImage("owner/app", "sha-1234")`. Public Docker Hub and GHCR images are passed through unchanged. Scaleway's Serverless Containers API does not expose private external registry pull credentials; private images should be pushed to Scaleway Container Registry with `ContainerImage`, or made accessible to Scaleway by registry-side policy if your registry supports that.
+
+`ContainerImage` requires a working local Docker CLI. It computes a source hash from the Docker context, Dockerfile, `buildArgs`, `target`, and `platform`, so source changes trigger a rebuild/push on the next deploy. Docker builds default to `--platform linux/amd64` because Scaleway Serverless Containers only supports amd64 images; pass `platform` only when you intentionally need a different target. The returned `ref` uses a content-derived tag such as `dev-a1b2c3d4e5f6`, while `stableRef` is also pushed with the requested tag such as `dev`. Pass `image.ref` to `Container.image` so source changes produce a changed image reference and force a container redeploy. Keep Docker contexts small and use `.dockerignore` as you would with `docker build`; the provider hash is intentionally conservative and does not parse `.dockerignore`, so ignored-file changes can still create a new content tag. Use `buildArgs` for build-time frontend values such as `VITE_API_URL`; do not pass secrets as build args because Docker build arguments are not a secret mechanism. For Scaleway registries, `ContainerImage` logs in with `SCW_SECRET_KEY`; for GHCR, Docker Hub, or another external registry, pass `auth: { username, password }` when the image push needs Docker login, or omit `auth` to use an existing local Docker session.
+
+High-value resources that can hold data or scarce addresses default to `retain()` on stack removal: `Bucket`, `DatabaseInstance`, and `FlexibleIp`. Add `.pipe(destroy())` when you intentionally want Alchemy to delete them during stack removal. Replacement cleanup is still destructive when an identity change forces replacement, so treat replace-triggering changes such as database engine, volume, or flexible IP type changes as data/address migration operations.
 
 `DnsRecord.target` chooses `A` or `AAAA` for IP addresses and `CNAME` for hostnames/endpoints. Use `records` plus an explicit `type` when you need full control over MX, TXT, SRV, CAA, or other record data:
 

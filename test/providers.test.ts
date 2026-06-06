@@ -3,6 +3,11 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { adopt as adoptResource } from "alchemy/AdoptPolicy";
+import { destroy, retain } from "alchemy/RemovalPolicy";
 import * as Test from "alchemy/Test/Bun";
 import * as Scaleway from "../src/index.ts";
 import { installScalewayMock, type ScalewayMock } from "./support/scaleway-mock.ts";
@@ -37,12 +42,38 @@ const vpcLifecycleLayer = Layer.mergeAll(
   ),
   Layer.orDie,
 );
+const retainMigrationLayer = Layer.mergeAll(
+  Scaleway.BucketProvider(),
+  Scaleway.DatabaseInstanceProvider(),
+).pipe(
+  Layer.provideMerge(
+    Layer.succeed(
+      Scaleway.ScalewayCredentials,
+      Scaleway.ScalewayCredentials.of({
+        secretKey: Redacted.make("test-secret"),
+        accessKey: "test-access",
+        region: "fr-par",
+        apiUrl: "https://api.scaleway.com",
+        projectId: "proj-test",
+      }),
+    ),
+  ),
+  Layer.orDie,
+);
 
 let mock: ScalewayMock;
+let imageCommands: Scaleway.ContainerImageCommand[];
 beforeEach(() => {
   mock = installScalewayMock();
+  imageCommands = [];
+  Scaleway.setContainerImageCommandRunner((command) =>
+    Effect.sync(() => {
+      imageCommands.push(command);
+    }),
+  );
 });
 afterEach(() => {
+  Scaleway.resetContainerImageCommandRunner();
   mock.restore();
 });
 
@@ -126,6 +157,27 @@ describe("Project", () => {
       expect(second.projectId).not.toBe(first.projectId);
       expect(second.organizationId).toBe("org-b");
       expect(requests("DELETE", "/account/v3/projects/")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("retained project is rediscovered as unowned and can be adopted", (stack) =>
+    Effect.gen(function* () {
+      const program = Scaleway.Project("AppProject", {
+        name: "alchemy-project-retain-test",
+        organizationId: "org-test",
+      }).pipe(retain());
+
+      const created = yield* stack.deploy(program);
+      yield* stack.destroy();
+
+      yield* Effect.flip(stack.deploy(program)).pipe(
+        Effect.map((error) => expect(String(error)).toContain("Cannot adopt resource")),
+      );
+
+      const adopted = yield* stack.deploy(program.pipe(adoptResource()));
+      expect(adopted.projectId).toBe(created.projectId);
+      expect(requests("DELETE", `/account/v3/projects/${created.projectId}`)).toHaveLength(0);
+      expect(requests("GET", "/account/v3/projects").length).toBeGreaterThan(0);
     }),
   );
 
@@ -275,6 +327,237 @@ describe("RegistryNamespace", () => {
       expect(requests("DELETE", "/registry/v1/regions/fr-par/namespaces/").length).toBeGreaterThan(
         0,
       );
+    }),
+  );
+});
+
+describe("ContainerImage", () => {
+  test.provider("builds and pushes an image into a registry namespace", (stack) =>
+    Effect.gen(function* () {
+      const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      writeFileSync(join(context, "Dockerfile"), "FROM scratch\n");
+      writeFileSync(join(context, "app.txt"), "first\n");
+
+      try {
+        const image = yield* stack.deploy(
+          Effect.gen(function* () {
+            const registry = yield* Scaleway.RegistryNamespace("Registry", { name: "demo-registry" });
+            return yield* Scaleway.ContainerImage("ApiImage", {
+              registry,
+              context,
+              repository: "api",
+              tag: "dev",
+              buildArgs: { VITE_API_URL: "https://api.example.test" },
+            });
+          }),
+        );
+
+        expect(image.ref).toMatch(/^rg\.fr-par\.scw\.cloud\/demo-registry\/api:dev-[a-f0-9]{12}$/);
+        expect(image.stableRef).toBe("rg.fr-par.scw.cloud/demo-registry/api:dev");
+        expect(image.repository).toBe("api");
+        expect(image.tag).toMatch(/^dev-[a-f0-9]{12}$/);
+        expect(image.digest).toMatch(/^sha256:/);
+        expect(imageCommands.map((command) => command.args[0])).toEqual(["login", "build", "push", "push"]);
+        expect(imageCommands[0]?.args).toEqual(["login", "rg.fr-par.scw.cloud", "-u", "nologin", "--password-stdin"]);
+        expect(imageCommands[0]?.stdin).toBe("test-secret\n");
+        expect(imageCommands[1]?.args).toContain(image.ref);
+        expect(imageCommands[1]?.args).toContain(image.stableRef);
+        expect(imageCommands[1]?.args).toContain("--platform");
+        expect(imageCommands[1]?.args).toContain("linux/amd64");
+        expect(imageCommands[1]?.args).toContain("--build-arg");
+        expect(imageCommands[1]?.args).toContain("VITE_API_URL=https://api.example.test");
+        expect(imageCommands[2]?.args).toEqual(["push", image.ref]);
+        expect(imageCommands[3]?.args).toEqual(["push", image.stableRef]);
+      } finally {
+        rmSync(context, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("rebuilds when Docker context contents change", (stack) =>
+    Effect.gen(function* () {
+      const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      writeFileSync(join(context, "Dockerfile"), "FROM scratch\n");
+      const appFile = join(context, "app.txt");
+      writeFileSync(appFile, "first\n");
+
+      try {
+        const program = Scaleway.ContainerImage("ApiImage", {
+          registry: "rg.fr-par.scw.cloud/demo-registry",
+          context,
+          repository: "api",
+          tag: "dev",
+        });
+        const first = yield* stack.deploy(program);
+        imageCommands = [];
+        const second = yield* stack.deploy(program);
+        expect(second.digest).toBe(first.digest);
+        expect(imageCommands).toHaveLength(0);
+
+        writeFileSync(appFile, "second\n");
+        const updated = yield* stack.deploy(program);
+        expect(updated.ref).not.toBe(first.ref);
+        expect(updated.stableRef).toBe(first.stableRef);
+        expect(updated.digest).not.toBe(first.digest);
+        expect(imageCommands.map((command) => command.args[0])).toEqual(["login", "build", "push", "push"]);
+      } finally {
+        rmSync(context, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("allows overriding the Docker build platform", (stack) =>
+    Effect.gen(function* () {
+      const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      writeFileSync(join(context, "Dockerfile"), "FROM scratch\n");
+
+      try {
+        yield* stack.deploy(
+          Scaleway.ContainerImage("ArmImage", {
+            registry: "docker.io/acme",
+            context,
+            repository: "api",
+            platform: "linux/arm64",
+          }),
+        );
+
+        expect(imageCommands[0]?.args).toContain("--platform");
+        expect(imageCommands[0]?.args).toContain("linux/arm64");
+      } finally {
+        rmSync(context, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("feeds pushed image refs into container deploys", (stack) =>
+    Effect.gen(function* () {
+      const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      writeFileSync(join(context, "Dockerfile"), "FROM scratch\n");
+
+      try {
+        const deployed = yield* stack.deploy(
+          Effect.gen(function* () {
+            const registry = yield* Scaleway.RegistryNamespace("Registry", { name: "app-registry" });
+            const namespace = yield* Scaleway.Namespace("Ns", { name: "app-ns" });
+            const image = yield* Scaleway.ContainerImage("ApiImage", {
+              registry,
+              context,
+              repository: "api",
+              tag: "dev",
+            });
+            const container = yield* Scaleway.Container("Api", {
+              namespace,
+              image: image.ref,
+              port: 3000,
+            });
+            return { image, container };
+          }),
+        );
+
+        expect(deployed.container.image).toBe(deployed.image.ref);
+        expect(deployed.container.image).not.toBe(deployed.image.stableRef);
+        const createContainer = requests("POST", "/containers/v1/regions/fr-par/containers").at(0);
+        expect(JSON.parse(createContainer?.body ?? "{}").image).toBe(deployed.image.ref);
+      } finally {
+        rmSync(context, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("redeploys dependent containers when source changes with the same requested tag", (stack) =>
+    Effect.gen(function* () {
+      const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      writeFileSync(join(context, "Dockerfile"), "FROM scratch\n");
+      const appFile = join(context, "app.txt");
+      writeFileSync(appFile, "first\n");
+
+      try {
+        const program = Effect.gen(function* () {
+          const registry = yield* Scaleway.RegistryNamespace("Registry", { name: "app-registry" });
+          const namespace = yield* Scaleway.Namespace("Ns", { name: "app-ns" });
+          const image = yield* Scaleway.ContainerImage("ApiImage", {
+            registry,
+            context,
+            repository: "api",
+            tag: "dev",
+          });
+          const container = yield* Scaleway.Container("Api", {
+            namespace,
+            image: image.ref,
+            port: 3000,
+          });
+          return { image, container };
+        });
+
+        const first = yield* stack.deploy(program);
+        const previousPatchCount = containerPatches().length;
+        writeFileSync(appFile, "second\n");
+        const updated = yield* stack.deploy(program);
+
+        expect(updated.image.stableRef).toBe(first.image.stableRef);
+        expect(updated.image.ref).not.toBe(first.image.ref);
+        expect(updated.container.image).toBe(updated.image.ref);
+        expect(containerPatches().length).toBeGreaterThan(previousPatchCount);
+        const updateContainer = containerPatches().at(-1);
+        expect(JSON.parse(updateContainer?.body ?? "{}").image).toBe(updated.image.ref);
+      } finally {
+        rmSync(context, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("pushes to GHCR when explicit registry auth is provided", (stack) =>
+    Effect.gen(function* () {
+      const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      writeFileSync(join(context, "Dockerfile"), "FROM scratch\n");
+
+      try {
+        const image = yield* stack.deploy(
+          Scaleway.ContainerImage("WebImage", {
+            registry: "ghcr.io/acme",
+            auth: {
+              username: "octocat",
+              password: Redacted.make("github-token"),
+            },
+            context,
+            repository: "web",
+            tag: "sha-1234",
+          }),
+        );
+
+        expect(image.ref).toMatch(/^ghcr\.io\/acme\/web:sha-1234-[a-f0-9]{12}$/);
+        expect(image.stableRef).toBe("ghcr.io/acme/web:sha-1234");
+        expect(imageCommands[0]?.args).toEqual(["login", "ghcr.io", "-u", "octocat", "--password-stdin"]);
+        expect(imageCommands[0]?.stdin).toBe("github-token\n");
+        expect(imageCommands[2]?.args).toEqual(["push", image.ref]);
+        expect(imageCommands[3]?.args).toEqual(["push", image.stableRef]);
+      } finally {
+        rmSync(context, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("does not force Scaleway login for external registries without auth", (stack) =>
+    Effect.gen(function* () {
+      const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      writeFileSync(join(context, "Dockerfile"), "FROM scratch\n");
+
+      try {
+        const image = yield* stack.deploy(
+          Scaleway.ContainerImage("DockerHubImage", {
+            registry: "docker.io/acme",
+            context,
+            repository: "api",
+            tag: "dev",
+          }),
+        );
+
+        expect(image.ref).toMatch(/^docker\.io\/acme\/api:dev-[a-f0-9]{12}$/);
+        expect(image.stableRef).toBe("docker.io/acme/api:dev");
+        expect(imageCommands.map((command) => command.args[0])).toEqual(["build", "push", "push"]);
+      } finally {
+        rmSync(context, { recursive: true, force: true });
+      }
     }),
   );
 });
@@ -436,7 +719,7 @@ describe("DatabaseInstance", () => {
           userName: "app",
           password: databasePassword(),
           backupSchedule: { disabled: false, frequencyHours: 24, retentionDays: 7 },
-        }),
+        }).pipe(destroy()),
       );
 
       expect(created.status).toBe("ready");
@@ -458,7 +741,7 @@ describe("DatabaseInstance", () => {
           nodeType: "db-dev-s",
           userName: "app",
           password: databasePassword(),
-        }),
+        }).pipe(destroy()),
       );
       const second = yield* stack.deploy(
         Scaleway.DatabaseInstance("Database", {
@@ -467,12 +750,67 @@ describe("DatabaseInstance", () => {
           nodeType: "db-dev-s",
           userName: "app",
           password: databasePassword(),
-        }),
+        }).pipe(destroy()),
       );
 
       expect(second.projectId).toBe("proj-b");
       expect(second.databaseInstanceId).not.toBe(first.databaseInstanceId);
       expect(requests("DELETE", "/rdb/v1/regions/fr-par/instances/").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("retained database instance is rediscovered from props", (stack) =>
+    Effect.gen(function* () {
+      const program = Scaleway.DatabaseInstance("Database", {
+        name: "alchemy-database-retain-test",
+        engine: "PostgreSQL-15",
+        nodeType: "db-dev-s",
+        userName: "app",
+        password: databasePassword(),
+        tags: ["owned"],
+      });
+
+      const created = yield* stack.deploy(program);
+      yield* stack.destroy();
+      const redeployed = yield* stack.deploy(program);
+
+      expect(redeployed.databaseInstanceId).toBe(created.databaseInstanceId);
+      expect(requests("DELETE", `/rdb/v1/regions/fr-par/instances/${created.databaseInstanceId}`)).toHaveLength(0);
+      expect(requests("GET", "/rdb/v1/regions/fr-par/instances").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("diff updates retained database instances missing ownership tags", () =>
+    Effect.gen(function* () {
+      const provider = yield* Scaleway.DatabaseInstance.Provider.pipe(Effect.provide(retainMigrationLayer));
+      const props = {
+        name: "alchemy-database-migration-test",
+        engine: "PostgreSQL-15",
+        nodeType: "db-dev-s",
+        userName: "app",
+        password: databasePassword(),
+        tags: ["owned"],
+      };
+
+      const diff = yield* provider.diff!({
+        id: "Database",
+        instanceId: "test",
+        olds: props,
+        news: props,
+        oldBindings: [],
+        newBindings: [],
+        output: {
+          databaseInstanceId: "rdb-existing",
+          name: "alchemy-database-migration-test",
+          projectId: "proj-test",
+          region: "fr-par",
+          tags: ["owned"],
+          engine: "PostgreSQL-15",
+          nodeType: "db-dev-s",
+        },
+      });
+
+      expect(diff).toEqual({ action: "update" });
     }),
   );
 
@@ -537,6 +875,28 @@ describe("Container", () => {
       expect(JSON.parse(create?.body ?? "{}").secret_environment_variables).toEqual({
         TOKEN: "secret",
       });
+    }),
+  );
+
+  test.provider("passes public Docker Hub and GHCR image refs through", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          const hub = yield* Scaleway.Container("HubApi", {
+            namespace: ns,
+            image: Scaleway.dockerHubImage("library/nginx", "1.27"),
+          });
+          const ghcr = yield* Scaleway.Container("GhcrApi", {
+            namespace: ns,
+            image: Scaleway.ghcrImage("acme/api", "sha-1234"),
+          });
+          return { hub, ghcr };
+        }),
+      );
+      const images = containerCreates().map((call) => JSON.parse(call.body).image);
+      expect(images).toContain("docker.io/library/nginx:1.27");
+      expect(images).toContain("ghcr.io/acme/api:sha-1234");
     }),
   );
 
@@ -915,7 +1275,7 @@ describe("Domain", () => {
 
   test.provider("fails after repeated transient deployment errors", (stack) =>
     Effect.gen(function* () {
-      mock.failNextDomainDeploys(4);
+      mock.failNextDomainDeploys(11);
       const deploy = stack.deploy(
         Effect.gen(function* () {
           const ns = yield* Scaleway.Namespace("Ns", {});
@@ -930,8 +1290,8 @@ describe("Domain", () => {
       yield* Effect.flip(deploy).pipe(
         Effect.map((error) => expect(String(error)).toContain("kept failing deployment after retries")),
       );
-      expect(requests("POST", "/domains")).toHaveLength(4);
-      expect(requests("DELETE", "/domains/")).toHaveLength(3);
+      expect(requests("POST", "/domains")).toHaveLength(11);
+      expect(requests("DELETE", "/domains/")).toHaveLength(10);
     }),
   );
 });
@@ -972,6 +1332,44 @@ describe("Bucket", () => {
       expect(first.region).toBe("fr-par");
       const nlAmsPut = bucketRootRequests("PUT", second.bucketName).at(0);
       expect(nlAmsPut?.headers.get("authorization")).toContain("/nl-ams/s3/aws4_request");
+    }),
+  );
+
+  test.provider("retained bucket is rediscovered from props", (stack) =>
+    Effect.gen(function* () {
+      const program = Scaleway.Bucket("Bucket", { name: "alchemy-bucket-retain-test", tags: { team: "infra" } });
+
+      const created = yield* stack.deploy(program);
+      yield* stack.destroy();
+      const redeployed = yield* stack.deploy(program);
+
+      expect(redeployed.bucketName).toBe(created.bucketName);
+      expect(bucketRootRequests("DELETE", created.bucketName)).toHaveLength(0);
+      expect(bucketRootRequests("HEAD", created.bucketName).length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("diff updates retained buckets missing ownership tags", () =>
+    Effect.gen(function* () {
+      const provider = yield* Scaleway.Bucket.Provider.pipe(Effect.provide(retainMigrationLayer));
+      const props = { name: "alchemy-bucket-migration-test", tags: { team: "infra" } };
+
+      const diff = yield* provider.diff!({
+        id: "Bucket",
+        instanceId: "test",
+        olds: props,
+        news: props,
+        oldBindings: [],
+        newBindings: [],
+        output: {
+          bucketName: "alchemy-bucket-migration-test",
+          region: "fr-par",
+          endpoint: "https://alchemy-bucket-migration-test.s3.fr-par.scw.cloud",
+          tags: { team: "infra" },
+        },
+      });
+
+      expect(diff).toEqual({ action: "update" });
     }),
   );
 });
@@ -1874,6 +2272,36 @@ describe("FlexibleIp", () => {
       const second = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { project: "project-b" }));
       expect(second.ipId).not.toBe(first.ipId);
       expect(second.projectId).toBe("project-b");
+    }),
+  );
+
+  test.provider("retained flexible IP is rediscovered from ownership tag", (stack) =>
+    Effect.gen(function* () {
+      const program = Scaleway.FlexibleIp("PublicIp", { zone: "fr-par-1", tags: ["role=edge"] });
+
+      const created = yield* stack.deploy(program);
+      yield* stack.destroy();
+      const redeployed = yield* stack.deploy(program);
+
+      expect(redeployed.ipId).toBe(created.ipId);
+      expect(requests("DELETE", `/ips/${created.ipId}`)).toHaveLength(0);
+      expect(requests("GET", "/ips").length).toBeGreaterThan(0);
+    }),
+  );
+
+  test.provider("retained flexible IP rediscovery follows list pagination", (stack) =>
+    Effect.gen(function* () {
+      for (let index = 0; index < 100; index++) {
+        mock.addFlexibleIp(`ip-unowned-${index}`);
+      }
+      mock.addFlexibleIp("ip-owned-late");
+      mock.setFlexibleIpTags("ip-owned-late", ["alchemy:logical-id=PublicIp", "role=edge"]);
+
+      const ip = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { zone: "fr-par-1", tags: ["role=edge"] }));
+
+      expect(ip.ipId).toBe("ip-owned-late");
+      expect(requests("GET", "/ips")).toHaveLength(2);
+      expect(requests("POST", "/ips")).toHaveLength(0);
     }),
   );
 

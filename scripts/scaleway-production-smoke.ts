@@ -26,6 +26,11 @@ const stackFile = "scripts/scaleway-production-stack.ts";
 
 console.log(`production smoke stage=${stage} prefix=${prefix} smokeUrl=${smokeUrl}`);
 
+const docker = spawnSync("docker", ["version", "--format", "{{.Server.Version}}"], { encoding: "utf8" });
+if (docker.status !== 0) {
+  throw new Error("Docker is required for the production smoke test because it builds and pushes ContainerImage");
+}
+
 function dnsSafeLabel(value: string) {
   const label = value.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
   return (label || "alchemy-smoke").slice(0, 63).replace(/-+$/g, "") || "alchemy-smoke";

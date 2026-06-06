@@ -18,6 +18,7 @@ export interface ScalewayMock {
   /** Enable provider-like transient create/delete states for focused lifecycle tests. */
   enableAsyncLifecycle(): void;
   addFlexibleIp(id: string): void;
+  setFlexibleIpTags(id: string, tags: string[]): void;
   /** Drop a record so the next `read`/`get` behaves like a 404. */
   removeContainer(id: string): void;
   removeVpc(id: string): void;
@@ -62,6 +63,16 @@ const unescapeXml = (value: string) =>
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+const pageOf = <T>(items: T[], params: URLSearchParams) => {
+  const page = Number(params.get("page") ?? "1");
+  const pageSize = Number(params.get("page_size") ?? String(items.length || 1));
+  const start = (page - 1) * pageSize;
+  return {
+    items: items.slice(start, start + pageSize),
+    total_count: items.length,
+  };
+};
 
 const noContent = () => new Response("", { status: 204 });
 
@@ -361,13 +372,20 @@ export function installScalewayMock(): ScalewayMock {
     return json({ message: `unhandled dns request ${method} ${pathname}` }, 400);
   };
 
-  const accountHandler = (method: string, pathname: string, body: unknown): Response => {
+  const accountHandler = (method: string, pathname: string, search: string, body: unknown): Response => {
     const segments = pathname.split("/").filter(Boolean); // [account, v3, projects, id?]
     const kind = segments[2];
     const id = segments[3];
     const input = (body ?? {}) as Record<string, unknown>;
+    const params = new URLSearchParams(search);
 
     if (kind === "projects") {
+      if (!id && method === "GET") {
+        const organizationId = params.get("organization_id") ?? undefined;
+        const matching = [...projects.values()].filter((project) => !organizationId || project.organization_id === organizationId);
+        const page = pageOf(matching, params);
+        return json({ projects: page.items, total_count: page.total_count });
+      }
       if (method === "POST") {
         const now = "2026-06-06T00:00:00.000000Z";
         const record = { id: nextId("project"), created_at: now, updated_at: now, ...input };
@@ -507,11 +525,12 @@ export function installScalewayMock(): ScalewayMock {
     return json({ message: `unhandled secret manager request ${method} ${pathname}` }, 400);
   };
 
-  const rdbHandler = (method: string, pathname: string, body: unknown): Response => {
+  const rdbHandler = (method: string, pathname: string, search: string, body: unknown): Response => {
     const segments = pathname.split("/").filter(Boolean);
     const kind = segments[4];
     const id = segments[5];
     const input = (body ?? {}) as Record<string, unknown>;
+    const params = new URLSearchParams(search);
 
     const updatedRecord = (existing: Record<string, unknown>) => {
       const backupSchedule = existing.backup_schedule as Record<string, unknown> | undefined;
@@ -529,6 +548,16 @@ export function installScalewayMock(): ScalewayMock {
         updated_at: "2026-06-06T00:00:01.000000Z",
       };
     };
+
+    if (kind === "instances" && !id && method === "GET") {
+      const projectId = params.get("project_id") ?? undefined;
+      const name = params.get("name") ?? undefined;
+      const matching = [...databaseInstances.values()].filter((instance) =>
+        (!projectId || instance.project_id === projectId) && (!name || instance.name === name)
+      );
+      const page = pageOf(matching, params);
+      return json({ instances: page.items, total_count: page.total_count });
+    }
 
     if (kind === "instances" && !id && method === "POST") {
       const hostname = `db-${counter + 1}.rdb.fr-par.scw.cloud`;
@@ -885,7 +914,7 @@ export function installScalewayMock(): ScalewayMock {
     );
   };
 
-  const instanceHandler = (method: string, pathname: string, body: unknown): Response => {
+  const instanceHandler = (method: string, pathname: string, search: string, body: unknown): Response => {
     const segments = pathname.split("/").filter(Boolean);
     const zone = segments[3];
     const kind = segments[4];
@@ -893,6 +922,7 @@ export function installScalewayMock(): ScalewayMock {
     const nested = segments[6];
     const nestedId = segments[7];
     const input = (body ?? {}) as Record<string, unknown>;
+    const params = new URLSearchParams(search);
 
     const serverPublicIps = (ids: unknown) =>
       ((ids as string[] | undefined) ?? []).map((ipId) => {
@@ -1101,6 +1131,14 @@ export function installScalewayMock(): ScalewayMock {
     }
 
     if (kind === "ips") {
+      if (!id && method === "GET") {
+        const project = params.get("project") ?? undefined;
+        const matching = [...flexibleIps.values()].filter((ip) =>
+          ip.zone === zone && (!project || ip.project === project)
+        );
+        const page = pageOf(matching, params);
+        return json({ ips: page.items, total_count: page.total_count });
+      }
       if (!id && method === "POST") {
         const record = {
           id: nextId("ip"),
@@ -1222,7 +1260,7 @@ export function installScalewayMock(): ScalewayMock {
     if (parsed.host === "api.scaleway.com") {
       const parsedBody = text.length > 0 && !headers.get("content-type")?.startsWith("text/plain") ? JSON.parse(text) : text.length > 0 ? text : undefined;
       if (parsed.pathname.startsWith("/account/")) {
-        return accountHandler(method, parsed.pathname, parsedBody);
+        return accountHandler(method, parsed.pathname, parsed.search, parsedBody);
       }
       if (parsed.pathname.startsWith("/registry/")) {
         return registryHandler(method, parsed.pathname, parsedBody);
@@ -1231,7 +1269,7 @@ export function installScalewayMock(): ScalewayMock {
         return secretManagerHandler(method, parsed.pathname, parsedBody);
       }
       if (parsed.pathname.startsWith("/rdb/")) {
-        return rdbHandler(method, parsed.pathname, parsedBody);
+        return rdbHandler(method, parsed.pathname, parsed.search, parsedBody);
       }
       if (parsed.pathname.startsWith("/vpc/")) {
         return vpcHandler(method, parsed.pathname, parsed.search, parsedBody);
@@ -1240,7 +1278,7 @@ export function installScalewayMock(): ScalewayMock {
         return dnsHandler(method, parsed.pathname, parsed.search, parsedBody);
       }
       if (parsed.pathname.startsWith("/instance/")) {
-        return instanceHandler(method, parsed.pathname, parsedBody);
+        return instanceHandler(method, parsed.pathname, parsed.search, parsedBody);
       }
       if (parsed.pathname.startsWith("/block/")) {
         return blockHandler(method, parsed.pathname);
@@ -1261,7 +1299,11 @@ export function installScalewayMock(): ScalewayMock {
     enableAsyncLifecycle: () => {
       asyncLifecycle = true;
     },
-    addFlexibleIp: (id) => flexibleIps.set(id, { id, zone: "fr-par-1", address: `203.0.113.${counter + 1}`, state: "attached", type: "routed_ipv4", tags: [] }),
+    addFlexibleIp: (id) => flexibleIps.set(id, { id, zone: "fr-par-1", project: "proj-test", address: `203.0.113.${counter + 1}`, state: "attached", type: "routed_ipv4", tags: [] }),
+    setFlexibleIpTags: (id, tags) => {
+      const existing = flexibleIps.get(id);
+      if (existing) flexibleIps.set(id, { ...existing, tags });
+    },
     removeContainer: (id) => containers.delete(id),
     removeVpc: (id) => vpcs.delete(id),
     removePrivateNetwork: (id) => privateNetworks.delete(id),

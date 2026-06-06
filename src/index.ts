@@ -11,12 +11,27 @@ export {
   Container,
   type ContainerCron,
   type ContainerDomain,
+  type ContainerImageRef,
   ContainerProvider,
+  dockerHubImage,
+  externalImage,
+  ghcrImage,
   type ContainerPrivacy,
   type ContainerProps,
   type ContainerProtocol,
   type ContainerScalingOption,
 } from "./Container.ts";
+export {
+  ContainerImage,
+  ContainerImageProvider,
+  resetContainerImageCommandRunner,
+  setContainerImageCommandRunner,
+  type ContainerImageCommand,
+  type ContainerImageCommandRunner,
+  type ContainerImageProps,
+  type ContainerImageRegistryAuth,
+  type ContainerImageRegistryRef,
+} from "./ContainerImage.ts";
 export {
   createScalewayCredentials,
   fromAuthProvider,

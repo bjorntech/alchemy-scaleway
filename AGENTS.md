@@ -41,6 +41,7 @@ The package should keep a flat Alchemy v2 provider layout and avoid nested provi
 - Hide provider quirks, sequencing, stabilization waits, and retry behavior inside resource reconciliation.
 - Return application-useful outputs such as URLs, resolved physical names, IDs, regions, and deployment metadata.
 - Do not add adoption behavior unless ownership is reliable; Containers resources currently lack a safe ownership tag surface.
+- High-value resources that hold data or scarce addresses should default to Alchemy `retain()` only when retained resources can be rediscovered safely. `Bucket`, `DatabaseInstance`, and `FlexibleIp` use `alchemy:logical-id` ownership tags for this; smoke/tests that require cleanup should opt into `.pipe(destroy())`.
 - When exactly one `Project` resource is declared in a stack and neither the resource nor provider sets `project`, new project-scoped application resources use that managed project and depend on it being created. Existing resources must keep their persisted project ID for backward compatibility. DNS resources and Object Storage state remain shared-project exceptions and default to `SCW_DEFAULT_PROJECT_ID` unless explicitly configured.
 
 ## Resource Scope
@@ -50,6 +51,8 @@ Current resources:
 - `Project` - Scaleway Account project lifecycle.
 - `Namespace` - Scaleway Serverless Containers namespace.
 - `Container` - Scaleway Serverless Container with deployment readiness polling and optional companion domains/cron triggers.
+- `ContainerImage` - local Docker image build/push into Scaleway Container Registry for use by `Container.image`.
+- `Container.image` accepts public external image refs such as Docker Hub and GHCR strings; private external registry pull credentials are not exposed by the current Scaleway Containers API, so private deploys should use Scaleway Registry or registry-side access policy.
 - `Trigger` - container trigger (v1 `/triggers`): cron, SQS, or NATS source.
 - `Domain` - container custom domain.
 - `DnsZone` - Scaleway Domains and DNS zone.
