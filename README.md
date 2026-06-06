@@ -49,7 +49,7 @@ The `stored` auth method is configured through `alchemy login` and writes creden
 
 `Project` requires an explicit `organizationId` prop. The API key must have Account/Organization-level permissions to create, update, or delete Scaleway projects.
 
-When a stack declares exactly one `Scaleway.Project`, new project-scoped application resources in the same deploy default to that managed project. Existing beta stacks that should keep creating resources in `SCW_DEFAULT_PROJECT_ID` can set `providers: Scaleway.providers({ project: process.env.SCW_DEFAULT_PROJECT_ID })`. Resources that already exist in state keep their persisted project for backward compatibility. Remote state still uses `SCW_DEFAULT_PROJECT_ID` for its default bucket name, and DNS resources (`DnsZone`/`DnsRecord`) default to `SCW_DEFAULT_PROJECT_ID` unless `project` is set explicitly.
+When a stack declares exactly one `Scaleway.Project`, new project-scoped application resources in the same deploy use that managed project unless the resource or `Scaleway.providers({ project })` sets a project explicitly. In that case, deploying the stack creates the project and then creates those resources in it. Existing beta stacks that should keep creating resources in `SCW_DEFAULT_PROJECT_ID` can set `providers: Scaleway.providers({ project: process.env.SCW_DEFAULT_PROJECT_ID })`. Resources that already exist in state keep their persisted project for backward compatibility. Remote state still uses `SCW_DEFAULT_PROJECT_ID` for its default bucket name, and DNS resources (`DnsZone`/`DnsRecord`) default to `SCW_DEFAULT_PROJECT_ID` unless `project` is set explicitly.
 
 ### Live Smoke Test
 
@@ -182,7 +182,7 @@ Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJE
 
 ## Resources
 
-- `Project` - Scaleway Account project lifecycle. Requires `organizationId`; changing `organizationId` replaces the project, while name and description update in place. If exactly one `Project` is declared, new application resources default to it unless they set `project` explicitly or the provider is configured with `providers({ project })`.
+- `Project` - Scaleway Account project lifecycle. Requires `organizationId`; changing `organizationId` replaces the project, while name and description update in place. If exactly one `Project` is declared, new application resources use it unless they set `project` explicitly or the provider is configured with `providers({ project })`.
 - `Namespace` - Scaleway Serverless Containers namespace lifecycle.
 - `Container` - Scaleway Serverless Container lifecycle with deployment readiness polling, optional custom domains, and optional cron triggers.
 - `Trigger` - Container trigger lifecycle (cron, SQS, or NATS source).
