@@ -4,12 +4,22 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.3.1-beta.51] - 2026-06-06
+
 ### Added
 
 - Added `DatabaseInstance` for Scaleway Managed Database for PostgreSQL/MySQL
   instance lifecycle, with project defaults, readiness polling, endpoint outputs,
   and redacted admin password input.
 - Added `DatabaseInstance` coverage to the production Scaleway smoke test.
+
+### Fixed
+
+- Scaleway readiness and transient delete waits now keep polling with progress
+  notes for long-running API states instead of failing on fixed attempt counts.
+- Custom domain DNS resolution waits now keep polling with progress notes before
+  creating the Scaleway domain, while destructive custom-domain recreate retries
+  remain bounded.
 
 ## [0.2.0-beta.51] - 2026-06-06
 

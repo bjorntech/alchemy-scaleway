@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@finnvid/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.3.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds Managed Database `DatabaseInstance` and open-ended Scaleway readiness waits. |
 | `0.2.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds Project lifecycle, managed project defaults, and Scaleway Object Storage-backed state. |
 | `0.1.5-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds DNS resources, custom-domain smoke coverage, and detached Instance volume cleanup fixes. |
 | `0.1.4-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds Instance cloud-init support and managed SBS volume cleanup. |
