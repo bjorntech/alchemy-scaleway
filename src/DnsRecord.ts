@@ -1,0 +1,202 @@
+import { Resource } from "alchemy";
+import { isResolved } from "alchemy/Diff";
+import * as Provider from "alchemy/Provider";
+import * as Effect from "effect/Effect";
+import {
+  makeScalewayClients,
+  type ScalewayDnsRecord,
+  type ScalewayDnsRecordType,
+} from "./Clients.ts";
+import type { Bucket } from "./Bucket.ts";
+import type { Container } from "./Container.ts";
+import type { DnsZone } from "./DnsZone.ts";
+import { dnsZoneName } from "./DnsZone.ts";
+import type { FlexibleIp } from "./FlexibleIp.ts";
+import type { Instance } from "./Instance.ts";
+import { isNotFound } from "./Errors.ts";
+import { omitUndefined, resolveRef } from "./Internal.ts";
+import type { Providers } from "./Providers.ts";
+import type { RegistryNamespace } from "./RegistryNamespace.ts";
+
+export type DnsRecordType = ScalewayDnsRecordType;
+
+export type DnsZoneRef = string | DnsZone;
+
+export type DnsRecordTarget = string | Container | FlexibleIp | Instance | RegistryNamespace | Bucket;
+
+export interface DnsRecordValue {
+  data: string;
+  priority?: number;
+  comment?: string;
+}
+
+export interface DnsRecordProps {
+  zone: DnsZoneRef;
+  name: string;
+  type?: DnsRecordType;
+  ttl?: number;
+  records?: Array<string | DnsRecordValue>;
+  target?: DnsRecordTarget;
+  priority?: number;
+  comment?: string;
+}
+
+export type DnsRecord = Resource<
+  "Scaleway.DnsRecord",
+  DnsRecordProps,
+  {
+    dnsZone: string;
+    name: string;
+    type: DnsRecordType;
+    ttl?: number;
+    records: ScalewayDnsRecord[];
+  },
+  never,
+  Providers
+>;
+
+export const DnsRecord = Resource<DnsRecord>("Scaleway.DnsRecord");
+
+const recordName = (name: string) => (name === "@" ? "" : name);
+const withoutScheme = (value: string) => value.replace(/^https?:\/\//, "").replace(/\/$/, "");
+const hostnameOnly = (value: string) => withoutScheme(value).split("/")[0] ?? "";
+const absoluteHostname = (value: string) => {
+  const hostname = hostnameOnly(value);
+  return hostname.endsWith(".") ? hostname : `${hostname}.`;
+};
+const isIpv6 = (value: string) => value.includes(":");
+const isIpv4 = (value: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(value);
+const typeFor = (data: string): DnsRecordType => (isIpv4(data) ? "A" : isIpv6(data) ? "AAAA" : "CNAME");
+
+function zoneName(zone: DnsZoneRef) {
+  return typeof zone === "string" ? Effect.succeed(zone) : resolveRef(zone.dnsZone);
+}
+
+const resolveStringArray = (ref: unknown): Effect.Effect<string[] | undefined> =>
+  Effect.gen(function* () {
+    if (Array.isArray(ref)) return ref.filter((item): item is string => typeof item === "string");
+    if (ref && typeof ref === "object" && "asEffect" in ref) {
+      const accessor = yield* (ref as { asEffect(): Effect.Effect<Effect.Effect<string[]>> }).asEffect();
+      return yield* accessor;
+    }
+    return undefined;
+  });
+
+const targetData = (target: DnsRecordTarget): Effect.Effect<string> =>
+  Effect.gen(function* () {
+    if (typeof target === "string") return hostnameOnly(target);
+    if ("address" in target) return yield* resolveRef(target.address);
+    if ("publicEndpoint" in target) return hostnameOnly(yield* resolveRef(target.publicEndpoint));
+    if ("endpoint" in target) return hostnameOnly(yield* resolveRef(target.endpoint));
+    if ("publicIpAddresses" in target) {
+      const addresses = yield* resolveStringArray(target.publicIpAddresses);
+      if (addresses?.[0]) return addresses[0];
+      const dns = yield* resolveRef(target.dns);
+      if (dns) return hostnameOnly(dns);
+    }
+    throw new Error("DNS target does not expose a usable address or hostname");
+  });
+
+const desiredRecords = (props: DnsRecordProps) =>
+  Effect.gen(function* () {
+    const values = props.records
+      ? props.records.map((record) =>
+          typeof record === "string" ? { data: record } : record,
+        )
+      : props.target
+        ? [{ data: yield* targetData(props.target) }]
+        : [];
+    if (values.length === 0) throw new Error("DnsRecord requires records or target");
+    const type = props.type ?? typeFor(values[0].data);
+    return values.map((record) =>
+      omitUndefined({
+        name: recordName(props.name),
+        type,
+        data: type === "CNAME" ? absoluteHostname(record.data) : record.data,
+        ttl: props.ttl ?? 300,
+        priority: record.priority ?? props.priority ?? 0,
+        comment: record.comment ?? props.comment,
+      }) as ScalewayDnsRecord,
+    );
+  });
+
+const recordsEqual = (left: ScalewayDnsRecord[], right: ScalewayDnsRecord[]) => {
+  const normalize = (records: ScalewayDnsRecord[]) =>
+    records
+      .map((record) => ({
+        name: record.name,
+        type: record.type,
+        data: record.data,
+        ttl: record.ttl ?? 300,
+        priority: record.priority ?? 0,
+        comment: record.comment ?? undefined,
+      }))
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
+};
+
+// @crap-ignore: provider factory wraps lifecycle closures scored separately.
+export const DnsRecordProvider = () =>
+  Provider.effect(
+    DnsRecord,
+    Effect.gen(function* () {
+      const clients = yield* makeScalewayClients;
+      const readRecords = (dnsZone: string, name: string, type: DnsRecordType) =>
+        clients.dns.listRecords({ dnsZone, name: recordName(name), type }).pipe(
+          Effect.catchIf(isNotFound, () => Effect.succeed([])),
+        );
+
+      return DnsRecord.Provider.of({
+        stables: ["dnsZone", "name", "type"],
+        diff: Effect.fnUntraced(function* ({ news, output }) {
+          if (!isResolved(news) || !output) return undefined;
+          const dnsZone = yield* zoneName(news.zone);
+          const desired = yield* desiredRecords(news);
+          if (output.dnsZone !== dnsZone || output.name !== recordName(news.name) || output.type !== desired[0].type) return { action: "replace" } as const;
+          if (!recordsEqual(output.records, desired)) return { action: "update" } as const;
+          return undefined;
+        }),
+        read: Effect.fnUntraced(function* ({ olds, output }) {
+          const dnsZone = output?.dnsZone ?? (olds ? yield* zoneName(olds.zone) : undefined);
+          if (!dnsZone) return undefined;
+          const type = output?.type ?? (olds ? (yield* desiredRecords(olds))[0].type : undefined);
+          if (!type) return undefined;
+          const name = output?.name ?? (olds ? recordName(olds.name) : undefined);
+          if (name === undefined) return undefined;
+          const records = yield* readRecords(dnsZone, name, type);
+          if (records.length === 0) return undefined;
+          return { dnsZone, name, type, ttl: records[0].ttl, records } satisfies DnsRecord["Attributes"];
+        }),
+        reconcile: Effect.fnUntraced(function* ({ news, session }) {
+          const dnsZone = yield* zoneName(news.zone);
+          const records = yield* desiredRecords(news);
+          const type = records[0].type;
+          const updated = yield* clients.dns.updateRecords({
+            dnsZone,
+            return_all_records: false,
+            disallow_new_zone_creation: true,
+            changes: [
+              {
+                set: {
+                  id_fields: { name: recordName(news.name), type },
+                  records,
+                },
+              },
+            ],
+          });
+          const current = updated.length > 0 ? updated : records;
+          yield* session.note(`Upserted Scaleway DNS ${type} ${recordName(news.name)} in ${dnsZone}`);
+          return { dnsZone, name: recordName(news.name), type, ttl: records[0].ttl, records: current } satisfies DnsRecord["Attributes"];
+        }),
+        delete: Effect.fnUntraced(function* ({ output, session }) {
+          yield* clients.dns.updateRecords({
+            dnsZone: output.dnsZone,
+            return_all_records: false,
+            disallow_new_zone_creation: true,
+            changes: [{ delete: { id_fields: { name: output.name, type: output.type } } }],
+          }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+          yield* session.note(`Deleted Scaleway DNS ${output.type} ${output.name} in ${output.dnsZone}`);
+        }),
+      });
+    }),
+  );

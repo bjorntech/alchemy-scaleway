@@ -8,6 +8,8 @@ import { Bucket, BucketProvider } from "../../src/Bucket.ts";
 import { Container, ContainerProvider } from "../../src/Container.ts";
 import { ScalewayCredentials } from "../../src/Credentials.ts";
 import { Domain, DomainProvider } from "../../src/Domain.ts";
+import { DnsRecord, DnsRecordProvider } from "../../src/DnsRecord.ts";
+import { DnsZone, DnsZoneProvider } from "../../src/DnsZone.ts";
 import { FlexibleIp, FlexibleIpProvider } from "../../src/FlexibleIp.ts";
 import { Instance, InstanceProvider } from "../../src/Instance.ts";
 import { Namespace, NamespaceProvider } from "../../src/Namespace.ts";
@@ -42,6 +44,8 @@ export const testProviders = () =>
       Container,
       Trigger,
       Domain,
+      DnsZone,
+      DnsRecord,
       RegistryNamespace,
       Secret,
       Bucket,
@@ -62,6 +66,8 @@ export const testProviders = () =>
         ContainerProvider(),
         TriggerProvider(),
         DomainProvider(),
+        DnsZoneProvider(),
+        DnsRecordProvider(),
         RegistryNamespaceProvider(),
         SecretProvider(),
         BucketProvider(),

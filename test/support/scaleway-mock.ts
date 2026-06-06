@@ -29,6 +29,8 @@ export interface ScalewayMock {
   removeBucket(name: string): void;
   /** Seed a bucket that Alchemy does not own (no `alchemy:logical-id` tag). */
   seedBucket(name: string, region: string, tags?: Record<string, string>): void;
+  /** Make the next created custom domains enter Scaleway's deployment error state. */
+  failNextDomainDeploys(count: number): void;
   /** Make the next matching Containers request fail with a status + message. */
   failNext(urlFragment: string, status: number, message: string): void;
 }
@@ -80,6 +82,8 @@ export function installScalewayMock(): ScalewayMock {
   const containers = new Map<string, Record<string, unknown>>();
   const triggers = new Map<string, Record<string, unknown>>();
   const domains = new Map<string, Record<string, unknown>>();
+  const dnsZones = new Map<string, Record<string, unknown>>();
+  const dnsRecords = new Map<string, Array<Record<string, unknown>>>();
   const buckets = new Map<string, BucketState>();
   const vpcs = new Map<string, Record<string, unknown>>();
   const privateNetworks = new Map<string, Record<string, unknown>>();
@@ -94,6 +98,7 @@ export function installScalewayMock(): ScalewayMock {
   const flexibleIps = new Map<string, Record<string, unknown>>();
   const privateNics = new Map<string, Record<string, unknown>>();
   let counter = 0;
+  let domainDeployErrorsRemaining = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
   const forcedErrors: Array<{ fragment: string; status: number; message: string }> = [];
 
@@ -212,7 +217,16 @@ export function installScalewayMock(): ScalewayMock {
 
     if (kind === "domains") {
       if (method === "POST") {
-        const record = { id: nextId("dom"), status: "ready", ...input };
+        const status = domainDeployErrorsRemaining > 0 ? "error" : "ready";
+        if (domainDeployErrorsRemaining > 0) domainDeployErrorsRemaining--;
+        const record = {
+          id: nextId("dom"),
+          status,
+          error_message: status === "error"
+            ? "An internal error occurred while deploying the domain. Please retry or contact support if the problem persists."
+            : undefined,
+          ...input,
+        };
         domains.set(record.id as string, record);
         return json(record);
       }
@@ -226,6 +240,113 @@ export function installScalewayMock(): ScalewayMock {
     }
 
     return json({ message: `unhandled containers request ${method} ${pathname}` }, 400);
+  };
+
+  const zoneNameOf = (zone: Record<string, unknown>) => {
+    const subdomain = zone.subdomain as string | undefined;
+    return subdomain ? `${subdomain}.${zone.domain}` : zone.domain as string;
+  };
+
+  const dnsHandler = (method: string, pathname: string, search: string, body: unknown): Response => {
+    const segments = pathname.split("/").filter(Boolean); // [domain, v2beta1, dns-zones, zone?, records?]
+    const kind = segments[2];
+    const id = segments[3] ? decodeURIComponent(segments[3]) : undefined;
+    const nested = segments[4];
+    const input = (body ?? {}) as Record<string, unknown>;
+    const params = new URLSearchParams(search);
+
+    if (kind !== "dns-zones") return json({ message: `unhandled dns request ${method} ${pathname}` }, 400);
+
+    if (!id) {
+      if (method === "GET") {
+        const dnsZone = params.get("dns_zone");
+        const projectId = params.get("project_id");
+        const zones = [...dnsZones.values()].filter((zone) => {
+          if (dnsZone && zoneNameOf(zone) !== dnsZone) return false;
+          if (projectId && zone.project_id !== projectId) return false;
+          return true;
+        });
+        return json({ total_count: zones.length, dns_zones: zones });
+      }
+      if (method === "POST") {
+        const record: Record<string, unknown> = {
+          ns: ["ns0.dom.scw.cloud", "ns1.dom.scw.cloud"],
+          ns_default: ["ns0.dom.scw.cloud", "ns1.dom.scw.cloud"],
+          ns_master: [],
+          status: "active",
+          updated_at: "2026-06-06T00:00:00Z",
+          ...input,
+        };
+        dnsZones.set(zoneNameOf(record), record);
+        return json(record);
+      }
+    }
+
+    const zone = id ? dnsZones.get(id) : undefined;
+    if (!zone) return json({ message: "dns zone not found" }, 404);
+
+    if (!nested) {
+      if (method === "DELETE") {
+        dnsZones.delete(id as string);
+        dnsRecords.delete(id as string);
+        return json({});
+      }
+      if (method === "PATCH") {
+        const nextName = input.new_dns_zone as string;
+        const [subdomain, ...domainParts] = nextName.split(".");
+        const updated = domainParts.length > 1
+          ? { ...zone, domain: domainParts.join("."), subdomain }
+          : { ...zone, domain: nextName, subdomain: "" };
+        dnsZones.delete(id as string);
+        dnsZones.set(zoneNameOf(updated), updated);
+        return json(updated);
+      }
+    }
+
+    if (nested === "records") {
+      const records = dnsRecords.get(id as string) ?? [];
+      if (method === "GET") {
+        const name = params.get("name");
+        const type = params.get("type");
+        const recordId = params.get("id");
+        const found = records.filter((record) => {
+          if (name !== null && record.name !== name) return false;
+          if (type && record.type !== type) return false;
+          if (recordId && record.id !== recordId) return false;
+          return true;
+        });
+        return json({ total_count: found.length, records: found });
+      }
+      if (method === "PATCH") {
+        let next = [...records];
+        for (const change of (input.changes as Array<Record<string, unknown>>) ?? []) {
+          if (change.clear) next = [];
+          const set = change.set as { id_fields?: { name?: string; type?: string }; records?: Array<Record<string, unknown>> } | undefined;
+          if (set) {
+            next = next.filter((record) => record.name !== set.id_fields?.name || record.type !== set.id_fields?.type);
+            next.push(...(set.records ?? []).map((record) => ({ id: nextId("dnsrec"), ttl: 300, priority: 0, ...record })));
+          }
+          const add = change.add as { records?: Array<Record<string, unknown>> } | undefined;
+          if (add) next.push(...(add.records ?? []).map((record) => ({ id: nextId("dnsrec"), ttl: 300, priority: 0, ...record })));
+          const del = change.delete as { id?: string; id_fields?: { name?: string; type?: string; data?: string; ttl?: number } } | undefined;
+          if (del) {
+            next = next.filter((record) => {
+              if (del.id) return record.id !== del.id;
+              const fields = del.id_fields ?? {};
+              if (fields.name !== undefined && record.name !== fields.name) return true;
+              if (fields.type !== undefined && record.type !== fields.type) return true;
+              if (fields.data !== undefined && record.data !== fields.data) return true;
+              if (fields.ttl !== undefined && record.ttl !== fields.ttl) return true;
+              return false;
+            });
+          }
+        }
+        dnsRecords.set(id as string, next);
+        return json({ records: input.return_all_records ? next : next });
+      }
+    }
+
+    return json({ message: `unhandled dns request ${method} ${pathname}` }, 400);
   };
 
   const registryHandler = (method: string, pathname: string, body: unknown): Response => {
@@ -890,6 +1011,9 @@ export function installScalewayMock(): ScalewayMock {
       if (parsed.pathname.startsWith("/vpc/")) {
         return vpcHandler(method, parsed.pathname, parsed.search, parsedBody);
       }
+      if (parsed.pathname.startsWith("/domain/")) {
+        return dnsHandler(method, parsed.pathname, parsed.search, parsedBody);
+      }
       if (parsed.pathname.startsWith("/instance/")) {
         return instanceHandler(method, parsed.pathname, parsedBody);
       }
@@ -918,6 +1042,9 @@ export function installScalewayMock(): ScalewayMock {
     removePrivateNic: (serverId, id) => privateNics.delete(`${serverId}:${id}`),
     removeBucket: (name) => buckets.delete(name),
     seedBucket: (name, region, tags = {}) => buckets.set(name, { region, versioning: false, tags }),
+    failNextDomainDeploys: (count) => {
+      domainDeployErrorsRemaining = count;
+    },
     failNext: (fragment, status, message) => forcedErrors.push({ fragment, status, message }),
   };
 }
