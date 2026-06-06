@@ -4,6 +4,8 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.4.0-beta.51] - 2026-06-06
+
 ### Changed
 
 - `Bucket`, `DatabaseInstance`, and `FlexibleIp` now default to Alchemy's
