@@ -1274,6 +1274,9 @@ systemctl start docker
       expect(second.serverId).not.toBe(first.serverId);
       expect(second.imageName).toBe("debian_bookworm");
       expect(instanceDeleteRequests()).toBeGreaterThan(0);
+      expect(requests("DELETE", "/block/v1alpha1/zones/fr-par-1/volumes/").map((call) => call.url)).toEqual(
+        expect.arrayContaining(first.createdVolumeIds!.map((id) => expect.stringContaining(`/volumes/${id}`))),
+      );
     }),
   );
 
@@ -1285,7 +1288,7 @@ systemctl start docker
       yield* stack.destroy();
 
       expect(instanceDeleteRequests()).toBe(1);
-      expect(requests("DELETE", "/volumes/").map((call) => call.url)).toEqual(
+      expect(requests("DELETE", "/block/v1alpha1/zones/fr-par-1/volumes/").map((call) => call.url)).toEqual(
         expect.arrayContaining(created.createdVolumeIds!.map((id) => expect.stringContaining(`/volumes/${id}`))),
       );
     }),

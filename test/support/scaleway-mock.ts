@@ -743,7 +743,7 @@ export function installScalewayMock(): ScalewayMock {
       });
     const serverVolumes = (serverId: string, serverName: unknown, inputVolumes: unknown) => {
       const entries = Object.entries((inputVolumes as Record<string, Record<string, unknown>> | undefined) ?? {
-        "0": { boot: true, volume_type: "sbs_volume", size: 10_000_000_000 },
+        "0": { boot: true, volume_type: "sbs_5k", size: 10_000_000_000 },
       });
       return Object.fromEntries(
         entries.map(([key, volume]) => {
@@ -752,7 +752,7 @@ export function installScalewayMock(): ScalewayMock {
             id,
             name: volume.name ?? `${String(serverName ?? "server")}-${key}`,
             size: volume.size,
-            volume_type: volume.volume_type ?? "sbs_volume",
+            volume_type: volume.volume_type ?? "sbs_5k",
             boot: volume.boot,
             project: volume.project ?? "proj-test",
             zone,
@@ -979,6 +979,19 @@ export function installScalewayMock(): ScalewayMock {
     return json({ message: `unhandled instance request ${method} ${pathname}` }, 400);
   };
 
+  const blockHandler = (method: string, pathname: string): Response => {
+    const segments = pathname.split("/").filter(Boolean);
+    const id = segments[5];
+    const existing = volumes.get(id);
+    if (!existing) return json({ message: "volume not found" }, 404);
+    if (method === "DELETE") {
+      if (existing.server) return json({ message: "precondition is not respected" }, 412);
+      volumes.delete(id);
+      return noContent();
+    }
+    return json({ id: existing.id, type: existing.volume_type, status: existing.state, ...existing });
+  };
+
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     // Our Containers client calls `fetch(url, { method, body })`; aws4fetch
     // signs and calls `fetch(Request)` with a single argument, so the method
@@ -1022,6 +1035,9 @@ export function installScalewayMock(): ScalewayMock {
       }
       if (parsed.pathname.startsWith("/instance/")) {
         return instanceHandler(method, parsed.pathname, parsedBody);
+      }
+      if (parsed.pathname.startsWith("/block/")) {
+        return blockHandler(method, parsed.pathname);
       }
       return containersHandler(method, parsed.pathname, parsedBody);
     }
