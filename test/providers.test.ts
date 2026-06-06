@@ -1294,6 +1294,25 @@ systemctl start docker
     }),
   );
 
+  test.provider("delete uses persisted created volume ids and normalizes legacy zones", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(Scaleway.Instance("App", { commercialType: "DEV1-S" }));
+      const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+
+      yield* provider.delete!({
+        id: "App",
+        instanceId: "test",
+        olds: { commercialType: "DEV1-S" },
+        output: { ...created, zone: "fr-par", volumes: undefined },
+        session: { note: () => Effect.void },
+      } as any);
+
+      expect(requests("DELETE", "/block/v1alpha1/zones/fr-par-1/volumes/").map((call) => call.url)).toEqual(
+        expect.arrayContaining(created.createdVolumeIds!.map((id) => expect.stringContaining(`/volumes/${id}`))),
+      );
+    }),
+  );
+
   test.provider("destroy preserves explicitly attached Block Storage volumes", (stack) =>
     Effect.gen(function* () {
       const created = yield* stack.deploy(
@@ -1382,6 +1401,16 @@ systemctl start docker
         output: created,
       });
       expect(read?.serverId).toBe(created.serverId);
+
+      const legacyRead = yield* provider.read!({
+        id: "App",
+        instanceId: "test",
+        olds: { commercialType: "DEV1-S" },
+        output: { ...created, zone: "fr-par", volumes: undefined, createdVolumeIds: ["vol-detached"] },
+      });
+      expect(legacyRead?.zone).toBe("fr-par-1");
+      expect(legacyRead?.createdVolumeIds).toEqual(["vol-detached"]);
+      expect(requests("GET", `/zones/fr-par-1/servers/${created.serverId}`).length).toBeGreaterThan(0);
 
       mock.removeServer(created.serverId);
       const missing = yield* provider.read!({
@@ -1482,6 +1511,14 @@ describe("SecurityGroup", () => {
       expect(read?.rules).toHaveLength(1);
       expect(requests("GET", "/security_groups/").some((call) => call.url.endsWith("/rules"))).toBe(true);
 
+      yield* provider.read!({
+        id: "Firewall",
+        instanceId: "test",
+        olds: {},
+        output: { ...created, zone: "fr-par" },
+      });
+      expect(requests("GET", `/zones/fr-par-1/security_groups/${created.securityGroupId}`).length).toBeGreaterThan(0);
+
       mock.removeSecurityGroup(created.securityGroupId);
       const missing = yield* provider.read!({
         id: "Firewall",
@@ -1581,6 +1618,14 @@ describe("FlexibleIp", () => {
         output: created,
       });
       expect(read?.ipId).toBe(created.ipId);
+
+      yield* provider.read!({
+        id: "PublicIp",
+        instanceId: "test",
+        olds: {},
+        output: { ...created, zone: "fr-par" },
+      });
+      expect(requests("GET", `/zones/fr-par-1/ips/${created.ipId}`).length).toBeGreaterThan(0);
 
       mock.removeFlexibleIp(created.ipId);
       const missing = yield* provider.read!({
@@ -1885,6 +1930,14 @@ describe("PrivateNic", () => {
         output: created,
       });
       expect(read?.privateNicId).toBe(created.privateNicId);
+
+      yield* provider.read!({
+        id: "Nic",
+        instanceId: "test",
+        olds: { serverId: "server-a", privateNetwork: "pn-a" },
+        output: { ...created, zone: "fr-par" },
+      });
+      expect(requests("GET", `/zones/fr-par-1/servers/${created.serverId}/private_nics/${created.privateNicId}`).length).toBeGreaterThan(0);
 
       mock.removePrivateNic(created.serverId, created.privateNicId);
       const missing = yield* provider.read!({
