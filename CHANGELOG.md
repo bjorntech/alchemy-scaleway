@@ -4,6 +4,14 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## [Unreleased]
 
+### Fixed
+
+- The production smoke test now scopes DNS record operations with
+  `SCW_DOMAIN_PROJECT_ID` when set, supporting smoke domains that live in a
+  different Scaleway project from the resources under test.
+- `DnsRecord` initial creation now refuses to replace an existing unmanaged
+  same-name/type record set unless `overwriteExisting: true` is set.
+
 ## [0.1.5-beta.51] - 2026-06-06
 
 ### Added

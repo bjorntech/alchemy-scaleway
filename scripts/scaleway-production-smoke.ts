@@ -12,7 +12,8 @@ if (process.env.SCW_LIVE_TEST !== "1") {
 
 required("SCW_SECRET_KEY");
 required("SCW_ACCESS_KEY");
-required("SCW_DEFAULT_PROJECT_ID");
+const defaultProjectId = required("SCW_DEFAULT_PROJECT_ID");
+const domainProjectId = process.env.SCW_DOMAIN_PROJECT_ID ?? defaultProjectId;
 
 const suffix = process.env.SCW_SMOKE_RUN_ID ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const stage = process.env.SCW_SMOKE_STAGE ?? `smoke-${suffix}`;
@@ -44,6 +45,7 @@ function runAlchemy(command: "deploy" | "destroy", phase: "create" | "update" | 
         SCW_SMOKE_PREFIX: prefix,
         SCW_SMOKE_DNS_ZONE: dnsZone,
         SCW_SMOKE_DNS_LABEL: dnsLabel,
+        SCW_DOMAIN_PROJECT_ID: domainProjectId,
       },
     },
   );

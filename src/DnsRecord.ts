@@ -32,6 +32,7 @@ export interface DnsRecordValue {
 
 export interface DnsRecordProps {
   zone: DnsZoneRef;
+  projectId?: string;
   name: string;
   type?: DnsRecordType;
   ttl?: number;
@@ -39,6 +40,7 @@ export interface DnsRecordProps {
   target?: DnsRecordTarget;
   priority?: number;
   comment?: string;
+  overwriteExisting?: boolean;
 }
 
 export type DnsRecord = Resource<
@@ -74,12 +76,15 @@ const optionalRef = (ref: unknown): Effect.Effect<string | undefined> =>
     ? Effect.succeed(undefined)
     : resolveRef(ref).pipe(Effect.map((value) => value || undefined));
 
-const zoneIdentity = (zone: DnsZoneRef) =>
+const zoneIdentity = (props: Pick<DnsRecordProps, "zone" | "projectId">) =>
   Effect.gen(function* () {
-    if (typeof zone === "string") return { dnsZone: zone, projectId: undefined };
+    const zone = props.zone;
+    const explicitProjectId = yield* optionalRef(props.projectId);
+    if (typeof zone === "string") return { dnsZone: zone, projectId: explicitProjectId };
+    const zoneProjectId = yield* optionalRef(zone.projectId);
     return {
       dnsZone: yield* resolveRef(zone.dnsZone),
-      projectId: yield* optionalRef(zone.projectId),
+      projectId: zoneProjectId ?? explicitProjectId,
     };
   });
 
@@ -146,6 +151,9 @@ const recordsEqual = (left: ScalewayDnsRecord[], right: ScalewayDnsRecord[]) => 
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
 };
 
+const failExistingRecord = (dnsZone: string, name: string, type: DnsRecordType) =>
+  Effect.fail(new Error(`Scaleway DNS ${type} ${name || "@"} already exists in ${dnsZone}; set overwriteExisting: true to replace it`));
+
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const DnsRecordProvider = () =>
   Provider.effect(
@@ -161,7 +169,7 @@ export const DnsRecordProvider = () =>
         stables: ["dnsZone", "projectId", "name", "type"],
         diff: Effect.fnUntraced(function* ({ news, output }) {
           if (!isResolved(news) || !output) return undefined;
-          const zone = yield* zoneIdentity(news.zone);
+          const zone = yield* zoneIdentity(news);
           const desired = yield* desiredRecords(news);
           if (
             output.dnsZone !== zone.dnsZone ||
@@ -173,7 +181,7 @@ export const DnsRecordProvider = () =>
           return undefined;
         }),
         read: Effect.fnUntraced(function* ({ olds, output }) {
-          const oldZone = olds ? yield* zoneIdentity(olds.zone) : undefined;
+          const oldZone = olds ? yield* zoneIdentity(olds) : undefined;
           const zone = output?.dnsZone
             ? { dnsZone: output.dnsZone, projectId: output.projectId ?? oldZone?.projectId }
             : oldZone;
@@ -193,10 +201,13 @@ export const DnsRecordProvider = () =>
             records,
           } satisfies DnsRecord["Attributes"];
         }),
-        reconcile: Effect.fnUntraced(function* ({ news, session }) {
-          const zone = yield* zoneIdentity(news.zone);
+        reconcile: Effect.fnUntraced(function* ({ news, output, session }) {
+          const zone = yield* zoneIdentity(news);
           const records = yield* desiredRecords(news);
           const type = records[0].type;
+          const name = recordName(news.name);
+          const existing = output?.dnsZone ? [] : yield* readRecords(zone.dnsZone, name, type, zone.projectId);
+          if (existing.length > 0 && !news.overwriteExisting) return yield* failExistingRecord(zone.dnsZone, name, type);
           const updated = yield* clients.dns.updateRecords({
             dnsZone: zone.dnsZone,
             projectId: zone.projectId,
@@ -205,7 +216,7 @@ export const DnsRecordProvider = () =>
             changes: [
               {
                 set: {
-                  id_fields: { name: recordName(news.name), type },
+                  id_fields: { name, type },
                   records,
                 },
               },
@@ -216,7 +227,7 @@ export const DnsRecordProvider = () =>
           return {
             dnsZone: zone.dnsZone,
             projectId: zone.projectId,
-            name: recordName(news.name),
+            name,
             type,
             ttl: records[0].ttl,
             records: current,
