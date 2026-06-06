@@ -1673,6 +1673,101 @@ describe("DnsRecord", () => {
     }),
   );
 
+  test.provider("scopes DNS records to the referenced zone project", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Scaleway.DnsZone("DefaultProjectZone", {
+          domain: "shared.example.test",
+          projectId: "proj-test",
+        }),
+      );
+
+      const created = yield* stack.deploy(
+        Effect.gen(function* () {
+          const zone = yield* Scaleway.DnsZone("AppProjectZone", {
+            domain: "shared.example.test",
+            projectId: "proj-app",
+          });
+          return yield* Scaleway.DnsRecord("AppRecord", {
+            zone,
+            name: "api",
+            type: "A",
+            records: ["192.0.2.50"],
+          });
+        }),
+      );
+
+      expect(created.dnsZone).toBe("shared.example.test");
+      expect(created.projectId).toBe("proj-app");
+      expect(created.records[0].data).toBe("192.0.2.50");
+      expect(requests("PATCH", "/dns-zones/shared.example.test/records").at(-1)?.url)
+        .toContain("project_id=proj-app");
+
+      const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "AppRecord",
+        instanceId: "test",
+        olds: {
+          zone: "shared.example.test",
+          name: "api",
+          type: "A",
+          records: ["192.0.2.50"],
+        },
+        output: created,
+      });
+      expect(read?.projectId).toBe("proj-app");
+      expect(read?.records[0].data).toBe("192.0.2.50");
+      expect(requests("GET", "/dns-zones/shared.example.test/records").at(-1)?.url)
+        .toContain("project_id=proj-app");
+    }),
+  );
+
+  test.provider("recovers zone project when reading legacy DNS record output", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Scaleway.DnsZone("DefaultProjectZone", {
+          domain: "legacy.example.test",
+          projectId: "proj-test",
+        }),
+      );
+
+      const result = yield* stack.deploy(
+        Effect.gen(function* () {
+          const zone = yield* Scaleway.DnsZone("AppProjectZone", {
+            domain: "legacy.example.test",
+            projectId: "proj-app",
+          });
+          const record = yield* Scaleway.DnsRecord("AppRecord", {
+            zone,
+            name: "api",
+            type: "A",
+            records: ["192.0.2.60"],
+          });
+          return { zone, record };
+        }),
+      );
+
+      const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const { projectId: _legacyMissingProjectId, ...legacyOutput } = result.record;
+      const read = yield* provider.read!({
+        id: "AppRecord",
+        instanceId: "test",
+        olds: {
+          zone: result.zone as unknown as Scaleway.DnsZone,
+          name: "api",
+          type: "A",
+          records: ["192.0.2.60"],
+        },
+        output: legacyOutput,
+      });
+
+      expect(read?.projectId).toBe("proj-app");
+      expect(read?.records[0].data).toBe("192.0.2.60");
+      expect(requests("GET", "/dns-zones/legacy.example.test/records").at(-1)?.url)
+        .toContain("project_id=proj-app");
+    }),
+  );
+
   test.provider("writes CNAME targets as absolute hostnames", (stack) =>
     Effect.gen(function* () {
       const created = yield* stack.deploy(

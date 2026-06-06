@@ -21,6 +21,7 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ### Fixed
 
+- `DnsRecord` now preserves and sends the referenced `DnsZone.projectId` during record read, upsert, and delete operations, avoiding ambiguous same-name DNS zones across projects.
 - `FlexibleIp` now deletes a just-created IP if the initial post-create reverse
   DNS update fails, avoiding untracked allocated IPs when Scaleway rejects the
   reverse value.
