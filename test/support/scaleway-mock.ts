@@ -15,6 +15,8 @@ export interface MockCall {
 export interface ScalewayMock {
   readonly calls: ReadonlyArray<MockCall>;
   restore(): void;
+  /** Enable provider-like transient create/delete states for focused lifecycle tests. */
+  enableAsyncLifecycle(): void;
   addFlexibleIp(id: string): void;
   /** Drop a record so the next `read`/`get` behaves like a 404. */
   removeContainer(id: string): void;
@@ -80,6 +82,7 @@ export function installScalewayMock(): ScalewayMock {
   const registryNamespaces = new Map<string, Record<string, unknown>>();
   const secrets = new Map<string, Record<string, unknown>>();
   const secretVersions = new Map<string, Array<Record<string, unknown>>>();
+  const databaseInstances = new Map<string, Record<string, unknown>>();
   const containers = new Map<string, Record<string, unknown>>();
   const triggers = new Map<string, Record<string, unknown>>();
   const domains = new Map<string, Record<string, unknown>>();
@@ -100,6 +103,7 @@ export function installScalewayMock(): ScalewayMock {
   const flexibleIps = new Map<string, Record<string, unknown>>();
   const privateNics = new Map<string, Record<string, unknown>>();
   let counter = 0;
+  let asyncLifecycle = false;
   let domainDeployErrorsRemaining = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
   const forcedErrors: Array<{ fragment: string; status: number; message: string }> = [];
@@ -503,6 +507,101 @@ export function installScalewayMock(): ScalewayMock {
     return json({ message: `unhandled secret manager request ${method} ${pathname}` }, 400);
   };
 
+  const rdbHandler = (method: string, pathname: string, body: unknown): Response => {
+    const segments = pathname.split("/").filter(Boolean);
+    const kind = segments[4];
+    const id = segments[5];
+    const input = (body ?? {}) as Record<string, unknown>;
+
+    const updatedRecord = (existing: Record<string, unknown>) => {
+      const backupSchedule = existing.backup_schedule as Record<string, unknown> | undefined;
+      return {
+        ...existing,
+        name: input.name ?? existing.name,
+        tags: input.tags ?? existing.tags,
+        backup_same_region: input.backup_same_region ?? existing.backup_same_region,
+        backup_schedule: {
+          ...(backupSchedule ?? {}),
+          frequency: input.backup_schedule_frequency ?? backupSchedule?.frequency,
+          retention: input.backup_schedule_retention ?? backupSchedule?.retention,
+          disabled: input.is_backup_schedule_disabled ?? backupSchedule?.disabled,
+        },
+        updated_at: "2026-06-06T00:00:01.000000Z",
+      };
+    };
+
+    if (kind === "instances" && !id && method === "POST") {
+      const hostname = `db-${counter + 1}.rdb.fr-par.scw.cloud`;
+      const endpoint = { ip: `198.51.100.${counter + 1}`, port: 5432, hostname };
+      const record = {
+        id: nextId("rdb"),
+        region: "fr-par",
+        status: asyncLifecycle ? "initializing" : "ready",
+        __readyReads: 0,
+        endpoint,
+        endpoints: [endpoint],
+        tags: [],
+        is_ha_cluster: false,
+        volume: { type: input.volume_type ?? "lssd", size: input.volume_size ?? 0 },
+        backup_schedule: { disabled: input.disable_backup ?? false, frequency: 24, retention: 7 },
+        created_at: "2026-06-06T00:00:00.000000Z",
+        ...input,
+      };
+      databaseInstances.set(record.id as string, record);
+      return json(record);
+    }
+
+    if (kind === "instances" && id) {
+      const existing = databaseInstances.get(id);
+      if (!existing) return json({ message: "database instance not found" }, 404);
+      if (method === "GET") {
+        if (asyncLifecycle && existing.status === "initializing") {
+          const readyReads = Number(existing.__readyReads ?? 0);
+          if (readyReads > 0) {
+            const updated = { ...existing, __readyReads: readyReads - 1 };
+            databaseInstances.set(id, updated);
+            return json(updated);
+          }
+          const updated = { ...existing, status: "ready", __readyReads: 0 };
+          databaseInstances.set(id, updated);
+          return json(updated);
+        }
+        if (asyncLifecycle && existing.status === "deleting") {
+          const deleteReads = Number(existing.__deleteReads ?? 0);
+          if (deleteReads > 0) {
+            const updated = { ...existing, __deleteReads: deleteReads - 1 };
+            databaseInstances.set(id, updated);
+            return json(updated);
+          }
+          databaseInstances.delete(id);
+          return json({ message: "database instance not found" }, 404);
+        }
+        return json(existing);
+      }
+      if (method === "PATCH") {
+        if (asyncLifecycle && existing.status === "initializing") {
+          return json({ message: "resource is in a transient state", type: "transient_state" }, 409);
+        }
+        const updated = updatedRecord(existing);
+        databaseInstances.set(id, updated);
+        return json(updated);
+      }
+      if (method === "DELETE") {
+        if (asyncLifecycle && existing.status === "initializing") {
+          return json({ message: "resource is in a transient state", type: "transient_state" }, 409);
+        }
+        if (asyncLifecycle) {
+          databaseInstances.set(id, { ...existing, status: "deleting", __deleteReads: 0 });
+          return noContent();
+        }
+        databaseInstances.delete(id);
+        return noContent();
+      }
+    }
+
+    return json({ message: `unhandled rdb request ${method} ${pathname}` }, 400);
+  };
+
   const vpcHandler = (method: string, pathname: string, search: string, body: unknown): Response => {
     const segments = pathname.split("/").filter(Boolean);
     const kind = segments[4];
@@ -838,12 +937,20 @@ export function installScalewayMock(): ScalewayMock {
           if (volume.volume_type === "l_ssd" || volume.volume_type === "scratch") volumes.delete(volume.id as string);
           else if (typeof volume.id === "string") volumes.set(volume.id, { ...volume, server: undefined, state: "available" });
         }
+        if (asyncLifecycle) {
+          servers.set(id, { ...existing, state: "deleting", __deleteReads: 0 });
+          return json({ task: { id: nextId("task"), status: "pending" } });
+        }
         servers.delete(id);
         serverUserData.delete(id);
         return json({ task: { id: nextId("task"), status: "success" } });
       }
-      const state = input.action === "poweroff" || input.action === "stop_in_place" ? "stopped" : input.action === "poweron" ? "running" : existing.state;
-      const updated = { ...existing, state };
+      const state = input.action === "poweroff" || input.action === "stop_in_place"
+        ? asyncLifecycle ? "stopping" : "stopped"
+        : input.action === "poweron"
+          ? asyncLifecycle ? "starting" : "running"
+          : existing.state;
+      const updated = { ...existing, state, __targetState: state === "stopping" ? "stopped" : state === "starting" ? "running" : undefined, __stateReads: 0 };
       servers.set(id, updated);
       return json({ task: { id: nextId("task"), status: "success" } });
     }
@@ -906,7 +1013,31 @@ export function installScalewayMock(): ScalewayMock {
       }
       const existing = servers.get(id);
       if (!existing) return json({ message: "server not found" }, 404);
-      if (method === "GET") return json({ server: existing });
+      if (method === "GET") {
+        if (asyncLifecycle && existing.state === "deleting") {
+          const deleteReads = Number(existing.__deleteReads ?? 0);
+          if (deleteReads > 0) {
+            const updated = { ...existing, __deleteReads: deleteReads - 1 };
+            servers.set(id, updated);
+            return json({ server: updated });
+          }
+          servers.delete(id);
+          serverUserData.delete(id);
+          return json({ message: "server not found" }, 404);
+        }
+        if (asyncLifecycle && (existing.state === "starting" || existing.state === "stopping")) {
+          const stateReads = Number(existing.__stateReads ?? 0);
+          if (stateReads > 0) {
+            const updated = { ...existing, __stateReads: stateReads - 1 };
+            servers.set(id, updated);
+            return json({ server: updated });
+          }
+          const updated = { ...existing, state: existing.__targetState ?? existing.state, __stateReads: 0, __targetState: undefined };
+          servers.set(id, updated);
+          return json({ server: updated });
+        }
+        return json({ server: existing });
+      }
       if (method === "PATCH") {
         const updated: Record<string, unknown> = {
           ...existing,
@@ -922,6 +1053,10 @@ export function installScalewayMock(): ScalewayMock {
         for (const volume of Object.values((existing.volumes as Record<string, Record<string, unknown>> | undefined) ?? {})) {
           if (volume.volume_type === "l_ssd" || volume.volume_type === "scratch") volumes.delete(volume.id as string);
           else if (typeof volume.id === "string") volumes.set(volume.id, { ...volume, server: undefined, state: "available" });
+        }
+        if (asyncLifecycle) {
+          servers.set(id, { ...existing, state: "deleting", __deleteReads: 0 });
+          return noContent();
         }
         servers.delete(id);
         serverUserData.delete(id);
@@ -1095,6 +1230,9 @@ export function installScalewayMock(): ScalewayMock {
       if (parsed.pathname.startsWith("/secret-manager/")) {
         return secretManagerHandler(method, parsed.pathname, parsedBody);
       }
+      if (parsed.pathname.startsWith("/rdb/")) {
+        return rdbHandler(method, parsed.pathname, parsedBody);
+      }
       if (parsed.pathname.startsWith("/vpc/")) {
         return vpcHandler(method, parsed.pathname, parsed.search, parsedBody);
       }
@@ -1119,6 +1257,9 @@ export function installScalewayMock(): ScalewayMock {
     calls,
     restore: () => {
       globalThis.fetch = original;
+    },
+    enableAsyncLifecycle: () => {
+      asyncLifecycle = true;
     },
     addFlexibleIp: (id) => flexibleIps.set(id, { id, zone: "fr-par-1", address: `203.0.113.${counter + 1}`, state: "attached", type: "routed_ipv4", tags: [] }),
     removeContainer: (id) => containers.delete(id),

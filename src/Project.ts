@@ -37,6 +37,7 @@ export const ProjectProvider = () =>
     Effect.gen(function* () {
       const clients = yield* makeScalewayClients;
       const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 64 });
+      const isPreconditionError = (error: unknown) => String((error as { message?: unknown })?.message ?? "").toLowerCase().includes("precondition is not respected");
       const toAttributes = (record: ScalewayProjectRecord): Project["Attributes"] =>
         omitUndefined({
           projectId: record.id,
@@ -85,9 +86,18 @@ export const ProjectProvider = () =>
           return toAttributes(created);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
-          yield* clients.account
-            .deleteProject(output.projectId)
-            .pipe(Effect.catchIf(isNotFound, () => Effect.void));
+          while (true) {
+            const deleted = yield* clients.account
+              .deleteProject(output.projectId)
+              .pipe(
+                Effect.as(true),
+                Effect.catchIf(isNotFound, () => Effect.succeed(true)),
+                Effect.catchIf(isPreconditionError, () => Effect.succeed(false)),
+              );
+            if (deleted) break;
+            yield* session.note("waiting project deletion status=precondition");
+            yield* Effect.sleep("5 seconds");
+          }
           yield* session.note(`Deleted Scaleway project ${output.projectId}`);
         }),
       });

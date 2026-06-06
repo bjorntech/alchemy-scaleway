@@ -147,38 +147,46 @@ export const InstanceProvider = () =>
       const clients = yield* makeScalewayClients;
       const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 255 });
       const publicIpIdsOf = (refs: InstancePublicIpRef[] | undefined) => Effect.all((refs ?? []).map(publicIpIdOf));
-      const waitForState = (zone: string, serverId: string, state: string, attempts = 20) =>
+      const waitForState = (zone: string, serverId: string, state: string, session: { note(message: string): Effect.Effect<void> }) =>
         Effect.gen(function* () {
-          for (let attempt = 0; attempt < attempts; attempt++) {
+          while (true) {
             const record = yield* clients.instance.getInstance({ zone, serverId });
             if (record.state === state) return record;
+            yield* session.note(`waiting instance state state=${record.state ?? "unknown"} target=${state}`);
             yield* Effect.sleep("1 second");
           }
-          throw new Error(`Timed out waiting for Scaleway instance ${serverId} to become ${state}`);
         });
-      const waitForPublicIps = (zone: string, serverId: string, publicIps: string[], attempts = 20) =>
+      const waitForPublicIps = (zone: string, serverId: string, publicIps: string[], session: { note(message: string): Effect.Effect<void> }) =>
         Effect.gen(function* () {
-          for (let attempt = 0; attempt < attempts; attempt++) {
+          while (true) {
             const record = yield* clients.instance.getInstance({ zone, serverId });
             if (stringsEqual(managedPublicIpIdsFromRecord(record), publicIps)) return record;
+            yield* session.note("waiting instance public IPs");
             yield* Effect.sleep("2 seconds");
           }
-          throw new Error(`Timed out waiting for Scaleway instance ${serverId} public IP attachments`);
         });
-      const waitForDeleted = (zone: string, serverId: string, attempts = 60) =>
+      const waitForDeleted = (zone: string, serverId: string, session: { note(message: string): Effect.Effect<void> }) =>
         Effect.gen(function* () {
-          for (let attempt = 0; attempt < attempts; attempt++) {
+          while (true) {
             const existing = yield* clients.instance.getInstance({ zone, serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
             if (!existing) return;
+            yield* session.note(`waiting instance deletion state=${existing.state ?? "unknown"}`);
             yield* Effect.sleep("1 second");
           }
-          throw new Error(`Timed out waiting for Scaleway instance ${serverId} to be deleted`);
         });
-      const retryDeleteBlockVolume = (zone: string, volumeId: string, attempts = 30): Effect.Effect<void, unknown> =>
-        clients.block.deleteVolume({ zone, volumeId }).pipe(
-          Effect.catchIf(isNotFound, () => Effect.void),
-          Effect.catchIf((error) => attempts > 1 && isPreconditionError(error), () => Effect.sleep("2 seconds").pipe(Effect.flatMap(() => retryDeleteBlockVolume(zone, volumeId, attempts - 1)))),
-        );
+      const retryDeleteBlockVolume = (zone: string, volumeId: string, session: { note(message: string): Effect.Effect<void> }) =>
+        Effect.gen(function* () {
+          while (true) {
+            const deleted = yield* clients.block.deleteVolume({ zone, volumeId }).pipe(
+              Effect.as(true),
+              Effect.catchIf(isNotFound, () => Effect.succeed(true)),
+              Effect.catchIf(isPreconditionError, () => Effect.succeed(false)),
+            );
+            if (deleted) return;
+            yield* session.note("waiting block volume deletion status=precondition");
+            yield* Effect.sleep("2 seconds");
+          }
+        });
       const toAttributes = (record: ScalewayInstanceRecord, requestedVolumes?: Record<string, InstanceVolume>, requestedImage?: string, requestedCloudInitHash?: string, previousCreatedVolumeIds?: string[]): Instance["Attributes"] =>
         omitUndefined({
           serverId: record.id,
@@ -285,7 +293,7 @@ export const InstanceProvider = () =>
           const desiredState = targetStateFor(news.desiredState, init);
           if (desiredState === "stopped" && record.state !== "stopped") {
             yield* clients.instance.instanceAction({ zone, serverId: record.id, action: "poweroff" }).pipe(Effect.catchIf(isPreconditionError, () => Effect.void));
-            record = yield* waitForState(zone, record.id, "stopped", 60);
+            record = yield* waitForState(zone, record.id, "stopped", session);
           }
           if (output?.serverId && publicIps !== undefined) {
             const currentPublicIps = managedPublicIpIdsFromRecord(record);
@@ -295,11 +303,11 @@ export const InstanceProvider = () =>
             for (const publicIp of publicIps.filter((publicIp) => !currentPublicIps.includes(publicIp))) {
               yield* clients.instance.updateFlexibleIp({ zone, ip: publicIp, server: record.id });
             }
-            record = yield* waitForPublicIps(zone, record.id, publicIps);
+            record = yield* waitForPublicIps(zone, record.id, publicIps, session);
           }
           if (desiredState === "running" && record.state !== "running") {
             yield* clients.instance.instanceAction({ zone, serverId: record.id, action: "poweron" });
-            record = yield* waitForState(zone, record.id, "running");
+            record = yield* waitForState(zone, record.id, "running", session);
           }
           yield* session.note(`${output?.serverId ? "Updated" : "Created"} Scaleway instance ${record.id}`);
           return toAttributes(record, news.volumes, news.image, initHash);
@@ -318,12 +326,12 @@ export const InstanceProvider = () =>
             } else {
               yield* clients.instance.instanceAction({ zone, serverId: output.serverId, action: "terminate" }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
             }
-            yield* waitForDeleted(zone, output.serverId).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+            yield* waitForDeleted(zone, output.serverId, session).pipe(Effect.catchIf(isNotFound, () => Effect.void));
           } else {
             yield* clients.instance.deleteInstance({ zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
           }
           for (const volumeId of volumesToDelete) {
-            yield* retryDeleteBlockVolume(zone, volumeId);
+            yield* retryDeleteBlockVolume(zone, volumeId, session);
           }
           yield* session.note(`Deleted Scaleway instance ${output.serverId}`);
         }),

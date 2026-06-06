@@ -218,11 +218,11 @@ const isTransientState = (error: unknown) =>
     .toLowerCase()
     .includes("transient state");
 
-const retryTransient = <A>(effect: Effect.Effect<A, ScalewayError>, attempts = 60): Effect.Effect<A, ScalewayError> =>
+const retryTransient = <A>(effect: Effect.Effect<A, ScalewayError>, session: { note(message: string): Effect.Effect<void> }): Effect.Effect<A, ScalewayError> =>
   effect.pipe(
     Effect.catch((error) =>
-      attempts > 1 && isTransientState(error)
-        ? Effect.sleep("5 seconds").pipe(Effect.flatMap(() => retryTransient(effect, attempts - 1)))
+      isTransientState(error)
+        ? session.note("waiting container operation status=transient").pipe(Effect.flatMap(() => Effect.sleep("5 seconds")), Effect.flatMap(() => retryTransient(effect, session)))
         : Effect.fail(error),
     ),
   );
@@ -304,10 +304,10 @@ export const ContainerProvider = () =>
 
       const waitForReady = (
         containerIdValue: string,
-        attempts = 30,
+        session: { note(message: string): Effect.Effect<void> },
       ): Effect.Effect<Container["Attributes"], unknown> =>
         Effect.gen(function* () {
-          for (let attempt = 0; attempt < attempts; attempt++) {
+          while (true) {
             const record = yield* clients.containers.getContainer(containerIdValue);
             const status = record.status?.toLowerCase();
             if (status === "error" || status === "failed") {
@@ -317,14 +317,14 @@ export const ContainerProvider = () =>
               });
             }
             if (containerUrl(record) || status === "ready") return toAttributes(record);
+            yield* session.note(`waiting container ready status=${record.status ?? "unknown"}`);
             yield* Effect.sleep("2 seconds");
           }
-          throw new Error(`Timed out waiting for Scaleway container ${containerIdValue}`);
         });
 
-      const waitForDomainReady = (domainIdValue: string, attempts = 40) =>
+      const waitForDomainReady = (domainIdValue: string, session: { note(message: string): Effect.Effect<void> }) =>
         Effect.gen(function* () {
-          for (let attempt = 0; attempt < attempts; attempt++) {
+          while (true) {
             const record = yield* clients.containers.getDomain(domainIdValue);
             const status = record.status?.toLowerCase();
             if (!status || status === "ready") return toDomainAttributes(record);
@@ -332,22 +332,22 @@ export const ContainerProvider = () =>
               throw new Error(
                 record.error_message ?? `Scaleway domain ${domainIdValue} entered error state`,
               );
+            yield* session.note(`waiting domain ready status=${record.status ?? "unknown"}`);
             yield* Effect.sleep("3 seconds");
           }
-          throw new Error(`Timed out waiting for Scaleway domain ${domainIdValue}`);
         });
 
-      const waitForTriggerReady = (triggerIdValue: string, attempts = 20) =>
+      const waitForTriggerReady = (triggerIdValue: string, session: { note(message: string): Effect.Effect<void> }) =>
         Effect.gen(function* () {
-          for (let attempt = 0; attempt < attempts; attempt++) {
+          while (true) {
             const record = yield* clients.containers.getTrigger(triggerIdValue);
             const status = record.status?.toLowerCase();
             if (!status || status === "ready") return toTriggerAttributes(record);
             if (status === "error")
               throw new Error(`Scaleway trigger ${triggerIdValue} entered error state`);
+            yield* session.note(`waiting trigger ready status=${record.status ?? "unknown"}`);
             yield* Effect.sleep("1 second");
           }
-          throw new Error(`Timed out waiting for Scaleway trigger ${triggerIdValue}`);
         });
 
       // CreateContainer takes namespace_id/name; UpdateContainer accepts neither.
@@ -387,6 +387,7 @@ export const ContainerProvider = () =>
         container: Container["Attributes"],
         olds: ContainerProps | undefined,
         news: ContainerProps,
+        session: { note(message: string): Effect.Effect<void> },
       ) =>
         Effect.gen(function* () {
           assertUnique((news.domains ?? []).map(domainKey), "container domain");
@@ -403,7 +404,7 @@ export const ContainerProvider = () =>
                   container_id: container.containerId,
                   hostname,
                 });
-                return yield* waitForDomainReady(created.id);
+                return yield* waitForDomainReady(created.id, session);
               }),
             ),
           );
@@ -450,7 +451,7 @@ export const ContainerProvider = () =>
                   );
                   return updated.status?.toLowerCase() === "ready"
                     ? toTriggerAttributes(updated)
-                    : yield* waitForTriggerReady(existing.triggerId);
+                    : yield* waitForTriggerReady(existing.triggerId, session);
                 }
                 const created = yield* clients.containers.createTrigger({
                   container_id: container.containerId,
@@ -458,7 +459,7 @@ export const ContainerProvider = () =>
                 });
                 return created.status?.toLowerCase() === "ready"
                   ? toTriggerAttributes(created)
-                  : yield* waitForTriggerReady(created.id);
+                  : yield* waitForTriggerReady(created.id, session);
               }),
             ),
           );
@@ -534,21 +535,22 @@ export const ContainerProvider = () =>
               if (olds && containerPropsEqual(olds, news))
                 return toAttributes(yield* clients.containers.getContainer(output.containerId));
               const input = yield* inputFor(id, news, true);
-              yield* retryTransient(clients.containers.updateContainer(output.containerId, input));
+              yield* retryTransient(clients.containers.updateContainer(output.containerId, input), session);
               yield* session.note(`Updated Scaleway container ${output.containerId}`);
-              return yield* waitForReady(output.containerId);
+              return yield* waitForReady(output.containerId, session);
             });
             return yield* provisionCompanions(
               { ...ready, domains: output.domains, cronTriggers: output.cronTriggers },
               olds,
               news,
+              session,
             );
           }
           const input = yield* inputFor(id, news, false);
-          const created = yield* retryTransient(clients.containers.createContainer(input));
+          const created = yield* retryTransient(clients.containers.createContainer(input), session);
           yield* session.note(`Created Scaleway container ${created.id}`);
-          const ready = yield* waitForReady(created.id);
-          return yield* provisionCompanions(ready, undefined, news);
+          const ready = yield* waitForReady(created.id, session);
+          return yield* provisionCompanions(ready, undefined, news, session);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
           yield* Effect.all(

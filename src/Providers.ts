@@ -6,6 +6,7 @@ import { ScalewayAuth } from "./AuthProvider.ts";
 import { Bucket, BucketProvider } from "./Bucket.ts";
 import { Container, ContainerProvider } from "./Container.ts";
 import * as Credentials from "./Credentials.ts";
+import { DatabaseInstance, DatabaseInstanceProvider } from "./DatabaseInstance.ts";
 import { Domain, DomainProvider } from "./Domain.ts";
 import { DnsRecord, DnsRecordProvider } from "./DnsRecord.ts";
 import { DnsZone, DnsZoneProvider } from "./DnsZone.ts";
@@ -46,6 +47,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
       DnsRecord,
       RegistryNamespace,
       Secret,
+      DatabaseInstance,
       Bucket,
       Vpc,
       PrivateNetwork,
@@ -69,6 +71,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
         DnsRecordProvider(),
         RegistryNamespaceProvider(),
         SecretProvider(),
+        DatabaseInstanceProvider(),
         BucketProvider(),
         VpcProvider(),
         PrivateNetworkProvider(),

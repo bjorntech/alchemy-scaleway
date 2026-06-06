@@ -40,6 +40,7 @@ const absoluteHostname = (value: string) => {
   const hostname = withoutScheme(value);
   return hostname.endsWith(".") ? hostname : `${hostname}.`;
 };
+const maxDomainDeployRetries = 3;
 
 const isTransientState = (error: unknown) =>
   String((error as { message?: unknown })?.message ?? "")
@@ -51,11 +52,11 @@ const isRetriableDomainDeployError = (error: unknown) =>
     .toLowerCase()
     .includes("internal error occurred while deploying the domain");
 
-const retryTransient = <A>(effect: Effect.Effect<A, ScalewayError>, attempts = 60): Effect.Effect<A, ScalewayError> =>
+const retryTransient = <A>(effect: Effect.Effect<A, ScalewayError>, session: { note(message: string): Effect.Effect<void> }): Effect.Effect<A, ScalewayError> =>
   effect.pipe(
     Effect.catch((error) =>
-      attempts > 1 && isTransientState(error)
-        ? Effect.sleep("5 seconds").pipe(Effect.flatMap(() => retryTransient(effect, attempts - 1)))
+      isTransientState(error)
+        ? session.note("waiting domain operation status=transient").pipe(Effect.flatMap(() => Effect.sleep("5 seconds")), Effect.flatMap(() => retryTransient(effect, session)))
         : Effect.fail(error),
     ),
   );
@@ -79,21 +80,29 @@ function hasCname(cnames: string[], expected: string) {
   return cnames.map((record) => absoluteHostname(record).toLowerCase()).includes(expected);
 }
 
-function pollCname(hostname: string, expected: string, attempts: number): Effect.Effect<void, Error> {
+function cnameMatches(hostname: string, expected: string) {
   return lookupCnames(hostname).pipe(
     Effect.catch(() => Effect.succeed([] as string[])),
-    Effect.flatMap((cnames) => hasCname(cnames, expected) ? Effect.void : retryCname(hostname, expected, attempts)),
+    Effect.map((cnames) => hasCname(cnames, expected)),
   );
 }
 
-function retryCname(hostname: string, expected: string, attempts: number): Effect.Effect<void, Error> {
-  return attempts <= 1
-    ? Effect.fail(new Error(`Timed out waiting for DNS ${hostname} to resolve to ${expected}`))
-    : Effect.sleep("5 seconds").pipe(Effect.flatMap(() => pollCname(hostname, expected, attempts - 1)));
+function retryCname(hostname: string, expected: string, session: { note(message: string): Effect.Effect<void> }): Effect.Effect<void, Error> {
+  return session.note(`waiting DNS CNAME hostname=${hostname} target=${expected}`).pipe(
+    Effect.flatMap(() => Effect.sleep("5 seconds")),
+    Effect.flatMap(() => waitForCnameMatch(hostname, expected, session)),
+  );
 }
 
-function waitForCname(hostname: string, target: string, attempts = 36) {
-  return pollCname(hostname, absoluteHostname(target).toLowerCase(), attempts);
+function waitForCnameMatch(hostname: string, expected: string, session: { note(message: string): Effect.Effect<void> }): Effect.Effect<void, Error> {
+  return cnameMatches(hostname, expected).pipe(
+    Effect.flatMap((matches) => matches ? Effect.void : retryCname(hostname, expected, session)),
+  );
+}
+
+function waitForCname(hostname: string, target: string, session: { note(message: string): Effect.Effect<void> }) {
+  const expected = absoluteHostname(target).toLowerCase();
+  return waitForCnameMatch(hostname, expected, session);
 }
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
@@ -112,10 +121,10 @@ export const DomainProvider = () =>
         }) as Domain["Attributes"];
       const waitForReady = (
         domainIdValue: string,
-        attempts = 40,
+        session: { note(message: string): Effect.Effect<void> },
       ): Effect.Effect<Domain["Attributes"], unknown> =>
         Effect.gen(function* () {
-          for (let attempt = 0; attempt < attempts; attempt++) {
+          while (true) {
             const record = yield* clients.containers.getDomain(domainIdValue);
             const status = record.status?.toLowerCase();
             if (!status || status === "ready") return toAttributes(record);
@@ -123,9 +132,9 @@ export const DomainProvider = () =>
               return yield* Effect.fail(new Error(
                 record.error_message ?? `Scaleway domain ${domainIdValue} entered error state`,
               ));
+            yield* session.note(`waiting domain ready status=${record.status ?? "unknown"}`);
             yield* Effect.sleep("3 seconds");
           }
-          return yield* Effect.fail(new Error(`Timed out waiting for Scaleway domain ${domainIdValue}`));
         });
 
       return Domain.Provider.of({
@@ -153,22 +162,23 @@ export const DomainProvider = () =>
           const target = yield* containerEndpoint(news.container);
           if (news.waitForCname && target) {
             yield* session.note(`Waiting for DNS ${news.hostname} to point at ${withoutScheme(target)}`);
-            yield* waitForCname(news.hostname, target);
+            yield* waitForCname(news.hostname, target, session);
           }
-          const createReadyDomain = (attempts = 4): Effect.Effect<Domain["Attributes"], unknown> =>
+          const createReadyDomain = (retriesRemaining = maxDomainDeployRetries): Effect.Effect<Domain["Attributes"], unknown> =>
             Effect.gen(function* () {
-              const created = yield* retryTransient(clients.containers.createDomain(input));
+              const created = yield* retryTransient(clients.containers.createDomain(input), session);
               yield* session.note(`Created Scaleway domain ${created.id}`);
-              return yield* waitForReady(created.id).pipe(
-                Effect.catchIf(isRetriableDomainDeployError, (error) =>
-                  attempts > 1
-                    ? Effect.gen(function* () {
+              return yield* waitForReady(created.id, session).pipe(
+                Effect.catchIf(isRetriableDomainDeployError, () =>
+                  Effect.gen(function* () {
+                      if (retriesRemaining <= 0) {
+                        return yield* Effect.fail(new Error(`Scaleway domain ${created.id} kept failing deployment after retries`));
+                      }
                       yield* session.note(`Retrying Scaleway domain ${created.id} after transient deployment error`);
                       yield* clients.containers.deleteDomain(created.id).pipe(Effect.catchIf(isNotFound, () => Effect.void));
                       yield* Effect.sleep("1 second");
-                      return yield* createReadyDomain(attempts - 1);
-                    })
-                    : Effect.fail(error),
+                      return yield* createReadyDomain(retriesRemaining - 1);
+                    }),
                 ),
               );
             });
@@ -178,7 +188,7 @@ export const DomainProvider = () =>
               Effect.gen(function* () {
                 if (target) {
                   yield* session.note(`Waiting for DNS ${news.hostname} to point at ${withoutScheme(target)}`);
-                  yield* waitForCname(news.hostname, target);
+                  yield* waitForCname(news.hostname, target, session);
                 }
                 return yield* createReadyDomain();
               }),
