@@ -19,8 +19,10 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ### Breaking
 
-- New project-scoped application resources now prefer a single managed
-  `Scaleway.Project` declared in the stack. Existing beta stacks that should keep
+- New project-scoped application resources now use the stack's single managed
+  `Scaleway.Project` when neither the resource nor `Scaleway.providers({ project })`
+  sets a project. In that case, deploying the stack creates the managed project
+  and then creates those resources in it. Existing beta stacks that should keep
   creating resources in `SCW_DEFAULT_PROJECT_ID` must configure
   `Scaleway.providers({ project: process.env.SCW_DEFAULT_PROJECT_ID })`.
 
