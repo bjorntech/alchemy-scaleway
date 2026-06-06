@@ -4,7 +4,7 @@ import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients, type ScalewaySecurityGroupRecord, type ScalewaySecurityGroupRuleRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
-import { omitUndefined, physicalName, projectId } from "./Internal.ts";
+import { omitUndefined, physicalName, projectId, projectInput, withManagedProjectDefault, type ProjectRef } from "./Internal.ts";
 import type { Providers } from "./Providers.ts";
 
 export type SecurityGroupPolicy = "accept" | "drop";
@@ -24,7 +24,7 @@ export interface SecurityGroupRule {
 export interface SecurityGroupProps {
   name?: string;
   zone?: string;
-  projectId?: string;
+  project?: ProjectRef;
   description?: string;
   tags?: string[];
   inboundDefaultPolicy?: SecurityGroupPolicy;
@@ -55,7 +55,7 @@ export type SecurityGroup = Resource<
   Providers
 >;
 
-export const SecurityGroup = Resource<SecurityGroup>("Scaleway.SecurityGroup");
+export const SecurityGroup = withManagedProjectDefault(Resource<SecurityGroup>("Scaleway.SecurityGroup"));
 
 const stringsEqual = (left?: string[], right?: string[]) => JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
 const withAlchemyTag = (id: string, tags: string[] | undefined) => [`alchemy:logical-id=${id}`, ...(tags ?? [])];
@@ -121,7 +121,7 @@ export const SecurityGroupProvider = () =>
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone)) return { action: "replace" } as const;
-          if (output.projectId !== (yield* projectId(news.projectId))) return { action: "replace" } as const;
+          if (output.projectId !== (yield* projectId(projectInput(news), output.projectId))) return { action: "replace" } as const;
           const name = yield* nameOf(id, news.name);
           const tags = withAlchemyTag(id, news.tags);
           const rules = rulesInput(news.rules);
@@ -135,7 +135,7 @@ export const SecurityGroupProvider = () =>
             output.projectDefault !== (news.projectDefault ?? false) ||
             !rulesEqual(output.rules, rules)
           ) return { action: "update" } as const;
-          return undefined;
+          return { action: "noop" } as const;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.securityGroupId) return undefined;
@@ -160,7 +160,7 @@ export const SecurityGroupProvider = () =>
           };
           const record = output?.securityGroupId
             ? yield* clients.instance.updateSecurityGroup({ zone, securityGroupId: output.securityGroupId, ...mutableInput, description: news.description ?? null })
-            : yield* clients.instance.createSecurityGroup({ zone, project: yield* projectId(news.projectId), ...mutableInput });
+            : yield* clients.instance.createSecurityGroup({ zone, project: yield* projectId(projectInput(news), output?.projectId), ...mutableInput });
           const rules = yield* clients.instance.setSecurityGroupRules({ zone, securityGroupId: record.id, rules: rulesInput(news.rules) });
           yield* session.note(`${output?.securityGroupId ? "Updated" : "Created"} Scaleway security group ${record.id}`);
           return toAttributes(record, rules);

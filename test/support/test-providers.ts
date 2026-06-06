@@ -12,9 +12,11 @@ import { DnsRecord, DnsRecordProvider } from "../../src/DnsRecord.ts";
 import { DnsZone, DnsZoneProvider } from "../../src/DnsZone.ts";
 import { FlexibleIp, FlexibleIpProvider } from "../../src/FlexibleIp.ts";
 import { Instance, InstanceProvider } from "../../src/Instance.ts";
+import { ScalewayProviderConfig, type ProjectRef } from "../../src/Internal.ts";
 import { Namespace, NamespaceProvider } from "../../src/Namespace.ts";
 import { PrivateNic, PrivateNicProvider } from "../../src/PrivateNic.ts";
 import { PrivateNetwork, PrivateNetworkProvider } from "../../src/PrivateNetwork.ts";
+import { Project, ProjectProvider } from "../../src/Project.ts";
 import { Providers } from "../../src/Providers.ts";
 import { RegistryNamespace, RegistryNamespaceProvider } from "../../src/RegistryNamespace.ts";
 import { Secret, SecretProvider } from "../../src/Secret.ts";
@@ -36,11 +38,12 @@ const credentialsLayer = Layer.succeed(
   }),
 );
 
-export const testProviders = () =>
+export const testProviders = (options: { project?: ProjectRef } = {}) =>
   Layer.effect(
     Providers,
     Provider.collection([
       Namespace,
+      Project,
       Container,
       Trigger,
       Domain,
@@ -63,6 +66,7 @@ export const testProviders = () =>
     Layer.provide(
       Layer.mergeAll(
         NamespaceProvider(),
+        ProjectProvider(),
         ContainerProvider(),
         TriggerProvider(),
         DomainProvider(),
@@ -83,5 +87,11 @@ export const testProviders = () =>
       ),
     ),
     Layer.provideMerge(credentialsLayer),
+    Layer.provideMerge(
+      Layer.succeed(
+        ScalewayProviderConfig,
+        ScalewayProviderConfig.of({ project: options.project }),
+      ),
+    ),
     Layer.orDie,
   );

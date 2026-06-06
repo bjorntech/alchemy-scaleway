@@ -10,6 +10,7 @@ import { testProviders } from "./support/test-providers.ts";
 
 const { test } = Test.make({ providers: testProviders() });
 const adopt = Test.make({ providers: testProviders(), adopt: true });
+const configuredProject = Test.make({ providers: testProviders({ project: "proj-top" }) });
 const vpcLifecycleLayer = Layer.mergeAll(
   Scaleway.VpcProvider(),
   Scaleway.PrivateNetworkProvider(),
@@ -76,6 +77,133 @@ const containerPatches = () =>
     );
   });
 
+describe("Project", () => {
+  test.provider("creates then updates project in place", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.Project("AppProject", {
+          name: "alchemy-project-test",
+          organizationId: "org-test",
+          description: "first",
+        }),
+      );
+      expect(created.projectId).toMatch(/^project-/);
+      expect(created.organizationId).toBe("org-test");
+      expect(created.name).toBe("alchemy-project-test");
+
+      const updated = yield* stack.deploy(
+        Scaleway.Project("AppProject", {
+          name: "alchemy-project-test",
+          organizationId: "org-test",
+          description: "second",
+        }),
+      );
+      expect(updated.projectId).toBe(created.projectId);
+      expect(updated.description).toBe("second");
+      expect(requests("PATCH", "/account/v3/projects/")).toHaveLength(1);
+
+      const cleared = yield* stack.deploy(
+        Scaleway.Project("AppProject", {
+          name: "alchemy-project-test",
+          organizationId: "org-test",
+        }),
+      );
+      expect(cleared.projectId).toBe(created.projectId);
+      expect(cleared.description).toBe("");
+      expect(requests("PATCH", "/account/v3/projects/")).toHaveLength(2);
+    }),
+  );
+
+  test.provider("changing organizationId forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(
+        Scaleway.Project("AppProject", { organizationId: "org-a" }),
+      );
+      const second = yield* stack.deploy(
+        Scaleway.Project("AppProject", { organizationId: "org-b" }),
+      );
+
+      expect(second.projectId).not.toBe(first.projectId);
+      expect(second.organizationId).toBe("org-b");
+      expect(requests("DELETE", "/account/v3/projects/")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("new app resources default to the managed project", (stack) =>
+    Effect.gen(function* () {
+      const out = yield* stack.deploy(
+        Effect.gen(function* () {
+          const project = yield* Scaleway.Project("AppProject", { organizationId: "org-test" });
+          const namespace = yield* Scaleway.Namespace("Ns", {});
+          return { project, namespace };
+        }),
+      );
+
+      expect(out.namespace.projectId).toBe(out.project.projectId);
+      expect(out.namespace.projectId).not.toBe("proj-test");
+    }),
+  );
+
+  configuredProject.test.provider("top-level provider project scopes new app resources", (stack) =>
+    Effect.gen(function* () {
+      const namespace = yield* stack.deploy(Scaleway.Namespace("Ns", {}));
+
+      expect(namespace.projectId).toBe("proj-top");
+      expect(requests("POST", "/account/v3/projects")).toHaveLength(0);
+    }),
+  );
+
+  test.provider("managed project defaults are independent of declaration order", (stack) =>
+    Effect.gen(function* () {
+      const out = yield* stack.deploy(
+        Effect.gen(function* () {
+          const namespace = yield* Scaleway.Namespace("Ns", {});
+          const project = yield* Scaleway.Project("AppProject", { organizationId: "org-test" });
+          return { project, namespace };
+        }),
+      );
+
+      expect(out.namespace.projectId).toBe(out.project.projectId);
+      expect(out.namespace.projectId).not.toBe("proj-test");
+    }),
+  );
+
+  test.provider("rejects legacy projectId inputs", (stack) =>
+    Effect.gen(function* () {
+      const deploy = stack.deploy(
+        Scaleway.Namespace("Ns", { projectId: "proj-a" } as never),
+      );
+
+      yield* deploy.pipe(
+        Effect.catchDefect((defect: unknown) =>
+          Effect.sync(() => {
+            expect(String(defect)).toContain("Use the project prop instead of projectId");
+          }),
+        ),
+      );
+    }),
+  );
+
+  test.provider("existing app resources keep their persisted default project", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(Scaleway.Namespace("Ns", {}));
+      expect(first.projectId).toBe("proj-test");
+
+      const second = yield* stack.deploy(
+        Effect.gen(function* () {
+          const project = yield* Scaleway.Project("AppProject", { organizationId: "org-test" });
+          const namespace = yield* Scaleway.Namespace("Ns", {});
+          return { project, namespace };
+        }),
+      );
+
+      expect(second.project.projectId).not.toBe("proj-test");
+      expect(second.namespace.namespaceId).toBe(first.namespaceId);
+      expect(second.namespace.projectId).toBe("proj-test");
+    }),
+  );
+});
+
 describe("Namespace", () => {
   test.provider("create then update mutates in place", (stack) =>
     Effect.gen(function* () {
@@ -95,10 +223,10 @@ describe("Namespace", () => {
     }),
   );
 
-  test.provider("changing projectId forces a replace", (stack) =>
+  test.provider("changing project forces a replace", (stack) =>
     Effect.gen(function* () {
-      const first = yield* stack.deploy(Scaleway.Namespace("Ns", { projectId: "proj-a" }));
-      const second = yield* stack.deploy(Scaleway.Namespace("Ns", { projectId: "proj-b" }));
+      const first = yield* stack.deploy(Scaleway.Namespace("Ns", { project: "proj-a" }));
+      const second = yield* stack.deploy(Scaleway.Namespace("Ns", { project: "proj-b" }));
       expect(second.projectId).toBe("proj-b");
       expect(second.namespaceId).not.toBe(first.namespaceId);
       expect(requests("DELETE", "/namespaces/").length).toBeGreaterThan(0);
@@ -134,13 +262,13 @@ describe("RegistryNamespace", () => {
     }),
   );
 
-  test.provider("changing projectId forces a replace", (stack) =>
+  test.provider("changing project forces a replace", (stack) =>
     Effect.gen(function* () {
       const first = yield* stack.deploy(
-        Scaleway.RegistryNamespace("Registry", { projectId: "proj-a" }),
+        Scaleway.RegistryNamespace("Registry", { project: "proj-a" }),
       );
       const second = yield* stack.deploy(
-        Scaleway.RegistryNamespace("Registry", { projectId: "proj-b" }),
+        Scaleway.RegistryNamespace("Registry", { project: "proj-b" }),
       );
       expect(second.projectId).toBe("proj-b");
       expect(second.registryNamespaceId).not.toBe(first.registryNamespaceId);
@@ -219,10 +347,10 @@ describe("Secret", () => {
     }),
   );
 
-  test.provider("changing projectId forces a replace", (stack) =>
+  test.provider("changing project forces a replace", (stack) =>
     Effect.gen(function* () {
-      const first = yield* stack.deploy(Scaleway.Secret("ApiSecret", { projectId: "proj-a" }));
-      const second = yield* stack.deploy(Scaleway.Secret("ApiSecret", { projectId: "proj-b" }));
+      const first = yield* stack.deploy(Scaleway.Secret("ApiSecret", { project: "proj-a" }));
+      const second = yield* stack.deploy(Scaleway.Secret("ApiSecret", { project: "proj-b" }));
 
       expect(second.projectId).toBe("proj-b");
       expect(second.secretId).not.toBe(first.secretId);
@@ -722,10 +850,10 @@ describe("Vpc", () => {
     }),
   );
 
-  test.provider("changing projectId forces a replace", (stack) =>
+  test.provider("changing project forces a replace", (stack) =>
     Effect.gen(function* () {
-      const first = yield* stack.deploy(Scaleway.Vpc("Network", { projectId: "proj-a" }));
-      const second = yield* stack.deploy(Scaleway.Vpc("Network", { projectId: "proj-b" }));
+      const first = yield* stack.deploy(Scaleway.Vpc("Network", { project: "proj-a" }));
+      const second = yield* stack.deploy(Scaleway.Vpc("Network", { project: "proj-b" }));
       expect(second.projectId).toBe("proj-b");
       expect(second.vpcId).not.toBe(first.vpcId);
       expect(requests("DELETE", "/vpc/v2/regions/fr-par/vpcs/").length).toBeGreaterThan(0);
@@ -1488,8 +1616,8 @@ describe("SecurityGroup", () => {
 
   test.provider("changing security group project forces a replace", (stack) =>
     Effect.gen(function* () {
-      const first = yield* stack.deploy(Scaleway.SecurityGroup("Firewall", { projectId: "project-a" }));
-      const second = yield* stack.deploy(Scaleway.SecurityGroup("Firewall", { projectId: "project-b" }));
+      const first = yield* stack.deploy(Scaleway.SecurityGroup("Firewall", { project: "project-a" }));
+      const second = yield* stack.deploy(Scaleway.SecurityGroup("Firewall", { project: "project-b" }));
       expect(second.securityGroupId).not.toBe(first.securityGroupId);
       expect(second.projectId).toBe("project-b");
     }),
@@ -1569,8 +1697,8 @@ describe("FlexibleIp", () => {
 
   test.provider("changing flexible IP project forces a replace", (stack) =>
     Effect.gen(function* () {
-      const first = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { projectId: "project-a" }));
-      const second = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { projectId: "project-b" }));
+      const first = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { project: "project-a" }));
+      const second = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { project: "project-b" }));
       expect(second.ipId).not.toBe(first.ipId);
       expect(second.projectId).toBe("project-b");
     }),
@@ -1658,6 +1786,25 @@ describe("DnsZone", () => {
       expect(read?.dnsZone).toBe("app.example.test");
     }),
   );
+
+  test.provider("defaults to credentials project even when a managed project exists", (stack) =>
+    Effect.gen(function* () {
+      const out = yield* stack.deploy(
+        Effect.gen(function* () {
+          const project = yield* Scaleway.Project("AppProject", { organizationId: "org-test" });
+          const defaultZone = yield* Scaleway.DnsZone("DefaultZone", { domain: "default.example.test" });
+          const overrideZone = yield* Scaleway.DnsZone("OverrideZone", {
+            domain: "override.example.test",
+            project,
+          });
+          return { project, defaultZone, overrideZone };
+        }),
+      );
+
+      expect(out.defaultZone.projectId).toBe("proj-test");
+      expect(out.overrideZone.projectId).toBe(out.project.projectId);
+    }),
+  );
 });
 
 describe("DnsRecord", () => {
@@ -1677,11 +1824,13 @@ describe("DnsRecord", () => {
       );
 
       expect(created.dnsZone).toBe("example.test");
+      expect(created.projectId).toBe("proj-test");
       expect(created.name).toBe("");
       expect(created.type).toBe("TXT");
       expect(created.records).toEqual([
         expect.objectContaining({ data: "v=spf1 -all", comment: "mail policy" }),
       ]);
+      expect(requests("PATCH", "/records")[0].url).toContain("project_id=proj-test");
     }),
   );
 
@@ -1726,7 +1875,7 @@ describe("DnsRecord", () => {
       yield* stack.deploy(
         Scaleway.DnsZone("DefaultProjectZone", {
           domain: "shared.example.test",
-          projectId: "proj-test",
+          project: "proj-test",
         }),
       );
 
@@ -1734,7 +1883,7 @@ describe("DnsRecord", () => {
         Effect.gen(function* () {
           const zone = yield* Scaleway.DnsZone("AppProjectZone", {
             domain: "shared.example.test",
-            projectId: "proj-app",
+            project: "proj-app",
           });
           return yield* Scaleway.DnsRecord("AppRecord", {
             zone,
@@ -1775,14 +1924,14 @@ describe("DnsRecord", () => {
       yield* stack.deploy(
         Scaleway.DnsZone("SharedProjectZone", {
           domain: "string-zone.example.test",
-          projectId: "proj-domain",
+          project: "proj-domain",
         }),
       );
 
       const created = yield* stack.deploy(
         Scaleway.DnsRecord("SharedRecord", {
           zone: "string-zone.example.test",
-          projectId: "proj-domain",
+          project: "proj-domain",
           name: "api",
           type: "A",
           records: ["192.0.2.70"],
@@ -1799,7 +1948,7 @@ describe("DnsRecord", () => {
         instanceId: "test",
         olds: {
           zone: "string-zone.example.test",
-          projectId: "proj-domain",
+          project: "proj-domain",
           name: "api",
           type: "A",
           records: ["192.0.2.70"],
@@ -1817,13 +1966,13 @@ describe("DnsRecord", () => {
       yield* stack.deploy(
         Scaleway.DnsZone("Zone", {
           domain: "conflict.example.test",
-          projectId: "proj-domain",
+          project: "proj-domain",
         }),
       );
       yield* stack.deploy(
         Scaleway.DnsRecord("ExistingRecord", {
           zone: "conflict.example.test",
-          projectId: "proj-domain",
+          project: "proj-domain",
           name: "api",
           type: "A",
           records: ["192.0.2.80"],
@@ -1837,7 +1986,7 @@ describe("DnsRecord", () => {
         olds: undefined,
         news: {
           zone: "conflict.example.test",
-          projectId: "proj-domain",
+          project: "proj-domain",
           name: "api",
           type: "A",
           records: ["192.0.2.81"],
@@ -1857,13 +2006,13 @@ describe("DnsRecord", () => {
       yield* stack.deploy(
         Scaleway.DnsZone("Zone", {
           domain: "overwrite.example.test",
-          projectId: "proj-domain",
+          project: "proj-domain",
         }),
       );
       yield* stack.deploy(
         Scaleway.DnsRecord("ExistingRecord", {
           zone: "overwrite.example.test",
-          projectId: "proj-domain",
+          project: "proj-domain",
           name: "api",
           type: "A",
           records: ["192.0.2.90"],
@@ -1877,7 +2026,7 @@ describe("DnsRecord", () => {
         olds: undefined,
         news: {
           zone: "overwrite.example.test",
-          projectId: "proj-domain",
+          project: "proj-domain",
           name: "api",
           type: "A",
           records: ["192.0.2.91"],
@@ -1896,7 +2045,7 @@ describe("DnsRecord", () => {
       yield* stack.deploy(
         Scaleway.DnsZone("DefaultProjectZone", {
           domain: "legacy.example.test",
-          projectId: "proj-test",
+          project: "proj-test",
         }),
       );
 
@@ -1904,7 +2053,7 @@ describe("DnsRecord", () => {
         Effect.gen(function* () {
           const zone = yield* Scaleway.DnsZone("AppProjectZone", {
             domain: "legacy.example.test",
-            projectId: "proj-app",
+            project: "proj-app",
           });
           const record = yield* Scaleway.DnsRecord("AppRecord", {
             zone,

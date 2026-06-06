@@ -45,7 +45,7 @@ export default Alchemy.Stack(
 
     const dnsRecord = yield* Scaleway.DnsRecord("ContainerDns", {
       zone: dnsZone,
-      projectId: domainProjectId,
+      project: domainProjectId,
       name: dnsLabel,
       target: container,
     });

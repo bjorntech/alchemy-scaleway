@@ -85,6 +85,7 @@ export function installScalewayMock(): ScalewayMock {
   const domains = new Map<string, Record<string, unknown>>();
   const dnsZones = new Map<string, Record<string, unknown>>();
   const dnsRecords = new Map<string, Array<Record<string, unknown>>>();
+  const projects = new Map<string, Record<string, unknown>>();
   const buckets = new Map<string, BucketState>();
   const vpcs = new Map<string, Record<string, unknown>>();
   const privateNetworks = new Map<string, Record<string, unknown>>();
@@ -354,6 +355,36 @@ export function installScalewayMock(): ScalewayMock {
     }
 
     return json({ message: `unhandled dns request ${method} ${pathname}` }, 400);
+  };
+
+  const accountHandler = (method: string, pathname: string, body: unknown): Response => {
+    const segments = pathname.split("/").filter(Boolean); // [account, v3, projects, id?]
+    const kind = segments[2];
+    const id = segments[3];
+    const input = (body ?? {}) as Record<string, unknown>;
+
+    if (kind === "projects") {
+      if (method === "POST") {
+        const now = "2026-06-06T00:00:00.000000Z";
+        const record = { id: nextId("project"), created_at: now, updated_at: now, ...input };
+        projects.set(record.id as string, record);
+        return json(record);
+      }
+      const existing = projects.get(id);
+      if (!existing) return json({ message: "project not found" }, 404);
+      if (method === "GET") return json(existing);
+      if (method === "PATCH") {
+        const updated = { ...existing, ...input, updated_at: "2026-06-06T00:00:01.000000Z" };
+        projects.set(id, updated);
+        return json(updated);
+      }
+      if (method === "DELETE") {
+        projects.delete(id);
+        return noContent();
+      }
+    }
+
+    return json({ message: `unhandled account request ${method} ${pathname}` }, 400);
   };
 
   const registryHandler = (method: string, pathname: string, body: unknown): Response => {
@@ -1055,6 +1086,9 @@ export function installScalewayMock(): ScalewayMock {
 
     if (parsed.host === "api.scaleway.com") {
       const parsedBody = text.length > 0 && !headers.get("content-type")?.startsWith("text/plain") ? JSON.parse(text) : text.length > 0 ? text : undefined;
+      if (parsed.pathname.startsWith("/account/")) {
+        return accountHandler(method, parsed.pathname, parsedBody);
+      }
       if (parsed.pathname.startsWith("/registry/")) {
         return registryHandler(method, parsed.pathname, parsedBody);
       }

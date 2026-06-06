@@ -9,6 +9,20 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 - Added `Scaleway.state()` / `Scaleway.objectStorageState()` for Alchemy v2
   remote state persisted in Scaleway Object Storage, including a project-derived
   default bucket name that is created on first use when missing.
+- Added `Project` for explicit Scaleway Account project lifecycle management.
+- New project-scoped application resources now default to the stack's single
+  managed `Project` when present, while existing resources remain on their
+  persisted project for backward compatibility. DNS and state continue to
+  default to `SCW_DEFAULT_PROJECT_ID` unless configured otherwise.
+- Project-scoped resource inputs use `project` for either a project ID string or
+  a managed `Project` resource; resource outputs continue to expose `projectId`.
+
+### Breaking
+
+- New project-scoped application resources now prefer a single managed
+  `Scaleway.Project` declared in the stack. Existing beta stacks that should keep
+  creating resources in `SCW_DEFAULT_PROJECT_ID` must configure
+  `Scaleway.providers({ project: process.env.SCW_DEFAULT_PROJECT_ID })`.
 
 ### Fixed
 

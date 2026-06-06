@@ -59,7 +59,8 @@ export {
   type PrivateNetworkProps,
   type VpcRef,
 } from "./PrivateNetwork.ts";
-export { providers, Providers, type ProviderRequirements } from "./Providers.ts";
+export { Project, ProjectProvider, type ProjectProps } from "./Project.ts";
+export { providers, Providers, type ProviderRequirements, type ScalewayProviderOptions } from "./Providers.ts";
 export {
   RegistryNamespace,
   RegistryNamespaceProvider,

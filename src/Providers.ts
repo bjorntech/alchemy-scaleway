@@ -14,6 +14,7 @@ import { Instance, InstanceProvider } from "./Instance.ts";
 import { Namespace, NamespaceProvider } from "./Namespace.ts";
 import { PrivateNic, PrivateNicProvider } from "./PrivateNic.ts";
 import { PrivateNetwork, PrivateNetworkProvider } from "./PrivateNetwork.ts";
+import { Project, ProjectProvider } from "./Project.ts";
 import { RegistryNamespace, RegistryNamespaceProvider } from "./RegistryNamespace.ts";
 import { Secret, SecretProvider } from "./Secret.ts";
 import { SecurityGroup, SecurityGroupProvider } from "./SecurityGroup.ts";
@@ -22,16 +23,22 @@ import { Vpc, VpcProvider } from "./Vpc.ts";
 import { VpcAcl, VpcAclProvider } from "./VpcAcl.ts";
 import { VpcConnector, VpcConnectorProvider } from "./VpcConnector.ts";
 import { VpcRoute, VpcRouteProvider } from "./VpcRoute.ts";
+import { ScalewayProviderConfig, type ProjectRef } from "./Internal.ts";
 
 export class Providers extends Provider.ProviderCollection<Providers>()("Scaleway") {}
 
 export type ProviderRequirements = Layer.Services<ReturnType<typeof providers>>;
 
-export const providers = () =>
+export interface ScalewayProviderOptions {
+  project?: ProjectRef;
+}
+
+export const providers = (options: ScalewayProviderOptions = {}) =>
   Layer.effect(
     Providers,
     Provider.collection([
       Namespace,
+      Project,
       Container,
       Trigger,
       Domain,
@@ -54,6 +61,7 @@ export const providers = () =>
     Layer.provide(
       Layer.mergeAll(
         NamespaceProvider(),
+        ProjectProvider(),
         ContainerProvider(),
         TriggerProvider(),
         DomainProvider(),
@@ -74,6 +82,12 @@ export const providers = () =>
       ),
     ),
     Layer.provideMerge(Credentials.fromAuthProvider()),
+    Layer.provideMerge(
+      Layer.succeed(
+        ScalewayProviderConfig,
+        ScalewayProviderConfig.of({ project: options.project }),
+      ),
+    ),
     Layer.provideMerge(ScalewayAuth),
     Layer.provideMerge(ProfileLive),
     Layer.provideMerge(CredentialsStoreLive),

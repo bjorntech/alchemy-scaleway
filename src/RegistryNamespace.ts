@@ -5,12 +5,12 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients, type ScalewayRegistryNamespaceRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
-import { omitUndefined, physicalName, projectId } from "./Internal.ts";
+import { omitUndefined, physicalName, projectId, projectInput, withManagedProjectDefault, type ProjectRef } from "./Internal.ts";
 import type { Providers } from "./Providers.ts";
 
 export interface RegistryNamespaceProps {
   name?: string;
-  projectId?: string;
+  project?: ProjectRef;
   description?: string;
   public?: boolean;
 }
@@ -33,7 +33,7 @@ export type RegistryNamespace = Resource<
   Providers
 >;
 
-export const RegistryNamespace = Resource<RegistryNamespace>("Scaleway.RegistryNamespace");
+export const RegistryNamespace = withManagedProjectDefault(Resource<RegistryNamespace>("Scaleway.RegistryNamespace"));
 
 class RegistryNamespaceFailed extends Data.TaggedError("Scaleway.RegistryNamespaceFailed")<{
   registryNamespaceId: string;
@@ -88,14 +88,14 @@ export const RegistryNamespaceProvider = () =>
         stables: ["registryNamespaceId", "projectId", "region"],
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
-          const resolvedProjectId = yield* projectId(news.projectId);
+          const resolvedProjectId = yield* projectId(projectInput(news), output.projectId);
           if (resolvedProjectId !== output.projectId) return { action: "replace" } as const;
           const name = yield* nameOf(id, news.name);
           if (name !== output.name) return { action: "replace" } as const;
           if (olds.description !== news.description || olds.public !== news.public) {
             return { action: "update" } as const;
           }
-          return undefined;
+          return { action: "noop" } as const;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.registryNamespaceId) return undefined;
@@ -120,7 +120,7 @@ export const RegistryNamespaceProvider = () =>
           }
           const created = yield* clients.registry.createNamespace({
             name,
-            project_id: yield* projectId(news.projectId),
+            project_id: yield* projectId(projectInput(news), output?.projectId),
             description: news.description,
             is_public: news.public,
           });
