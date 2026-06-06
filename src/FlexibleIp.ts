@@ -1,4 +1,5 @@
 import { Resource } from "alchemy";
+import { Unowned } from "alchemy/AdoptPolicy";
 import { isResolved } from "alchemy/Diff";
 import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
@@ -38,10 +39,13 @@ export type FlexibleIp = Resource<
   Providers
 >;
 
-export const FlexibleIp = withManagedProjectDefault(Resource<FlexibleIp>("Scaleway.FlexibleIp"));
+export const FlexibleIp = withManagedProjectDefault(Resource<FlexibleIp>("Scaleway.FlexibleIp", {
+  defaultRemovalPolicy: "retain",
+}));
 
 const stringsEqual = (left?: string[], right?: string[]) => JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
 const withAlchemyTag = (id: string, tags: string[] | undefined) => [`alchemy:logical-id=${id}`, ...(tags ?? [])];
+const hasAlchemyTag = (id: string, tags: string[] | undefined) => (tags ?? []).includes(`alchemy:logical-id=${id}`);
 const zoneOf = (region: string, zone?: string) => !zone || zone === region ? `${region}-1` : zone;
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
@@ -74,12 +78,22 @@ export const FlexibleIpProvider = () =>
           if (!stringsEqual(output.tags, withAlchemyTag(id, news.tags)) || output.serverId !== news.serverId || output.reverse !== news.reverse) return { action: "update" } as const;
           return { action: "noop" } as const;
         }),
-        read: Effect.fnUntraced(function* ({ output }) {
-          if (!output?.ipId) return undefined;
-          return yield* clients.instance.getFlexibleIp({ zone: zoneOf(clients.region, output.zone), ip: output.ipId }).pipe(
-            Effect.map(toAttributes),
+        read: Effect.fnUntraced(function* ({ id, olds, output }) {
+          if (output?.ipId) {
+            return yield* clients.instance.getFlexibleIp({ zone: zoneOf(clients.region, output.zone), ip: output.ipId }).pipe(
+              Effect.map(toAttributes),
+              Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+            );
+          }
+          const zone = zoneOf(clients.region, olds.zone);
+          const resolvedProjectId = yield* projectId(projectInput(olds));
+          const found = yield* clients.instance.listFlexibleIps({ zone, project: resolvedProjectId }).pipe(
+            Effect.map((ips) => ips.find((ip) => hasAlchemyTag(id, ip.tags))),
             Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
           );
+          if (!found) return undefined;
+          const attrs = toAttributes(found);
+          return hasAlchemyTag(id, found.tags) ? attrs : Unowned(attrs);
         }),
         reconcile: Effect.fnUntraced(function* ({ id, news, output, session }) {
           const zone = zoneOf(clients.region, news.zone);

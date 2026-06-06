@@ -16,6 +16,7 @@ import {
   omitUndefined,
   physicalName,
   recordEquals,
+  resolveRef,
   type NamedNamespace,
 } from "./Internal.ts";
 import type { Domain as DomainResource } from "./Domain.ts";
@@ -30,6 +31,7 @@ import {
   sourceConfig,
   sourceNeedsReplace,
 } from "./Trigger.ts";
+import type { ContainerImage as ContainerImageResource } from "./ContainerImage.ts";
 
 export type ContainerProtocol = "unknown_protocol" | "http1" | "h2c";
 export type ContainerPrivacy = "public" | "private";
@@ -52,10 +54,16 @@ export type ContainerCron =
       destination?: TriggerDestination;
     });
 
+export type ContainerImageRef = string | ContainerImageResource["Attributes"]["ref"];
+
+export const externalImage = (registry: string, repository: string, tag = "latest") => `${registry}/${repository}:${tag}`;
+export const ghcrImage = (repository: string, tag = "latest") => externalImage("ghcr.io", repository, tag);
+export const dockerHubImage = (repository: string, tag = "latest") => externalImage("docker.io", repository, tag);
+
 export interface ContainerProps {
   namespace: NamedNamespace;
   name?: string;
-  image: string;
+  image: ContainerImageRef;
   environmentVariables?: Record<string, string>;
   secretEnvironmentVariables?: Record<string, string | Redacted.Redacted<string>>;
   minScale?: number;
@@ -156,7 +164,6 @@ function containerPropsEqual(olds: ContainerProps, news: ContainerProps) {
 
 function containerShapeEqual(olds: ContainerProps, news: ContainerProps) {
   return (
-    olds.image === news.image &&
     olds.description === news.description &&
     olds.privacy === news.privacy &&
     olds.protocol === news.protocol &&
@@ -168,6 +175,8 @@ function containerShapeEqual(olds: ContainerProps, news: ContainerProps) {
 function containerConfigEqual(olds: ContainerProps, news: ContainerProps) {
   return scalingEqual(olds, news) && environmentEqual(olds, news);
 }
+
+const imageRef = (image: ContainerImageRef) => resolveRef(image);
 
 function scalingEqual(olds: ContainerProps, news: ContainerProps) {
   return (
@@ -359,7 +368,7 @@ export const ContainerProvider = () =>
           const name = yield* nameOf(id, news.name);
           return omitUndefined({
             ...(update ? {} : { namespace_id: resolvedNamespaceId, name }),
-            image: news.image,
+            image: yield* imageRef(news.image),
             environment_variables: news.environmentVariables,
             secret_environment_variables: unredactSecrets(news.secretEnvironmentVariables),
             min_scale: news.minScale,
@@ -488,6 +497,7 @@ export const ContainerProvider = () =>
           const name = yield* nameOf(id, news.name);
           if (
             output.name !== name ||
+            output.image !== (yield* imageRef(news.image)) ||
             !containerPropsEqual(olds, news) ||
             !companionPropsEqual(olds, news) ||
             !companionsPresent(output, news)
@@ -532,9 +542,9 @@ export const ContainerProvider = () =>
           // In v1, Create/Update automatically deploy the container; no separate deploy call.
           if (output?.containerId) {
             const ready = yield* Effect.gen(function* () {
-              if (olds && containerPropsEqual(olds, news))
-                return toAttributes(yield* clients.containers.getContainer(output.containerId));
               const input = yield* inputFor(id, news, true);
+              if (olds && containerPropsEqual(olds, news) && output.image === input.image)
+                return toAttributes(yield* clients.containers.getContainer(output.containerId));
               yield* retryTransient(clients.containers.updateContainer(output.containerId, input), session);
               yield* session.note(`Updated Scaleway container ${output.containerId}`);
               return yield* waitForReady(output.containerId, session);

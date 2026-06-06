@@ -40,7 +40,7 @@ const absoluteHostname = (value: string) => {
   const hostname = withoutScheme(value);
   return hostname.endsWith(".") ? hostname : `${hostname}.`;
 };
-const maxDomainDeployRetries = 3;
+const maxDomainDeployRetries = 10;
 
 const isTransientState = (error: unknown) =>
   String((error as { message?: unknown })?.message ?? "")
@@ -171,14 +171,14 @@ export const DomainProvider = () =>
               return yield* waitForReady(created.id, session).pipe(
                 Effect.catchIf(isRetriableDomainDeployError, () =>
                   Effect.gen(function* () {
-                      if (retriesRemaining <= 0) {
-                        return yield* Effect.fail(new Error(`Scaleway domain ${created.id} kept failing deployment after retries`));
-                      }
-                      yield* session.note(`Retrying Scaleway domain ${created.id} after transient deployment error`);
-                      yield* clients.containers.deleteDomain(created.id).pipe(Effect.catchIf(isNotFound, () => Effect.void));
-                      yield* Effect.sleep("1 second");
-                      return yield* createReadyDomain(retriesRemaining - 1);
-                    }),
+                    if (retriesRemaining <= 0) {
+                      return yield* Effect.fail(new Error(`Scaleway domain ${created.id} kept failing deployment after retries`));
+                    }
+                    yield* session.note(`Retrying Scaleway domain ${created.id} after transient deployment error`);
+                    yield* clients.containers.deleteDomain(created.id).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+                    yield* Effect.sleep("100 millis");
+                    return yield* createReadyDomain(retriesRemaining - 1);
+                  }),
                 ),
               );
             });

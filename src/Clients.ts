@@ -436,6 +436,7 @@ export interface ScalewayClients {
       organization_id: string;
       description?: string;
     }): Effect.Effect<ScalewayProjectRecord, ScalewayError>;
+    listProjects(input: { organizationId?: string }): Effect.Effect<ScalewayProjectRecord[], ScalewayError>;
     getProject(projectId: string): Effect.Effect<ScalewayProjectRecord, ScalewayError>;
     updateProject(
       projectId: string,
@@ -539,6 +540,7 @@ export interface ScalewayClients {
   };
   rdb: {
     createInstance(input: { region: string } & Record<string, unknown>): Effect.Effect<ScalewayRdbInstanceRecord, ScalewayError>;
+    listInstances(input: { region: string; projectId?: string; name?: string }): Effect.Effect<ScalewayRdbInstanceRecord[], ScalewayError>;
     getInstance(input: { region: string; instanceId: string }): Effect.Effect<ScalewayRdbInstanceRecord, ScalewayError>;
     updateInstance(input: { region: string; instanceId: string } & Record<string, unknown>): Effect.Effect<ScalewayRdbInstanceRecord, ScalewayError>;
     deleteInstance(input: { region: string; instanceId: string }): Effect.Effect<void, ScalewayError>;
@@ -708,6 +710,7 @@ export interface ScalewayClients {
     listSecurityGroupRules(input: { zone: string; securityGroupId: string }): Effect.Effect<ScalewaySecurityGroupRuleRecord[], ScalewayError>;
     setSecurityGroupRules(input: { zone: string; securityGroupId: string; rules: ScalewaySecurityGroupRuleRecord[] }): Effect.Effect<ScalewaySecurityGroupRuleRecord[], ScalewayError>;
     createFlexibleIp(input: { zone: string; project?: string; tags?: string[]; server?: string; type?: string }): Effect.Effect<ScalewayFlexibleIpRecord, ScalewayError>;
+    listFlexibleIps(input: { zone: string; project?: string }): Effect.Effect<ScalewayFlexibleIpRecord[], ScalewayError>;
     getFlexibleIp(input: { zone: string; ip: string }): Effect.Effect<ScalewayFlexibleIpRecord, ScalewayError>;
     updateFlexibleIp(input: { zone: string; ip: string; reverse?: string | null; tags?: string[]; server?: string | null }): Effect.Effect<ScalewayFlexibleIpRecord, ScalewayError>;
     deleteFlexibleIp(input: { zone: string; ip: string }): Effect.Effect<void, ScalewayError>;
@@ -776,6 +779,25 @@ export const makeScalewayClients = Effect.gen(function* () {
     const rendered = search.toString();
     return rendered ? `?${rendered}` : "";
   };
+  const listAllPages = <T, Key extends string>(
+    key: Key,
+    pathForPage: (page: number, pageSize: number) => string,
+  ): Effect.Effect<T[], ScalewayError> =>
+    Effect.gen(function* () {
+      const pageSize = 100;
+      const results: T[] = [];
+      for (let page = 1; ; page++) {
+        const response = yield* request<Record<Key, T[] | undefined> & { total_count?: number }>(
+          "GET",
+          pathForPage(page, pageSize),
+        );
+        const items = response[key] ?? [];
+        results.push(...items);
+        if (items.length === 0) return results;
+        if (response.total_count !== undefined && results.length >= response.total_count) return results;
+        if (items.length < pageSize) return results;
+      }
+    });
 
   return {
     region,
@@ -783,6 +805,10 @@ export const makeScalewayClients = Effect.gen(function* () {
     account: {
       createProject: (input) =>
         request("POST", "/account/v3/projects", input).pipe(Effect.map(decodeProject)),
+      listProjects: ({ organizationId }) =>
+        listAllPages<ScalewayProjectRecord, "projects">("projects", (page, pageSize) =>
+          `/account/v3/projects${query({ organization_id: organizationId, page, page_size: pageSize })}`
+        ),
       getProject: (id) =>
         request("GET", `/account/v3/projects/${id}`).pipe(Effect.map(decodeProject)),
       updateProject: (id, input) =>
@@ -889,6 +915,10 @@ export const makeScalewayClients = Effect.gen(function* () {
     rdb: {
       createInstance: ({ region, ...input }) =>
         request("POST", `/rdb/v1/regions/${region}/instances`, input).pipe(Effect.map(decodeRdbInstance)),
+      listInstances: ({ region, projectId, name }) =>
+        listAllPages<ScalewayRdbInstanceRecord, "instances">("instances", (page, pageSize) =>
+          `/rdb/v1/regions/${region}/instances${query({ project_id: projectId, name, page, page_size: pageSize })}`
+        ),
       getInstance: ({ region, instanceId }) =>
         request("GET", `/rdb/v1/regions/${region}/instances/${instanceId}`).pipe(Effect.map(decodeRdbInstance)),
       updateInstance: ({ region, instanceId, ...input }) =>
@@ -1028,6 +1058,10 @@ export const makeScalewayClients = Effect.gen(function* () {
         request("PUT", `/instance/v1/zones/${zone}/security_groups/${securityGroupId}/rules`, { rules }).pipe(Effect.map(decodeSecurityGroupRules)),
       createFlexibleIp: ({ zone, ...input }) =>
         request("POST", `/instance/v1/zones/${zone}/ips`, input).pipe(Effect.map(decodeFlexibleIp)),
+      listFlexibleIps: ({ zone, project }) =>
+        listAllPages<ScalewayFlexibleIpRecord, "ips">("ips", (page, pageSize) =>
+          `/instance/v1/zones/${zone}/ips${query({ project, page, page_size: pageSize })}`
+        ),
       getFlexibleIp: ({ zone, ip }) =>
         request("GET", `/instance/v1/zones/${zone}/ips/${ip}`).pipe(Effect.map(decodeFlexibleIp)),
       updateFlexibleIp: ({ zone, ip, ...input }) =>

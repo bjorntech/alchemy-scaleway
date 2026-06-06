@@ -1,4 +1,5 @@
 import { Resource } from "alchemy";
+import { Unowned } from "alchemy/AdoptPolicy";
 import * as Provider from "alchemy/Provider";
 import { isResolved } from "alchemy/Diff";
 import * as Data from "effect/Data";
@@ -59,12 +60,16 @@ export type DatabaseInstance = Resource<
     endpointHostname?: string;
     createdAt?: string;
     updatedAt?: string;
+    /** @internal ownership marker used to migrate pre-retain resources. */
+    _alchemyLogicalId?: string;
   },
   never,
   Providers
 >;
 
-export const DatabaseInstance = withManagedProjectDefault(Resource<DatabaseInstance>("Scaleway.DatabaseInstance"));
+export const DatabaseInstance = withManagedProjectDefault(Resource<DatabaseInstance>("Scaleway.DatabaseInstance", {
+  defaultRemovalPolicy: "retain",
+}));
 
 class DatabaseInstanceFailed extends Data.TaggedError("Scaleway.DatabaseInstanceFailed")<{
   databaseInstanceId: string;
@@ -72,6 +77,11 @@ class DatabaseInstanceFailed extends Data.TaggedError("Scaleway.DatabaseInstance
 }> {}
 
 const DEFAULT_VOLUME_TYPE: DatabaseVolumeType = "lssd";
+const withAlchemyTag = (id: string, tags: string[] | undefined) => [`alchemy:logical-id=${id}`, ...(tags ?? [])];
+const hasAlchemyTag = (id: string, tags: string[] | undefined) => (tags ?? []).includes(`alchemy:logical-id=${id}`);
+const alchemyLogicalId = (tags: string[] | undefined) =>
+  (tags ?? []).find((tag) => tag.startsWith("alchemy:logical-id="))?.slice("alchemy:logical-id=".length);
+const userTags = (tags: string[] | undefined) => (tags ?? []).filter((tag) => !tag.startsWith("alchemy:"));
 
 const tagsEqual = (olds: string[] | undefined, news: string[] | undefined) =>
   JSON.stringify(olds ?? []) === JSON.stringify(news ?? []);
@@ -84,10 +94,10 @@ const backupEqual = (
 const isTransientState = (error: unknown) =>
   error instanceof ScalewayError && error.statusCode === 409;
 
-const updateInput = (name: string, props: DatabaseInstanceProps) =>
+const updateInput = (id: string, name: string, props: DatabaseInstanceProps) =>
   omitUndefined({
     name,
-    tags: props.tags,
+    tags: withAlchemyTag(id, props.tags),
     backup_schedule_frequency: props.backupSchedule?.frequencyHours,
     backup_schedule_retention: props.backupSchedule?.retentionDays,
     is_backup_schedule_disabled: props.backupSchedule?.disabled ?? props.disableBackup,
@@ -112,7 +122,7 @@ export const DatabaseInstanceProvider = () =>
           engine: record.engine,
           nodeType: record.node_type,
           highAvailability: record.is_ha_cluster,
-          tags: record.tags,
+          tags: userTags(record.tags),
           volumeType: record.volume?.type,
           volumeSize: record.volume?.size,
           backupSchedule: record.backup_schedule
@@ -127,6 +137,7 @@ export const DatabaseInstanceProvider = () =>
           endpointHostname: record.endpoint?.hostname ?? record.endpoints?.[0]?.hostname,
           createdAt: record.created_at,
           updatedAt: record.updated_at,
+          _alchemyLogicalId: alchemyLogicalId(record.tags),
         }) as DatabaseInstance["Attributes"];
 
       const waitForReady = (databaseInstanceId: string, session: { note(message: string): Effect.Effect<void> }): Effect.Effect<DatabaseInstance["Attributes"], unknown> =>
@@ -192,6 +203,7 @@ export const DatabaseInstanceProvider = () =>
           const name = yield* nameOf(id, news.name);
           if (
             output.name !== name ||
+            output._alchemyLogicalId !== id ||
             !tagsEqual(olds.tags, news.tags) ||
             olds.disableBackup !== news.disableBackup ||
             !backupEqual(olds.backupSchedule, news.backupSchedule) ||
@@ -201,11 +213,21 @@ export const DatabaseInstanceProvider = () =>
           }
           return { action: "noop" } as const;
         }),
-        read: Effect.fnUntraced(function* ({ output }) {
-          if (!output?.databaseInstanceId) return undefined;
-          return yield* clients.rdb
-            .getInstance({ region: output.region, instanceId: output.databaseInstanceId })
-            .pipe(Effect.map(toAttributes), Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
+        read: Effect.fnUntraced(function* ({ id, olds, output }) {
+          if (output?.databaseInstanceId) {
+            return yield* clients.rdb
+              .getInstance({ region: output.region, instanceId: output.databaseInstanceId })
+              .pipe(Effect.map(toAttributes), Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
+          }
+          const name = yield* nameOf(id, olds.name);
+          const resolvedProjectId = yield* projectId(projectInput(olds));
+          const found = yield* clients.rdb.listInstances({ region: clients.region, projectId: resolvedProjectId, name }).pipe(
+            Effect.map((instances) => instances.find((instance) => instance.name === name && instance.project_id === resolvedProjectId)),
+            Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+          );
+          if (!found) return undefined;
+          const attrs = toAttributes(found);
+          return hasAlchemyTag(id, found.tags) ? attrs : Unowned(attrs);
         }),
         reconcile: Effect.fnUntraced(function* ({ id, news, output, session }) {
           const name = yield* nameOf(id, news.name);
@@ -213,7 +235,7 @@ export const DatabaseInstanceProvider = () =>
             const updated = yield* clients.rdb.updateInstance({
               region: output.region,
               instanceId: output.databaseInstanceId,
-              ...updateInput(name, news),
+              ...updateInput(id, name, news),
             });
             yield* session.note(`Updated Scaleway database instance ${output.databaseInstanceId}`);
             return updated.status?.toLowerCase() === "ready"
@@ -232,7 +254,7 @@ export const DatabaseInstanceProvider = () =>
               node_type: news.nodeType,
               is_ha_cluster: news.highAvailability,
               disable_backup: news.disableBackup,
-              tags: news.tags,
+              tags: withAlchemyTag(id, news.tags),
               volume_type: news.volumeType,
               volume_size: news.volumeSize,
               backup_same_region: news.backupSameRegion,
@@ -243,7 +265,7 @@ export const DatabaseInstanceProvider = () =>
             ? yield* clients.rdb.updateInstance({
                 region: clients.region,
                 instanceId: ready.databaseInstanceId,
-                ...updateInput(name, news),
+                ...updateInput(id, name, news),
               })
             : undefined;
           yield* session.note(`Created Scaleway database instance ${created.id}`);

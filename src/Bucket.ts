@@ -29,7 +29,9 @@ export type Bucket = Resource<
   Providers
 >;
 
-export const Bucket = Resource<Bucket>("Scaleway.Bucket");
+export const Bucket = Resource<Bucket>("Scaleway.Bucket", {
+  defaultRemovalPolicy: "retain",
+});
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const BucketProvider = () =>
@@ -54,7 +56,7 @@ export const BucketProvider = () =>
           const region = news.region ?? clients.region;
           if (output.bucketName !== name || output.region !== region)
             return { action: "replace" } as const;
-          if (olds.versioning !== news.versioning || !recordEquals(olds.tags, news.tags))
+          if (!hasAlchemyTags(id, output.tags) || olds.versioning !== news.versioning || !recordEquals(olds.tags, news.tags))
             return { action: "update" } as const;
           return undefined;
         }),

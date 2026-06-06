@@ -4,6 +4,29 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+### Changed
+
+- `Bucket`, `DatabaseInstance`, and `FlexibleIp` now default to Alchemy's
+  `retain()` removal policy to reduce accidental data or address loss. Use
+  `.pipe(destroy())` when a stack should delete these resources on removal.
+
+### Added
+
+- Added `ContainerImage`, a local Docker build/push resource for Scaleway
+  Container Registry. It returns a content-tagged pushed image `ref` plus a
+  requested-tag `stableRef`, supports `buildArgs`, and can be passed directly
+  to `Container.image` as `image.ref` so same-tag source changes redeploy
+  dependent containers. Docker builds default to `linux/amd64` for Scaleway
+  Serverless Containers compatibility.
+- Added `dockerHubImage`, `ghcrImage`, and `externalImage` helpers for public
+  external container image references, and optional `ContainerImage.auth` for
+  pushing built images to external registries without changing the Scaleway
+  Registry workflow.
+- Retained `Bucket`, `DatabaseInstance`, and `FlexibleIp` resources can be
+  rediscovered on later deploys when their explicit name or ownership tags still
+  match. Existing same-name `Project` resources are reported as unowned and
+  require explicit `adopt()`/`--adopt` before Alchemy manages them.
+
 ## [0.3.1-beta.51] - 2026-06-06
 
 ### Added

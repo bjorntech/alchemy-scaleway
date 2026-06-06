@@ -1,4 +1,5 @@
 import { Resource } from "alchemy";
+import { Unowned } from "alchemy/AdoptPolicy";
 import { isResolved } from "alchemy/Diff";
 import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
@@ -59,12 +60,19 @@ export const ProjectProvider = () =>
           }
           return undefined;
         }),
-        read: Effect.fnUntraced(function* ({ output }) {
-          if (!output?.projectId) return undefined;
-          return yield* clients.account.getProject(output.projectId).pipe(
-            Effect.map(toAttributes),
+        read: Effect.fnUntraced(function* ({ id, olds, output }) {
+          if (output?.projectId) {
+            return yield* clients.account.getProject(output.projectId).pipe(
+              Effect.map(toAttributes),
+              Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+            );
+          }
+          const name = yield* nameOf(id, olds.name);
+          const found = yield* clients.account.listProjects({ organizationId: olds.organizationId }).pipe(
+            Effect.map((projects) => projects.find((project) => project.name === name && project.organization_id === olds.organizationId)),
             Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
           );
+          return found ? Unowned(toAttributes(found)) : undefined;
         }),
         reconcile: Effect.fnUntraced(function* ({ id, news, output, session }) {
           const name = yield* nameOf(id, news.name);

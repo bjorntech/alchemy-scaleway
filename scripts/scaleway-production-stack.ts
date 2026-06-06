@@ -1,5 +1,6 @@
 import * as Alchemy from "alchemy";
 import * as Output from "alchemy/Output";
+import { destroy } from "alchemy/RemovalPolicy";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Scaleway from "../src/index.ts";
@@ -45,10 +46,25 @@ export default Alchemy.Stack(
       environmentVariables: { ALCHEMY_SMOKE_TEST: updated ? "updated" : "true" },
     });
 
+    const registry = yield* Scaleway.RegistryNamespace("Registry", {
+      name: `${prefix}-registry`,
+      description: updated
+        ? "alchemy-scaleway production smoke test updated"
+        : "alchemy-scaleway production smoke test",
+      public: updated,
+    });
+
+    const image = yield* Scaleway.ContainerImage("ContainerImage", {
+      registry,
+      context: "scripts/smoke-container",
+      repository: "nginx-smoke",
+      tag: updated ? "updated" : "create",
+    });
+
     const container = yield* Scaleway.Container("Container", {
       namespace,
       name: `${prefix.slice(0, 22)}-ctr`,
-      image: "docker.io/library/nginx:latest",
+      image: image.ref,
       environmentVariables: { ALCHEMY_SMOKE_TEST: "true" },
       port: 80,
       privacy: "public",
@@ -68,14 +84,6 @@ export default Alchemy.Stack(
           waitForCname: true,
         })
       : undefined;
-
-    const registry = yield* Scaleway.RegistryNamespace("Registry", {
-      name: `${prefix}-registry`,
-      description: updated
-        ? "alchemy-scaleway production smoke test updated"
-        : "alchemy-scaleway production smoke test",
-      public: updated,
-    });
 
     const secret = yield* Scaleway.Secret("Secret", {
       name: `${prefix}-secret`,
@@ -100,13 +108,13 @@ export default Alchemy.Stack(
         frequencyHours: updated ? 48 : 24,
         retentionDays: updated ? 14 : 7,
       },
-    });
+    }).pipe(destroy());
 
     const bucket = yield* Scaleway.Bucket("Bucket", {
       name: `${prefix}-bucket`,
       tags: { purpose: "alchemy-smoke-test", phase: updated ? "updated" : "create" },
       versioning: true,
-    });
+    }).pipe(destroy());
 
     const vpc = yield* Scaleway.Vpc("Vpc", {
       name: updated ? `${prefix}-vpc-updated` : `${prefix}-vpc`,
@@ -185,7 +193,7 @@ export default Alchemy.Stack(
       zone,
       tags: activeTags,
       type: "routed_ipv4",
-    });
+    }).pipe(destroy());
 
     const instance = yield* Scaleway.Instance("Instance", {
       zone,
@@ -255,6 +263,7 @@ echo "Alchemy Scaleway smoke VM setup complete"
       projectId: project.projectId,
       namespaceId: namespace.namespaceId,
       namespaceProjectId: namespace.projectId,
+      imageRef: image.ref,
       containerUrl: container.url,
       containerProjectId: container.projectId,
       smokeHostname,
