@@ -5,13 +5,13 @@ import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients, type ScalewayDnsZoneRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
-import { omitUndefined, projectId } from "./Internal.ts";
+import { credentialsProjectId, omitUndefined, projectInput, storedProjectInput, type ProjectRef } from "./Internal.ts";
 import type { Providers } from "./Providers.ts";
 
 export interface DnsZoneProps {
   domain: string;
   subdomain?: string;
-  projectId?: string;
+  project?: ProjectRef;
 }
 
 export type DnsZone = Resource<
@@ -79,19 +79,20 @@ export const DnsZoneProvider = () =>
           if (!isResolved(news) || !output) return undefined;
           const desiredName = dnsZoneName(news.domain, news.subdomain);
           if (output.dnsZone !== desiredName) return { action: "replace" } as const;
-          if (output.projectId !== (yield* projectId(news.projectId))) return { action: "replace" } as const;
+          if (output.projectId !== (yield* credentialsProjectId(projectInput(news)))) return { action: "replace" } as const;
           return undefined;
         }),
         read: Effect.fnUntraced(function* ({ olds, output }) {
           const dnsZone = output?.dnsZone ?? (olds ? dnsZoneName(olds.domain, olds.subdomain) : undefined);
           if (!dnsZone) return undefined;
-          const found = yield* findZone(dnsZone, output?.projectId ?? olds?.projectId);
+          const oldProjectId = olds ? yield* credentialsProjectId(storedProjectInput(olds)) : undefined;
+          const found = yield* findZone(dnsZone, output?.projectId ?? oldProjectId);
           if (!found) return undefined;
           return output?.dnsZone ? toAttributes(found) : Unowned(toAttributes(found));
         }),
         reconcile: Effect.fnUntraced(function* ({ news, output, session }) {
           const dnsZone = dnsZoneName(news.domain, news.subdomain);
-          const desiredProjectId = yield* projectId(news.projectId);
+          const desiredProjectId = yield* credentialsProjectId(projectInput(news));
           const existing = output?.dnsZone ? yield* findZone(output.dnsZone, desiredProjectId) : yield* findZone(dnsZone, desiredProjectId);
           if (existing) {
             yield* session.note(`Using Scaleway DNS zone ${dnsZone}`);

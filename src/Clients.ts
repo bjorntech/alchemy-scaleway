@@ -117,6 +117,15 @@ export interface ScalewayDnsZoneRecord {
   linked_products?: string[];
 }
 
+export interface ScalewayProjectRecord {
+  id: string;
+  name: string;
+  organization_id: string;
+  description?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export type ScalewayDnsRecordType =
   | "A"
   | "AAAA"
@@ -390,6 +399,23 @@ export interface ScalewayInstanceRecord {
 export interface ScalewayClients {
   region: string;
   projectId?: string;
+  account: {
+    createProject(input: {
+      name: string;
+      organization_id: string;
+      description?: string;
+    }): Effect.Effect<ScalewayProjectRecord, ScalewayError>;
+    getProject(projectId: string): Effect.Effect<ScalewayProjectRecord, ScalewayError>;
+    updateProject(
+      projectId: string,
+      input: {
+        name?: string;
+        organization_id: string;
+        description?: string;
+      },
+    ): Effect.Effect<ScalewayProjectRecord, ScalewayError>;
+    deleteProject(projectId: string): Effect.Effect<void, ScalewayError>;
+  };
   containers: {
     createNamespace(input: {
       name: string;
@@ -717,6 +743,15 @@ export const makeScalewayClients = Effect.gen(function* () {
   return {
     region,
     projectId,
+    account: {
+      createProject: (input) =>
+        request("POST", "/account/v3/projects", input).pipe(Effect.map(decodeProject)),
+      getProject: (id) =>
+        request("GET", `/account/v3/projects/${id}`).pipe(Effect.map(decodeProject)),
+      updateProject: (id, input) =>
+        request("PATCH", `/account/v3/projects/${id}`, input).pipe(Effect.map(decodeProject)),
+      deleteProject: (id) => request<void>("DELETE", `/account/v3/projects/${id}`),
+    },
     containers: {
       createNamespace: (input) =>
         request("POST", `${base}/namespaces`, input).pipe(Effect.map(decodeNamespace)),
@@ -1271,6 +1306,7 @@ const decodeNamespace = (value: unknown) => value as ScalewayNamespaceRecord;
 const decodeContainer = (value: unknown) => value as ScalewayContainerRecord;
 const decodeTrigger = (value: unknown) => value as ScalewayTriggerRecord;
 const decodeDomain = (value: unknown) => value as ScalewayDomainRecord;
+const decodeProject = (value: unknown) => envelope<ScalewayProjectRecord>(value, "project");
 const decodeDnsZone = (value: unknown) => value as ScalewayDnsZoneRecord;
 const decodeRegistryNamespace = (value: unknown) => value as ScalewayRegistryNamespaceRecord;
 const decodeSecret = (value: unknown) => value as ScalewaySecretRecord;

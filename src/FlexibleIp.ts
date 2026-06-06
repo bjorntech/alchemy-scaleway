@@ -4,14 +4,14 @@ import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients, type ScalewayFlexibleIpRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
-import { omitUndefined, projectId } from "./Internal.ts";
+import { omitUndefined, projectId, projectInput, withManagedProjectDefault, type ProjectRef } from "./Internal.ts";
 import type { Providers } from "./Providers.ts";
 
 export type FlexibleIpType = "routed_ipv4" | "routed_ipv6";
 
 export interface FlexibleIpProps {
   zone?: string;
-  projectId?: string;
+  project?: ProjectRef;
   tags?: string[];
   serverId?: string;
   type?: FlexibleIpType;
@@ -38,7 +38,7 @@ export type FlexibleIp = Resource<
   Providers
 >;
 
-export const FlexibleIp = Resource<FlexibleIp>("Scaleway.FlexibleIp");
+export const FlexibleIp = withManagedProjectDefault(Resource<FlexibleIp>("Scaleway.FlexibleIp"));
 
 const stringsEqual = (left?: string[], right?: string[]) => JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
 const withAlchemyTag = (id: string, tags: string[] | undefined) => [`alchemy:logical-id=${id}`, ...(tags ?? [])];
@@ -70,9 +70,9 @@ export const FlexibleIpProvider = () =>
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone) || output.type !== (news.type ?? "routed_ipv4")) return { action: "replace" } as const;
-          if (output.projectId !== (yield* projectId(news.projectId))) return { action: "replace" } as const;
+          if (output.projectId !== (yield* projectId(projectInput(news), output.projectId))) return { action: "replace" } as const;
           if (!stringsEqual(output.tags, withAlchemyTag(id, news.tags)) || output.serverId !== news.serverId || output.reverse !== news.reverse) return { action: "update" } as const;
-          return undefined;
+          return { action: "noop" } as const;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.ipId) return undefined;
@@ -88,7 +88,7 @@ export const FlexibleIpProvider = () =>
           if (output?.ipId) {
             record = yield* clients.instance.updateFlexibleIp({ zone, ip: output.ipId, tags, server: news.serverId ?? null, reverse: news.reverse ?? null });
           } else {
-            record = yield* clients.instance.createFlexibleIp({ zone, project: yield* projectId(news.projectId), tags, server: news.serverId, type: news.type ?? "routed_ipv4" });
+            record = yield* clients.instance.createFlexibleIp({ zone, project: yield* projectId(projectInput(news), output?.projectId), tags, server: news.serverId, type: news.type ?? "routed_ipv4" });
             if (news.reverse !== undefined) {
               record = yield* clients.instance.updateFlexibleIp({ zone, ip: record.id, tags, server: news.serverId ?? null, reverse: news.reverse }).pipe(
                 Effect.catch((error) =>

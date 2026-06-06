@@ -11,7 +11,7 @@ import {
   type ScalewaySecretVersionRecord,
 } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
-import { omitUndefined, physicalName, projectId } from "./Internal.ts";
+import { omitUndefined, physicalName, projectId, projectInput, withManagedProjectDefault, type ProjectRef } from "./Internal.ts";
 import type { Providers } from "./Providers.ts";
 
 export type SecretType =
@@ -30,7 +30,7 @@ export interface SecretEphemeralPolicy {
 
 export interface SecretProps {
   name?: string;
-  projectId?: string;
+  project?: ProjectRef;
   description?: string;
   tags?: string[];
   type?: SecretType;
@@ -66,7 +66,7 @@ export type Secret = Resource<
   Providers
 >;
 
-export const Secret = Resource<Secret>("Scaleway.Secret");
+export const Secret = withManagedProjectDefault(Resource<Secret>("Scaleway.Secret"));
 
 const DEFAULT_TYPE: SecretType = "opaque";
 const DEFAULT_PATH = "/";
@@ -163,7 +163,7 @@ export const SecretProvider = () =>
         stables: ["secretId", "projectId", "region"],
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
-          const resolvedProjectId = yield* projectId(news.projectId);
+          const resolvedProjectId = yield* projectId(projectInput(news), output.projectId);
           if (resolvedProjectId !== output.projectId) return { action: "replace" } as const;
           if ((olds.type ?? DEFAULT_TYPE) !== (news.type ?? DEFAULT_TYPE)) {
             return { action: "replace" } as const;
@@ -181,7 +181,7 @@ export const SecretProvider = () =>
           ) {
             return { action: "update" } as const;
           }
-          return undefined;
+          return { action: "noop" } as const;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.secretId) return undefined;
@@ -215,7 +215,7 @@ export const SecretProvider = () =>
           const created = yield* clients.secretManager.createSecret(
             omitUndefined({
               name: yield* nameOf(id, news.name),
-              project_id: yield* projectId(news.projectId),
+              project_id: yield* projectId(projectInput(news), output?.projectId),
               description: news.description,
               tags: news.tags,
               type: news.type ?? DEFAULT_TYPE,

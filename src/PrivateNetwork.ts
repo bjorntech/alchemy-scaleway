@@ -4,7 +4,7 @@ import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients, type ScalewayPrivateNetworkRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
-import { omitUndefined, physicalName, projectId, resolveRef } from "./Internal.ts";
+import { omitUndefined, physicalName, projectId, projectInput, resolveRef, withManagedProjectDefault, type ProjectRef } from "./Internal.ts";
 import type { Providers } from "./Providers.ts";
 import type { Vpc } from "./Vpc.ts";
 
@@ -12,7 +12,7 @@ export type VpcRef = string | Vpc;
 
 export interface PrivateNetworkProps {
   name?: string;
-  projectId?: string;
+  project?: ProjectRef;
   vpc?: VpcRef;
   tags?: string[];
   subnets?: string[];
@@ -38,7 +38,7 @@ export type PrivateNetwork = Resource<
   Providers
 >;
 
-export const PrivateNetwork = Resource<PrivateNetwork>("Scaleway.PrivateNetwork");
+export const PrivateNetwork = withManagedProjectDefault(Resource<PrivateNetwork>("Scaleway.PrivateNetwork"));
 
 const sorted = (values: string[] | undefined) => [...(values ?? [])].sort();
 const stringsEqual = (left?: string[], right?: string[]) =>
@@ -91,7 +91,7 @@ export const PrivateNetworkProvider = () =>
         stables: ["privateNetworkId", "projectId", "region", "vpcId"],
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
-          if ((yield* projectId(news.projectId)) !== output.projectId) return { action: "replace" } as const;
+          if ((yield* projectId(projectInput(news), output.projectId)) !== output.projectId) return { action: "replace" } as const;
           const desiredVpcId = yield* vpcIdOf(news.vpc);
           if (desiredVpcId !== output.vpcId) return { action: "replace" } as const;
           const name = yield* nameOf(id, news.name);
@@ -106,7 +106,7 @@ export const PrivateNetworkProvider = () =>
           ) {
             return { action: "update" } as const;
           }
-          return undefined;
+          return { action: "noop" } as const;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.privateNetworkId) return undefined;
@@ -126,7 +126,7 @@ export const PrivateNetworkProvider = () =>
               })
             : yield* clients.vpc.createPrivateNetwork({
                 name,
-                project_id: yield* projectId(news.projectId),
+                project_id: yield* projectId(projectInput(news), output?.projectId),
                 vpc_id: yield* vpcIdOf(news.vpc),
                 tags,
                 subnets: news.subnets,

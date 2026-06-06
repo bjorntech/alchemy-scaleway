@@ -5,12 +5,12 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
-import { omitUndefined, physicalName, projectId, recordEquals } from "./Internal.ts";
+import { omitUndefined, physicalName, projectId, projectInput, recordEquals, withManagedProjectDefault, type ProjectRef } from "./Internal.ts";
 import type { Providers } from "./Providers.ts";
 
 export interface NamespaceProps {
   name?: string;
-  projectId?: string;
+  project?: ProjectRef;
   description?: string;
   environmentVariables?: Record<string, string>;
 }
@@ -30,7 +30,7 @@ export type Namespace = Resource<
   Providers
 >;
 
-export const Namespace = Resource<Namespace>("Scaleway.Namespace");
+export const Namespace = withManagedProjectDefault(Resource<Namespace>("Scaleway.Namespace"));
 
 class NamespaceFailed extends Data.TaggedError("Scaleway.NamespaceFailed")<{
   namespaceId: string;
@@ -92,7 +92,7 @@ export const NamespaceProvider = () =>
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
           const name = yield* nameOf(id, news.name);
-          const resolvedProjectId = yield* projectId(news.projectId);
+          const resolvedProjectId = yield* projectId(projectInput(news), output.projectId);
           if (resolvedProjectId !== output.projectId) return { action: "replace" } as const;
           if (
             output.name !== name ||
@@ -101,7 +101,7 @@ export const NamespaceProvider = () =>
           ) {
             return { action: "update" } as const;
           }
-          return undefined;
+          return { action: "noop" } as const;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.namespaceId) return undefined;
@@ -112,7 +112,7 @@ export const NamespaceProvider = () =>
         }),
         reconcile: Effect.fnUntraced(function* ({ id, news, output, session }) {
           const name = yield* nameOf(id, news.name);
-          const resolvedProjectId = yield* projectId(news.projectId);
+          const resolvedProjectId = yield* projectId(projectInput(news), output?.projectId);
           const body = omitUndefined({
             name,
             description: news.description,

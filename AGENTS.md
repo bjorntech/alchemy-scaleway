@@ -41,11 +41,13 @@ The package should keep a flat Alchemy v2 provider layout and avoid nested provi
 - Hide provider quirks, sequencing, stabilization waits, and retry behavior inside resource reconciliation.
 - Return application-useful outputs such as URLs, resolved physical names, IDs, regions, and deployment metadata.
 - Do not add adoption behavior unless ownership is reliable; Containers resources currently lack a safe ownership tag surface.
+- When exactly one `Project` resource is declared in a stack, new project-scoped application resources default to that managed project. Existing resources must keep their persisted project ID for backward compatibility. DNS resources and Object Storage state remain shared-project exceptions and default to `SCW_DEFAULT_PROJECT_ID` unless explicitly configured.
 
 ## Resource Scope
 
 Current resources:
 
+- `Project` - Scaleway Account project lifecycle.
 - `Namespace` - Scaleway Serverless Containers namespace.
 - `Container` - Scaleway Serverless Container with deployment readiness polling and optional companion domains/cron triggers.
 - `Trigger` - container trigger (v1 `/triggers`): cron, SQS, or NATS source.

@@ -6,7 +6,7 @@ import * as Redacted from "effect/Redacted";
 import { createHash } from "node:crypto";
 import { makeScalewayClients, type ScalewayInstanceRecord, type ScalewayInstanceVolumeRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
-import { omitUndefined, physicalName, projectId, resolveRef } from "./Internal.ts";
+import { omitUndefined, physicalName, projectId, projectInput, resolveRef, withManagedProjectDefault, type ProjectRef } from "./Internal.ts";
 import type { FlexibleIp } from "./FlexibleIp.ts";
 import type { Providers } from "./Providers.ts";
 import type { SecurityGroup } from "./SecurityGroup.ts";
@@ -29,7 +29,7 @@ export interface InstanceVolume {
 export interface InstanceProps {
   name?: string;
   zone?: string;
-  projectId?: string;
+  project?: ProjectRef;
   commercialType: string;
   image?: string;
   volumes?: Record<string, InstanceVolume>;
@@ -80,7 +80,7 @@ export type Instance = Resource<
   Providers
 >;
 
-export const Instance = Resource<Instance>("Scaleway.Instance");
+export const Instance = withManagedProjectDefault(Resource<Instance>("Scaleway.Instance"));
 
 const stringsEqual = (left?: string[], right?: string[]) => JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
 const withAlchemyTag = (id: string, tags: string[] | undefined) => [`alchemy:logical-id=${id}`, ...(tags ?? [])];
@@ -209,7 +209,7 @@ export const InstanceProvider = () =>
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone)) return { action: "replace" } as const;
-          if (output.projectId !== (yield* projectId(news.projectId))) return { action: "replace" } as const;
+          if (output.projectId !== (yield* projectId(projectInput(news), output.projectId))) return { action: "replace" } as const;
           if (output.commercialType !== news.commercialType) return { action: "replace" } as const;
           if (news.image && output.imageName !== news.image && output.imageId !== news.image) return { action: "replace" } as const;
           if (volumesNeedReplace(news.volumes, output.volumes)) return { action: "replace" } as const;
@@ -233,7 +233,7 @@ export const InstanceProvider = () =>
             output.placementGroupId !== placementGroupId ||
             (desiredState !== undefined && output.state !== desiredState)
           ) return { action: "update" } as const;
-          return undefined;
+          return { action: "noop" } as const;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.serverId) return undefined;
@@ -266,7 +266,7 @@ export const InstanceProvider = () =>
             : yield* clients.instance.createInstance({
                 zone,
                 name,
-                project: yield* projectId(news.projectId),
+                project: yield* projectId(projectInput(news), output?.projectId),
                 commercial_type: news.commercialType,
                 image: news.image,
                 volumes: news.volumes ? volumesInput(news.volumes) : undefined,

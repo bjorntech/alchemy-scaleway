@@ -47,6 +47,10 @@ SCW_API_URL=https://api.scaleway.com # optional, defaults to https://api.scalewa
 
 The `stored` auth method is configured through `alchemy login` and writes credentials under `~/.alchemy/credentials/{profile}/scaleway-stored.json`.
 
+`Project` requires an explicit `organizationId` prop. The API key must have Account/Organization-level permissions to create, update, or delete Scaleway projects.
+
+When a stack declares exactly one `Scaleway.Project`, new project-scoped application resources in the same deploy default to that managed project. Existing beta stacks that should keep creating resources in `SCW_DEFAULT_PROJECT_ID` can set `providers: Scaleway.providers({ project: process.env.SCW_DEFAULT_PROJECT_ID })`. Resources that already exist in state keep their persisted project for backward compatibility. Remote state still uses `SCW_DEFAULT_PROJECT_ID` for its default bucket name, and DNS resources (`DnsZone`/`DnsRecord`) default to `SCW_DEFAULT_PROJECT_ID` unless `project` is set explicitly.
+
 ### Live Smoke Test
 
 The production smoke test is opt-in and creates billable Scaleway resources before deleting them. Run it only with credentials for a test project:
@@ -178,12 +182,13 @@ Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJE
 
 ## Resources
 
+- `Project` - Scaleway Account project lifecycle. Requires `organizationId`; changing `organizationId` replaces the project, while name and description update in place. If exactly one `Project` is declared, new application resources default to it unless they set `project` explicitly or the provider is configured with `providers({ project })`.
 - `Namespace` - Scaleway Serverless Containers namespace lifecycle.
 - `Container` - Scaleway Serverless Container lifecycle with deployment readiness polling, optional custom domains, and optional cron triggers.
 - `Trigger` - Container trigger lifecycle (cron, SQS, or NATS source).
 - `Domain` - Container custom domain lifecycle. Set `waitForCname: true` when the stack also creates the CNAME and Scaleway should wait for DNS visibility before custom-domain creation.
-- `DnsZone` - Scaleway Domains and DNS zone lifecycle. Zones default to retain on stack removal.
-- `DnsRecord` - Scaleway Domains and DNS record-set lifecycle. Records are scoped through their `DnsZone`, including its `projectId`, and can use explicit values or infer a target from resources such as `Container`, `FlexibleIp`, `Instance`, `RegistryNamespace`, and `Bucket`. Initial creates refuse to replace an existing same-name/type record set unless `overwriteExisting: true` is set.
+- `DnsZone` - Scaleway Domains and DNS zone lifecycle. Zones default to `SCW_DEFAULT_PROJECT_ID` and retain on stack removal.
+- `DnsRecord` - Scaleway Domains and DNS record-set lifecycle. Records are scoped through their `DnsZone`, including its project, or through an explicit `project`; otherwise DNS operations use `SCW_DEFAULT_PROJECT_ID`. Records can use explicit values or infer a target from resources such as `Container`, `FlexibleIp`, `Instance`, `RegistryNamespace`, and `Bucket`. Initial creates refuse to replace an existing same-name/type record set unless `overwriteExisting: true` is set.
 - `RegistryNamespace` - Scaleway Container Registry namespace lifecycle with ready-to-use image prefix output.
 - `Secret` - Scaleway Secret Manager secret metadata and version lifecycle. Secret values are accepted as `Redacted<string>` and are never returned in outputs.
 - `Bucket` - Scaleway Object Storage bucket lifecycle via the S3-compatible API.
@@ -203,11 +208,11 @@ Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJE
 
 `DnsRecord` owns the complete record set for one zone/name/type. If the record set already exists outside Alchemy, initial creation fails by default to avoid replacing unmanaged DNS. Set `overwriteExisting: true` only when you intentionally want Alchemy to take over and replace that record set.
 
-DNS zones can live in a shared/default project while targets live in another project. Set `projectId` on the project-scoped app resource, and pass the shared `DnsZone` to `DnsRecord`; `Domain` remains scoped to the target container:
+DNS zones can live in a shared/default project while targets live in another project. Set `project` on the project-scoped app resource, and pass the shared `DnsZone` to `DnsRecord`; `Domain` remains scoped to the target container:
 
 ```ts
 const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.com" });
-const namespace = yield* Scaleway.Namespace("ApiNs", { projectId: "app-project-id" });
+const namespace = yield* Scaleway.Namespace("ApiNs", { project: "app-project-id" });
 const api = yield* Scaleway.Container("Api", { namespace, image: "rg.fr-par.scw.cloud/app/api:latest" });
 
 yield* Scaleway.DnsRecord("ApiDns", { zone, name: "api", target: api });

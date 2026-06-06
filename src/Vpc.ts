@@ -4,12 +4,12 @@ import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients, type ScalewayVpcRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
-import { omitUndefined, physicalName, projectId } from "./Internal.ts";
+import { omitUndefined, physicalName, projectId, projectInput, withManagedProjectDefault, type ProjectRef } from "./Internal.ts";
 import type { Providers } from "./Providers.ts";
 
 export interface VpcProps {
   name?: string;
-  projectId?: string;
+  project?: ProjectRef;
   tags?: string[];
   routing?: boolean;
   customRoutesPropagation?: boolean;
@@ -31,7 +31,7 @@ export type Vpc = Resource<
   Providers
 >;
 
-export const Vpc = Resource<Vpc>("Scaleway.Vpc");
+export const Vpc = withManagedProjectDefault(Resource<Vpc>("Scaleway.Vpc"));
 
 const tagsEqual = (left?: string[], right?: string[]) =>
   JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
@@ -63,7 +63,7 @@ export const VpcProvider = () =>
         stables: ["vpcId", "projectId", "region"],
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
-          if ((yield* projectId(news.projectId)) !== output.projectId) {
+          if ((yield* projectId(projectInput(news), output.projectId)) !== output.projectId) {
             return { action: "replace" } as const;
           }
           const name = yield* nameOf(id, news.name);
@@ -77,7 +77,7 @@ export const VpcProvider = () =>
           ) {
             return { action: "update" } as const;
           }
-          return undefined;
+          return { action: "noop" } as const;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.vpcId) return undefined;
@@ -93,7 +93,7 @@ export const VpcProvider = () =>
             ? yield* clients.vpc.updateVpc(output.vpcId, { name, tags })
             : yield* clients.vpc.createVpc({
                 name,
-                project_id: yield* projectId(news.projectId),
+                project_id: yield* projectId(projectInput(news), output?.projectId),
                 tags,
               });
 

@@ -14,7 +14,7 @@ import { dnsZoneName } from "./DnsZone.ts";
 import type { FlexibleIp } from "./FlexibleIp.ts";
 import type { Instance } from "./Instance.ts";
 import { isNotFound } from "./Errors.ts";
-import { omitUndefined, resolveRef } from "./Internal.ts";
+import { credentialsProjectId, omitUndefined, projectInput, resolveRef, storedProjectInput, type ProjectRef } from "./Internal.ts";
 import type { Providers } from "./Providers.ts";
 import type { RegistryNamespace } from "./RegistryNamespace.ts";
 
@@ -32,7 +32,7 @@ export interface DnsRecordValue {
 
 export interface DnsRecordProps {
   zone: DnsZoneRef;
-  projectId?: string;
+  project?: ProjectRef;
   name: string;
   type?: DnsRecordType;
   ttl?: number;
@@ -74,17 +74,21 @@ const typeFor = (data: string): DnsRecordType => (isIpv4(data) ? "A" : isIpv6(da
 const optionalRef = (ref: unknown): Effect.Effect<string | undefined> =>
   ref === undefined
     ? Effect.succeed(undefined)
+    : typeof ref === "object" && ref !== null && "projectId" in ref
+      ? resolveRef((ref as { projectId: unknown }).projectId).pipe(Effect.map((value) => value || undefined))
     : resolveRef(ref).pipe(Effect.map((value) => value || undefined));
 
-const zoneIdentity = (props: Pick<DnsRecordProps, "zone" | "projectId">) =>
+const zoneIdentity = (props: Pick<DnsRecordProps, "zone" | "project">, stored = false) =>
   Effect.gen(function* () {
     const zone = props.zone;
-    const explicitProjectId = yield* optionalRef(props.projectId);
-    if (typeof zone === "string") return { dnsZone: zone, projectId: explicitProjectId };
+    const explicitProjectId = yield* optionalRef(stored ? storedProjectInput(props) : projectInput(props));
+    if (typeof zone === "string") {
+      return { dnsZone: zone, projectId: explicitProjectId ?? (yield* credentialsProjectId()) };
+    }
     const zoneProjectId = yield* optionalRef(zone.projectId);
     return {
       dnsZone: yield* resolveRef(zone.dnsZone),
-      projectId: zoneProjectId ?? explicitProjectId,
+      projectId: zoneProjectId ?? explicitProjectId ?? (yield* credentialsProjectId()),
     };
   });
 
@@ -136,6 +140,11 @@ const desiredRecords = (props: DnsRecordProps) =>
     );
   });
 
+const desiredRecordsOption = (props: DnsRecordProps) =>
+  props.records || props.target
+    ? desiredRecords(props)
+    : Effect.succeed(undefined);
+
 const recordsEqual = (left: ScalewayDnsRecord[], right: ScalewayDnsRecord[]) => {
   const normalize = (records: ScalewayDnsRecord[]) =>
     records
@@ -173,7 +182,7 @@ export const DnsRecordProvider = () =>
           const desired = yield* desiredRecords(news);
           if (
             output.dnsZone !== zone.dnsZone ||
-            output.projectId !== zone.projectId ||
+            (output.projectId ?? zone.projectId) !== zone.projectId ||
             output.name !== recordName(news.name) ||
             output.type !== desired[0].type
           ) return { action: "replace" } as const;
@@ -181,12 +190,13 @@ export const DnsRecordProvider = () =>
           return undefined;
         }),
         read: Effect.fnUntraced(function* ({ olds, output }) {
-          const oldZone = olds ? yield* zoneIdentity(olds) : undefined;
+          const oldZone = olds ? yield* zoneIdentity(olds, true) : undefined;
           const zone = output?.dnsZone
             ? { dnsZone: output.dnsZone, projectId: output.projectId ?? oldZone?.projectId }
             : oldZone;
           if (!zone) return undefined;
-          const type = output?.type ?? (olds ? (yield* desiredRecords(olds))[0].type : undefined);
+          const oldRecords = olds ? yield* desiredRecordsOption(olds) : undefined;
+          const type = output?.type ?? oldRecords?.[0]?.type;
           if (!type) return undefined;
           const name = output?.name ?? (olds ? recordName(olds.name) : undefined);
           if (name === undefined) return undefined;
@@ -236,7 +246,7 @@ export const DnsRecordProvider = () =>
         delete: Effect.fnUntraced(function* ({ output, session }) {
           yield* clients.dns.updateRecords({
             dnsZone: output.dnsZone,
-            projectId: output.projectId,
+            projectId: output.projectId ?? (yield* credentialsProjectId()),
             return_all_records: false,
             disallow_new_zone_creation: true,
             changes: [{ delete: { id_fields: { name: output.name, type: output.type } } }],

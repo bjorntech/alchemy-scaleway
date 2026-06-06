@@ -14,6 +14,7 @@ src/
   Errors.ts         ScalewayError tagged error helpers
   Internal.ts       naming, config, and small utility helpers
 
+  Project.ts        Account project resource
   Namespace.ts      Serverless Containers namespace resource
   Container.ts      Serverless Container resource, including optional domains/crons
   Trigger.ts        Container trigger resource (cron/sqs/nats)
@@ -58,13 +59,15 @@ Apply the same rule to Scaleway:
 ## Resource Conventions
 
 - Physical names use `createPhysicalName` through `Internal.physicalName`.
+- `Project` provisions Scaleway Account projects through `/account/v3/projects`; `organizationId` changes replace the project, while name and description update in place. When a stack declares exactly one `Project`, new project-scoped application resources get an internal default project reference so Alchemy plans the dependency and creates them in the managed project. Existing resources with persisted `projectId` outputs keep that project for backward compatibility. `Scaleway.providers({ project })` is the explicit top-level fallback for beta stacks that should keep creating resources in an existing project.
+- Remote state and DNS resources are shared-project exceptions: Object Storage state derives its default bucket from `SCW_DEFAULT_PROJECT_ID`, and `DnsZone`/`DnsRecord` default to credentials unless explicitly configured with another project.
 - `Bucket` stores `alchemy:logical-id` in S3 tags and returns `Unowned(attrs)` for foreign buckets found by name.
 - Containers and namespaces are read by persisted IDs only. Scaleway's Containers API does not expose a reliable ownership tag surface, so name-based adoption is intentionally avoided for those resources.
 - Deletes are idempotent and ignore 404 responses.
 - Container, trigger, and domain readiness waits use Effect sleeps inside provider reconciliation.
 - `Container` may orchestrate custom domains and cron triggers from `domains`/`crons` props for the common service deployment workflow. Standalone `Domain` and `Trigger` resources remain available for explicit control.
 - `DnsZone` provisions Scaleway Domains and DNS zones and defaults to retain-on-removal like Cloudflare zones. Existing zones have no ownership marker, so read paths report them as unowned unless adoption is explicit.
-- `DnsRecord` owns one complete record set for a zone/name/type, using Scaleway's record `set` operation for convergent upserts. When passed a `DnsZone` resource it carries the zone `projectId` into DNS record operations, which supports shared DNS projects pointing at resources in separate application projects. It can target existing resources that expose IP addresses or hostnames, while explicit `records` remain available for advanced DNS data.
+- `DnsRecord` owns one complete record set for a zone/name/type, using Scaleway's record `set` operation for convergent upserts. When passed a `DnsZone` resource it carries the zone project into DNS record operations, which supports shared DNS projects pointing at resources in separate application projects. It can target existing resources that expose IP addresses or hostnames, while explicit `records` remain available for advanced DNS data.
 - `RegistryNamespace` provisions the Container Registry namespace needed to host images consumed by `Container.image`; image/tag pushes remain an external CI/build concern.
 - `Secret` provisions Secret Manager metadata and current value versions. Secret values use `Redacted<string>` and are never returned in resource attributes.
 - `Vpc` provisions Scaleway VPCs and can enable routing and custom route propagation. Both are one-way provider operations; attempting to disable an already-enabled flag fails locally.
