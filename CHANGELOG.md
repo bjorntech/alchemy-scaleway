@@ -2,7 +2,7 @@
 
 All notable changes to `@finnvid/alchemy-scaleway` are documented here. The package follows the alchemy beta line — see [README › Compatibility](./README.md#compatibility).
 
-## [Unreleased]
+## [0.2.0-beta.51] - 2026-06-06
 
 ### Added
 
