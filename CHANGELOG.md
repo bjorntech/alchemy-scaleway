@@ -4,6 +4,8 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## [Unreleased]
 
+## [0.1.5-beta.51] - 2026-06-06
+
 ### Added
 
 - Added `DnsZone` and `DnsRecord` resources for Scaleway Domains and DNS.

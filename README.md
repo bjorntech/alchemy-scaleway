@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@finnvid/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.1.5-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds DNS resources, custom-domain smoke coverage, and detached Instance volume cleanup fixes. |
 | `0.1.4-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds Instance cloud-init support and managed SBS volume cleanup. |
 | `0.1.3-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds Scaleway networking and Instance resources; smoke test uses Alchemy CLI stack workflow. |
 | `0.1.2-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Public beta; pins Alchemy's Effect test helper dependency to beta.74. |
