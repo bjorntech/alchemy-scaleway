@@ -4,6 +4,11 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+### Changed
+
+- Production smoke tests now skip billed VPC connector/VPC Peering coverage by
+  default. Set `SCW_SMOKE_EXPENSIVE_NETWORK=1` to include that path explicitly.
+
 ## [0.4.0-beta.51] - 2026-06-06
 
 ### Changed
