@@ -14,6 +14,7 @@ const domainProjectId = process.env.SCW_DOMAIN_PROJECT_ID ?? process.env.SCW_DEF
 const organizationId = process.env.SCW_ORGANIZATION_ID;
 const smokeHostname = `${dnsLabel}.${dnsZone}`;
 const phase = process.env.SCW_SMOKE_PHASE === "create" ? "create" : process.env.SCW_SMOKE_PHASE === "settle" ? "settle" : "update";
+const expensiveNetwork = process.env.SCW_SMOKE_EXPENSIVE_NETWORK === "1";
 
 const tags = ["alchemy-smoke-test"];
 const updatedTags = ["alchemy-smoke-test", "updated"];
@@ -123,10 +124,12 @@ export default Alchemy.Stack(
       customRoutesPropagation: true,
     });
 
-    const targetVpc = yield* Scaleway.Vpc("TargetVpc", {
-      name: `${prefix}-target-vpc`,
-      tags,
-    });
+    const targetVpc = expensiveNetwork
+      ? yield* Scaleway.Vpc("TargetVpc", {
+          name: `${prefix}-target-vpc`,
+          tags,
+        })
+      : undefined;
 
     const privateNetwork = yield* Scaleway.PrivateNetwork("PrivateNetwork", {
       name: `${prefix}-pn`,
@@ -161,12 +164,14 @@ export default Alchemy.Stack(
       tags: activeTags,
     });
 
-    const connector = yield* Scaleway.VpcConnector("VpcConnector", {
-      name: updated ? `${prefix}-connector-updated` : `${prefix}-connector`,
-      vpc,
-      targetVpc,
-      tags: activeTags,
-    });
+    const connector = targetVpc
+      ? yield* Scaleway.VpcConnector("VpcConnector", {
+          name: updated ? `${prefix}-connector-updated` : `${prefix}-connector`,
+          vpc,
+          targetVpc,
+          tags: activeTags,
+        })
+      : undefined;
 
     const securityGroup = yield* Scaleway.SecurityGroup("SecurityGroup", {
       zone,
@@ -235,15 +240,25 @@ echo "Alchemy Scaleway smoke VM setup complete"
         secret.projectId,
         database.projectId,
         vpc.projectId,
-        targetVpc.projectId,
         privateNetwork.projectId,
-        connector.projectId,
         securityGroup.projectId,
         flexibleIp.projectId,
         instance.projectId,
+        ...(targetVpc && connector ? [targetVpc.projectId, connector.projectId] : []),
       ),
       ([expected, ...actuals]) => {
-        const resources = ["namespace", "registry", "secret", "database", "vpc", "targetVpc", "privateNetwork", "vpcConnector", "securityGroup", "flexibleIp", "instance"];
+        const resources = [
+          "namespace",
+          "registry",
+          "secret",
+          "database",
+          "vpc",
+          "privateNetwork",
+          "securityGroup",
+          "flexibleIp",
+          "instance",
+          ...(targetVpc && connector ? ["targetVpc", "vpcConnector"] : []),
+        ];
         for (const [index, actual] of actuals.entries()) {
           if (actual !== expected) throw new Error(`${resources[index]} expected project ${expected}, got ${actual}`);
         }
@@ -281,14 +296,14 @@ echo "Alchemy Scaleway smoke VM setup complete"
       bucketName: bucket.bucketName,
       vpcId: vpc.vpcId,
       vpcProjectId: vpc.projectId,
-      targetVpcId: targetVpc.vpcId,
-      targetVpcProjectId: targetVpc.projectId,
+      targetVpcId: targetVpc?.vpcId,
+      targetVpcProjectId: targetVpc?.projectId,
       privateNetworkId: privateNetwork.privateNetworkId,
       privateNetworkProjectId: privateNetwork.projectId,
       aclPolicy: acl.defaultPolicy,
       routeId: route.routeId,
-      connectorId: connector.vpcConnectorId,
-      connectorProjectId: connector.projectId,
+      connectorId: connector?.vpcConnectorId,
+      connectorProjectId: connector?.projectId,
       securityGroupId: securityGroup.securityGroupId,
       securityGroupProjectId: securityGroup.projectId,
       flexibleIpId: flexibleIp.ipId,
