@@ -4,6 +4,8 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.5.1-beta.51] - 2026-06-08
+
 ### Fixed
 
 - `Instance` replacement recovery now checks live Flexible IP attachment before
