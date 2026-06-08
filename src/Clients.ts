@@ -621,6 +621,8 @@ export interface ScalewayClients {
       secretId: string,
       revision: string | number,
     ): Effect.Effect<ScalewaySecretVersionRecord, ScalewayError>;
+    listVersions(secretId: string): Effect.Effect<ScalewaySecretVersionRecord[], ScalewayError>;
+    deleteVersion(secretId: string, revision: string | number): Effect.Effect<void, ScalewayError>;
   };
   rdb: {
     createInstance(input: { region: string } & Record<string, unknown>): Effect.Effect<ScalewayRdbInstanceRecord, ScalewayError>;
@@ -762,6 +764,7 @@ export interface ScalewayClients {
   };
   instance: {
     createInstance(input: { zone: string } & Record<string, unknown>): Effect.Effect<ScalewayInstanceRecord, ScalewayError>;
+    listInstances(input: { zone: string; project?: string }): Effect.Effect<ScalewayInstanceRecord[], ScalewayError>;
     getInstance(input: { zone: string; serverId: string }): Effect.Effect<ScalewayInstanceRecord, ScalewayError>;
     updateInstance(input: { zone: string; serverId: string } & Record<string, unknown>): Effect.Effect<ScalewayInstanceRecord, ScalewayError>;
     deleteInstance(input: { zone: string; serverId: string }): Effect.Effect<void, ScalewayError>;
@@ -1036,6 +1039,14 @@ export const makeScalewayClients = Effect.gen(function* () {
         request("GET", `${secretManagerBase}/secrets/${id}/versions/${revision}`).pipe(
           Effect.map(decodeSecretVersion),
         ),
+      listVersions: (id) =>
+        listAllPages<ScalewaySecretVersionRecord, "versions">(
+          "versions",
+          (page, pageSize) =>
+            `${secretManagerBase}/secrets/${id}/versions${query({ page, page_size: pageSize })}`,
+        ).pipe(Effect.map((versions) => versions.map(decodeSecretVersion))),
+      deleteVersion: (id, revision) =>
+        request<void>("DELETE", `${secretManagerBase}/secrets/${id}/versions/${revision}`),
     },
     rdb: {
       createInstance: ({ region, ...input }) =>
@@ -1130,6 +1141,8 @@ export const makeScalewayClients = Effect.gen(function* () {
     instance: {
       createInstance: ({ zone, ...input }) =>
         request("POST", `/instance/v1/zones/${zone}/servers`, input).pipe(Effect.map(decodeInstance)),
+      listInstances: ({ zone, project }) =>
+        request<{ servers?: unknown[] }>("GET", `/instance/v1/zones/${zone}/servers${query({ project })}`).pipe(Effect.map((page) => (page.servers ?? []).map(decodeInstance))),
       getInstance: ({ zone, serverId }) =>
         request("GET", `/instance/v1/zones/${zone}/servers/${serverId}`).pipe(Effect.map(decodeInstance)),
       updateInstance: ({ zone, serverId, ...input }) =>

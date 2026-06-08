@@ -11,6 +11,15 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
   prebuilt ZIP through Scaleway upload URLs, stores a source hash, and skips
   upload/deploy on unchanged ZIP contents.
 
+### Fixed
+
+- `Secret` destroy now permanently deletes all secret versions before deleting the
+  secret container, so removing `retain()` and destroying a stack deletes the
+  recoverable secret material as far as Scaleway's API allows.
+- `Instance` replacements with attached managed `publicIps` now delete the old
+  server first and defensively detach reused Flexible IPs before replacement
+  create, avoiding Scaleway `precondition is not respected` failures (#53).
+
 ## [0.4.4-beta.51] - 2026-06-08
 
 ### Fixed
@@ -132,9 +141,6 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ### Fixed
 
-- The production smoke test now scopes DNS record operations with
-  `SCW_DOMAIN_PROJECT_ID` when set, supporting smoke domains that live in a
-  different Scaleway project from the resources under test.
 - `DnsRecord` initial creation now refuses to replace an existing unmanaged
   same-name/type record set unless `overwriteExisting: true` is set.
 

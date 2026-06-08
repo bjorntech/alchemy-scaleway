@@ -12,13 +12,19 @@ const dnsZone = process.env.SCW_SMOKE_DNS_ZONE ?? "alchemy-smoke.finnvid.org";
 const dnsDomain = process.env.SCW_SMOKE_DNS_DOMAIN ?? dnsZone.split(".").slice(-2).join(".");
 const dnsZoneSubdomain = dnsZone.endsWith(`.${dnsDomain}`) ? dnsZone.slice(0, -dnsDomain.length - 1) : undefined;
 const dnsLabel = process.env.SCW_SMOKE_DNS_LABEL ?? prefix;
-const domainProjectId = process.env.SCW_DOMAIN_PROJECT_ID ?? process.env.SCW_DEFAULT_PROJECT_ID;
+const domainProjectId = process.env.SCW_DEFAULT_PROJECT_ID;
 const organizationId = process.env.SCW_ORGANIZATION_ID;
 const smokeHostname = `${dnsLabel}.${dnsZone}`;
 const functionDnsLabel = `${dnsLabel.slice(0, 60).replace(/-+$/g, "")}-fn`;
 const childZoneLabel = `${dnsLabel.slice(0, 57).replace(/-+$/g, "")}-child`;
 const childZoneSubdomain = [childZoneLabel, dnsZoneSubdomain].filter(Boolean).join(".");
-const phase = process.env.SCW_SMOKE_PHASE === "create" ? "create" : process.env.SCW_SMOKE_PHASE === "settle" ? "settle" : "update";
+const phase = process.env.SCW_SMOKE_PHASE === "create"
+  ? "create"
+  : process.env.SCW_SMOKE_PHASE === "replace"
+  ? "replace"
+  : process.env.SCW_SMOKE_PHASE === "settle"
+  ? "settle"
+  : "update";
 const expensiveNetwork = process.env.SCW_SMOKE_EXPENSIVE_NETWORK === "1";
 const functionZipPath = process.env.SCW_SMOKE_FUNCTION_ZIP ?? "scripts/smoke-function/function.zip";
 
@@ -35,6 +41,7 @@ export default Alchemy.Stack(
   Effect.gen(function* () {
     if (!organizationId) throw new Error("SCW_ORGANIZATION_ID is required");
     const updated = phase !== "create";
+    const replaced = phase === "replace" || phase === "settle";
     const activeTags = updated ? updatedTags : tags;
 
     const project = yield* Scaleway.Project("Project", {
@@ -272,7 +279,7 @@ export default Alchemy.Stack(
       image: "ubuntu_noble",
       tags: activeTags,
       securityGroup,
-      publicIps: [],
+      publicIps: [flexibleIp],
       cloudInit: Redacted.make(`#!/bin/bash
 set -e
 
@@ -284,18 +291,20 @@ apt-get install -y docker.io
 systemctl enable docker
 systemctl start docker
 
-echo "Alchemy Scaleway smoke VM setup complete"
+echo "Alchemy Scaleway smoke VM setup ${replaced ? "replacement" : "initial"} complete"
 `),
       protected: false,
       desiredState: updated ? "running" : "stopped",
     });
 
-    const privateNic = yield* Scaleway.PrivateNic("PrivateNic", {
-      zone,
-      serverId: instance.serverId,
-      privateNetwork,
-      tags: activeTags,
-    });
+    const privateNic = replaced
+      ? undefined
+      : yield* Scaleway.PrivateNic("PrivateNic", {
+          zone,
+          serverId: instance.serverId,
+          privateNetwork,
+          tags: activeTags,
+        });
 
     const managedProjectAssertion = Output.map(
       Output.all(
@@ -392,7 +401,7 @@ echo "Alchemy Scaleway smoke VM setup complete"
       instanceState: instance.state,
       instanceCloudInitHash: instance.cloudInitHash,
       instanceCreatedVolumeIds: instance.createdVolumeIds,
-      privateNicId: privateNic.privateNicId,
+      privateNicId: privateNic?.privateNicId,
     };
   }),
 );

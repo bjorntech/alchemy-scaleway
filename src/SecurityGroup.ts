@@ -2,7 +2,7 @@ import { Resource } from "alchemy";
 import { isResolved } from "alchemy/Diff";
 import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
-import { makeScalewayClients, type ScalewaySecurityGroupRecord, type ScalewaySecurityGroupRuleRecord } from "./Clients.ts";
+import { makeScalewayClients, type ScalewayInstanceRecord, type ScalewaySecurityGroupRecord, type ScalewaySecurityGroupRuleRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
 import { omitUndefined, physicalName, projectId, projectInput, withManagedProjectDefault, type ProjectRef } from "./Internal.ts";
 import type { Providers } from "./Providers.ts";
@@ -59,7 +59,10 @@ export const SecurityGroup = withManagedProjectDefault(Resource<SecurityGroup>("
 
 const stringsEqual = (left?: string[], right?: string[]) => JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
 const withAlchemyTag = (id: string, tags: string[] | undefined) => [`alchemy:logical-id=${id}`, ...(tags ?? [])];
+const hasAlchemyTag = (tags: string[] | undefined) => (tags ?? []).some((tag) => tag.startsWith("alchemy:logical-id="));
 const zoneOf = (region: string, zone?: string) => !zone || zone === region ? `${region}-1` : zone;
+const isPreconditionError = (error: unknown) => String((error as { message?: unknown })?.message ?? "").toLowerCase().includes("precondition is not respected");
+const usesSecurityGroup = (securityGroupId: string) => (server: ScalewayInstanceRecord) => server.security_group?.id === securityGroupId && hasAlchemyTag(server.tags);
 const ruleInput = (rule: SecurityGroupRule, position: number): ScalewaySecurityGroupRuleRecord => {
   const from = rule.portRange?.from ?? rule.port;
   const to = rule.portRange?.to;
@@ -166,7 +169,34 @@ export const SecurityGroupProvider = () =>
           return toAttributes(record, rules);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
-          yield* clients.instance.deleteSecurityGroup({ zone: zoneOf(clients.region, output.zone), securityGroupId: output.securityGroupId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+          const zone = zoneOf(clients.region, output.zone);
+          const terminateOrphanInstances = Effect.gen(function* () {
+            if (!output.projectId) return;
+            const servers = yield* clients.instance.listInstances({ zone, project: output.projectId }).pipe(Effect.catchIf(isNotFound, () => Effect.succeed([])));
+            for (const server of servers.filter(usesSecurityGroup(output.securityGroupId))) {
+              yield* clients.instance.updateInstance({ zone, serverId: server.id, protected: false }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+              yield* clients.instance.instanceAction({ zone, serverId: server.id, action: "terminate" }).pipe(
+                Effect.catchIf(isNotFound, () => Effect.void),
+                Effect.catchIf(isPreconditionError, () => Effect.void),
+              );
+              yield* session.note(`terminating orphaned instance ${server.id} before security group deletion`);
+            }
+          });
+          for (let attempt = 1; attempt <= 30; attempt++) {
+            const deleted = yield* clients.instance.deleteSecurityGroup({ zone, securityGroupId: output.securityGroupId }).pipe(
+              Effect.as(true),
+              Effect.catchIf(isNotFound, () => Effect.succeed(true)),
+              Effect.catchIf(isPreconditionError, () => Effect.succeed(false)),
+            );
+            if (deleted) {
+              yield* session.note(`Deleted Scaleway security group ${output.securityGroupId}`);
+              return;
+            }
+            yield* terminateOrphanInstances;
+            yield* session.note("waiting security group deletion status=precondition");
+            yield* Effect.sleep("2 seconds");
+          }
+          yield* clients.instance.deleteSecurityGroup({ zone, securityGroupId: output.securityGroupId }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
           yield* session.note(`Deleted Scaleway security group ${output.securityGroupId}`);
         }),
       });

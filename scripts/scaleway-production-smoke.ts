@@ -16,8 +16,7 @@ if (process.env.SCW_LIVE_TEST !== "1") {
 required("SCW_SECRET_KEY");
 required("SCW_ACCESS_KEY");
 required("SCW_ORGANIZATION_ID");
-const defaultProjectId = required("SCW_DEFAULT_PROJECT_ID");
-const domainProjectId = process.env.SCW_DOMAIN_PROJECT_ID ?? defaultProjectId;
+required("SCW_DEFAULT_PROJECT_ID");
 
 const suffix = process.env.SCW_SMOKE_RUN_ID ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const stage = process.env.SCW_SMOKE_STAGE ?? `smoke-${suffix}`;
@@ -44,7 +43,7 @@ function dnsSafeLabel(value: string) {
   return (label || "alchemy-smoke").slice(0, 63).replace(/-+$/g, "") || "alchemy-smoke";
 }
 
-function runAlchemy(command: "deploy" | "destroy", phase: "create" | "update" | "settle") {
+function runAlchemy(command: "deploy" | "destroy", phase: "create" | "update" | "replace" | "settle") {
   console.log(`alchemy ${command} ${phase}`);
   const result = spawnSync(
     "bun",
@@ -60,7 +59,6 @@ function runAlchemy(command: "deploy" | "destroy", phase: "create" | "update" | 
         SCW_SMOKE_DNS_ZONE: dnsZone,
         SCW_SMOKE_DNS_LABEL: dnsLabel,
         SCW_SMOKE_FUNCTION_ZIP: functionZip,
-        SCW_DOMAIN_PROJECT_ID: domainProjectId,
       },
     },
   );
@@ -92,6 +90,7 @@ async function fetchSmokeDomain() {
 try {
   runAlchemy("deploy", "create");
   runAlchemy("deploy", "update");
+  runAlchemy("deploy", "replace");
   runAlchemy("deploy", "settle");
   await fetchSmokeDomain();
   console.log("production smoke test deploy/update paths succeeded");

@@ -117,6 +117,10 @@ const createdVolumeIds = (volumes: Record<string, ScalewayInstanceVolumeRecord> 
   return entries.flatMap(([key, volume]) => volume.id && requested?.[key]?.id === undefined ? [volume.id] : []);
 };
 const createdVolumeIdsToDelete = (createdIds: string[] | undefined) => [...new Set(createdIds ?? [])];
+const replaceAction = (news: InstanceProps, output: Instance["Attributes"]) => {
+  const hasPublicIps = (news.publicIps?.length ?? 0) > 0 || (output.publicIpIds?.length ?? 0) > 0;
+  return hasPublicIps ? { action: "replace", deleteFirst: true } as const : { action: "replace" } as const;
+};
 const replacementVolumeFields = ["id", "boot", "name", "size", "volumeType", "projectId"] as const;
 const volumeChanged = (desired: InstanceVolume, current: InstanceVolume | undefined) =>
   desired.baseSnapshot !== current?.baseSnapshot || replacementVolumeFields.some((field) => desired[field] !== undefined && desired[field] !== current?.[field]);
@@ -125,11 +129,32 @@ const volumesNeedReplace = (desired: Record<string, InstanceVolume> | undefined,
 const targetState = (state: InstanceDesiredState | undefined) => (state === "stopped" ? "stopped" : state);
 const targetStateFor = (state: InstanceDesiredState | undefined, cloudInit: string | undefined) => targetState(state) ?? (cloudInit === undefined ? undefined : "running");
 const publicIpIdOf = (publicIp: InstancePublicIpRef) => resolveRef(typeof publicIp === "string" ? publicIp : publicIp.ipId);
+const publicIpAttachmentOf = (publicIp: InstancePublicIpRef) =>
+  typeof publicIp === "string" || !("serverId" in publicIp) || publicIp.serverId === undefined
+    ? Effect.succeed(undefined)
+    : resolveRef(publicIp.serverId).pipe(Effect.map((serverId) => serverId || undefined));
 const securityGroupIdOf = (securityGroup: InstanceSecurityGroupRef) => {
   return resolveRef(typeof securityGroup === "string" ? securityGroup : securityGroup.securityGroupId);
 };
+const projectIdOfRef = (ref: unknown) =>
+  typeof ref === "object" && ref !== null && "projectId" in ref
+    ? resolveRef((ref as { projectId: unknown }).projectId).pipe(Effect.map((id) => id || undefined))
+    : Effect.succeed(undefined);
+const projectIdFromRefs = (news: InstanceProps) =>
+  Effect.gen(function* () {
+    const refs = [news.securityGroup, ...(news.publicIps ?? [])];
+    for (const ref of refs) {
+      const resolved = yield* projectIdOfRef(ref);
+      if (resolved) return resolved;
+    }
+    return undefined;
+  });
 const isString = (value: string | undefined): value is string => value !== undefined;
 const isPreconditionError = (error: unknown) => String((error as { message?: unknown })?.message ?? "").toLowerCase().includes("precondition is not respected");
+const isTransientCloudError = (error: unknown) => {
+  const status = (error as { statusCode?: unknown })?.statusCode;
+  return typeof status === "number" && (status >= 500 || status === 429);
+};
 function managedPublicIpIdsFromRecord(record: ScalewayInstanceRecord) {
   return (record.public_ips ?? []).filter((ip) => ip.dynamic !== true).map((ip) => ip.id).filter(isString);
 }
@@ -216,12 +241,12 @@ export const InstanceProvider = () =>
         stables: ["serverId", "zone", "projectId"],
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
-          if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone)) return { action: "replace" } as const;
-          if (output.projectId !== (yield* projectId(projectInput(news), output.projectId))) return { action: "replace" } as const;
-          if (output.commercialType !== news.commercialType) return { action: "replace" } as const;
-          if (news.image && output.imageName !== news.image && output.imageId !== news.image) return { action: "replace" } as const;
-          if (volumesNeedReplace(news.volumes, output.volumes)) return { action: "replace" } as const;
-          if (cloudInitHash(news.cloudInit) !== output.cloudInitHash) return { action: "replace" } as const;
+          if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone)) return replaceAction(news, output);
+          if (output.projectId !== (yield* projectId(projectInput(news), output.projectId))) return replaceAction(news, output);
+          if (output.commercialType !== news.commercialType) return replaceAction(news, output);
+          if (news.image && output.imageName !== news.image && output.imageId !== news.image) return replaceAction(news, output);
+          if (volumesNeedReplace(news.volumes, output.volumes)) return replaceAction(news, output);
+          if (cloudInitHash(news.cloudInit) !== output.cloudInitHash) return replaceAction(news, output);
 
           const name = yield* nameOf(id, news.name);
           const publicIpIds = news.publicIps === undefined ? output.publicIpIds : yield* publicIpIdsOf(news.publicIps);
@@ -258,6 +283,16 @@ export const InstanceProvider = () =>
           const securityGroup = news.securityGroup === undefined ? undefined : yield* securityGroupIdOf(news.securityGroup);
           const init = cloudInitValue(news.cloudInit);
           const initHash = cloudInitHash(news.cloudInit);
+          const referencedProjectId = yield* projectIdFromRefs(news);
+          if (!output?.serverId && publicIps !== undefined) {
+            for (const [index, publicIp] of publicIps.entries()) {
+              const attachedServerId = news.publicIps ? yield* publicIpAttachmentOf(news.publicIps[index]) : undefined;
+              if (attachedServerId) {
+                yield* clients.instance.updateFlexibleIp({ zone, ip: publicIp, server: null }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+                yield* session.note(`detached public IP ${publicIp} from previous instance ${attachedServerId}`);
+              }
+            }
+          }
           let record = output?.serverId
             ? yield* clients.instance.updateInstance({
                 zone,
@@ -274,7 +309,7 @@ export const InstanceProvider = () =>
             : yield* clients.instance.createInstance({
                 zone,
                 name,
-                project: yield* projectId(projectInput(news), output?.projectId),
+                project: yield* projectId(projectInput(news), output?.projectId ?? referencedProjectId),
                 commercial_type: news.commercialType,
                 image: news.image,
                 volumes: news.volumes ? volumesInput(news.volumes) : undefined,
@@ -317,7 +352,10 @@ export const InstanceProvider = () =>
           const current = yield* clients.instance.getInstance({ zone, serverId: output.serverId }).pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
           const volumesToDelete = createdVolumeIdsToDelete(output.createdVolumeIds);
           if (current) {
-            yield* clients.instance.updateInstance({ zone, serverId: output.serverId, protected: false }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+            yield* clients.instance.updateInstance({ zone, serverId: output.serverId, protected: false }).pipe(
+              Effect.catchIf(isNotFound, () => Effect.void),
+              Effect.catchIf(isTransientCloudError, () => Effect.void),
+            );
             for (const publicIp of managedPublicIpIdsFromRecord(current)) {
               yield* clients.instance.updateFlexibleIp({ zone, ip: publicIp, server: null }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
             }
