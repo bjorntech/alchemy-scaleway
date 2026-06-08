@@ -26,6 +26,7 @@ const phase = process.env.SCW_SMOKE_PHASE === "create"
   ? "settle"
   : "update";
 const expensiveNetwork = process.env.SCW_SMOKE_EXPENSIVE_NETWORK === "1";
+const testSecrets = process.env.SCW_SMOKE_SECRETS === "1";
 const functionZipPath = process.env.SCW_SMOKE_FUNCTION_ZIP ?? "scripts/smoke-function/function.zip";
 
 const tags = ["alchemy-smoke-test"];
@@ -114,14 +115,16 @@ export default Alchemy.Stack(
         })
       : undefined;
 
-    const secret = yield* Scaleway.Secret("Secret", {
-      name: `${prefix}-secret`,
-      description: updated
-        ? "alchemy-scaleway production smoke test updated"
-        : "alchemy-scaleway production smoke test",
-      tags: activeTags,
-      value: Redacted.make(updated ? "smoke-test-value-updated" : "smoke-test-value"),
-    });
+    const secret = testSecrets
+      ? yield* Scaleway.Secret("Secret", {
+          name: `${prefix}-secret`,
+          description: updated
+            ? "alchemy-scaleway production smoke test updated"
+            : "alchemy-scaleway production smoke test",
+          tags: activeTags,
+          value: Redacted.make(updated ? "smoke-test-value-updated" : "smoke-test-value"),
+        })
+      : undefined;
 
     const database = yield* Scaleway.DatabaseInstance("Database", {
       name: `${prefix}-db`,
@@ -312,13 +315,13 @@ echo "Alchemy Scaleway smoke VM setup ${replaced ? "replacement" : "initial"} co
         namespace.projectId,
         registry.projectId,
         functionNamespace.projectId,
-        secret.projectId,
         database.projectId,
         vpc.projectId,
         privateNetwork.projectId,
         securityGroup.projectId,
         flexibleIp.projectId,
         instance.projectId,
+        ...(secret ? [secret.projectId] : []),
         ...(targetVpc && connector ? [targetVpc.projectId, connector.projectId] : []),
       ),
       ([expected, ...actuals]) => {
@@ -326,13 +329,13 @@ echo "Alchemy Scaleway smoke VM setup ${replaced ? "replacement" : "initial"} co
           "namespace",
           "registry",
           "functionNamespace",
-          "secret",
           "database",
           "vpc",
           "privateNetwork",
           "securityGroup",
           "flexibleIp",
           "instance",
+          ...(secret ? ["secret"] : []),
           ...(targetVpc && connector ? ["targetVpc", "vpcConnector"] : []),
         ];
         for (const [index, actual] of actuals.entries()) {
@@ -375,8 +378,8 @@ echo "Alchemy Scaleway smoke VM setup ${replaced ? "replacement" : "initial"} co
       customDomainUrl: domain?.url,
       registryEndpoint: registry.endpoint,
       registryProjectId: registry.projectId,
-      secretId: secret.secretId,
-      secretProjectId: secret.projectId,
+      secretId: secret?.secretId,
+      secretProjectId: secret?.projectId,
       databaseInstanceId: database.databaseInstanceId,
       databaseProjectId: database.projectId,
       databaseStatus: database.status,

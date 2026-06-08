@@ -13,6 +13,9 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ### Fixed
 
+- Production smoke tests now skip Secret Manager coverage by default. Set
+  `SCW_SMOKE_SECRETS=1` only when explicitly testing secrets, avoiding smoke
+  projects left behind by Scaleway's scheduled secret-deletion retention.
 - `Secret` destroy now permanently deletes all secret versions before deleting the
   secret container, so removing `retain()` and destroying a stack deletes the
   recoverable secret material as far as Scaleway's API allows.
