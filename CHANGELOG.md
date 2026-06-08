@@ -4,6 +4,17 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.4.3-beta.51] - 2026-06-08
+
+### Fixed
+
+- `Domain` now waits for a failed transient custom-domain deployment to be fully
+  deleted before retrying the same hostname, avoiding `resource already exists`
+  failures during recovery.
+- `ContainerImage` now serializes and reuses Docker login per registry/user in a
+  process, avoiding concurrent macOS keychain duplicate-item failures when a
+  stack builds multiple images for the same registry.
+
 ## [0.4.2-beta.51] - 2026-06-08
 
 ### Fixed

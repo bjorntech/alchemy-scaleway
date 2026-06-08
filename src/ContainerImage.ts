@@ -85,6 +85,8 @@ const defaultRunContainerImageCommand: ContainerImageCommandRunner = ({ command,
   });
 
 let runContainerImageCommand = defaultRunContainerImageCommand;
+const dockerLoginLocks = new Map<string, Promise<void>>();
+const dockerLoggedIn = new Set<string>();
 
 export const setContainerImageCommandRunner = (runner: ContainerImageCommandRunner) => {
   runContainerImageCommand = runner;
@@ -92,7 +94,32 @@ export const setContainerImageCommandRunner = (runner: ContainerImageCommandRunn
 
 export const resetContainerImageCommandRunner = () => {
   runContainerImageCommand = defaultRunContainerImageCommand;
+  dockerLoginLocks.clear();
+  dockerLoggedIn.clear();
 };
+
+const runDockerLoginOnce = (key: string, command: ContainerImageCommand) =>
+  Effect.tryPromise({
+    try: () => {
+      const previous = dockerLoginLocks.get(key) ?? Promise.resolve();
+      const current = previous
+        .catch(() => undefined)
+        .then(() => {
+          if (dockerLoggedIn.has(key)) return undefined;
+          return Effect.runPromise(runContainerImageCommand(command)).then(() => {
+            dockerLoggedIn.add(key);
+          });
+        });
+      dockerLoginLocks.set(
+        key,
+        current.finally(() => {
+          if (dockerLoginLocks.get(key) === current) dockerLoginLocks.delete(key);
+        }),
+      );
+      return current;
+    },
+    catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+  });
 
 const sortedEntries = (path: string): Effect.Effect<{ name: string }[], Error, never> =>
   Effect.tryPromise({
@@ -313,7 +340,7 @@ export const ContainerImageProvider = () =>
           ];
 
           if (login) {
-            yield* runContainerImageCommand({
+            yield* runDockerLoginOnce(`${registryHost(registry)}:${login.username}`, {
               command: "docker",
               args: ["login", registryHost(registry), "-u", login.username, "--password-stdin"],
               cwd,

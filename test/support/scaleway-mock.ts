@@ -38,6 +38,8 @@ export interface ScalewayMock {
   seedDnsZone(dnsZone: string, projectId?: string): void;
   /** Make the next created custom domains enter Scaleway's deployment error state. */
   failNextDomainDeploys(count: number): void;
+  /** Make custom-domain delete keep returning the deleted domain for a few reads. */
+  makeDomainDeleteStale(reads: number): void;
   /** Make the next matching Containers request fail with a status + message. */
   failNext(urlFragment: string, status: number, message: string): void;
 }
@@ -121,6 +123,7 @@ export function installScalewayMock(): ScalewayMock {
   let asyncLifecycle = false;
   let staleRdbListReads = 0;
   let domainDeployErrorsRemaining = 0;
+  let staleDomainDeleteReads = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
   const forcedErrors: Array<{ fragment: string; status: number; message: string }> = [];
 
@@ -239,6 +242,9 @@ export function installScalewayMock(): ScalewayMock {
 
     if (kind === "domains") {
       if (method === "POST") {
+        if ([...domains.values()].some((domain) => domain.hostname === input.hostname && domain.container_id === input.container_id)) {
+          return json({ message: "resource already exists" }, 409);
+        }
         const status = domainDeployErrorsRemaining > 0 ? "error" : "ready";
         if (domainDeployErrorsRemaining > 0) domainDeployErrorsRemaining--;
         const record = {
@@ -254,8 +260,24 @@ export function installScalewayMock(): ScalewayMock {
       }
       const existing = domains.get(id);
       if (!existing) return json({ message: "domain not found" }, 404);
-      if (method === "GET") return json(existing);
+      if (method === "GET") {
+        const staleReads = Number(existing.__staleDeleteReads ?? 0);
+        if (staleReads > 0) {
+          domains.set(id, { ...existing, __staleDeleteReads: staleReads - 1 });
+          return json(existing);
+        }
+        if (existing.__staleDeleteReads === 0) {
+          domains.delete(id);
+          return json({ message: "domain not found" }, 404);
+        }
+        return json(existing);
+      }
       if (method === "DELETE") {
+        if (staleDomainDeleteReads > 0) {
+          domains.set(id, { ...existing, __staleDeleteReads: staleDomainDeleteReads });
+          staleDomainDeleteReads = 0;
+          return noContent();
+        }
         domains.delete(id);
         return noContent();
       }
@@ -1362,6 +1384,9 @@ export function installScalewayMock(): ScalewayMock {
     },
     failNextDomainDeploys: (count) => {
       domainDeployErrorsRemaining = count;
+    },
+    makeDomainDeleteStale: (reads) => {
+      staleDomainDeleteReads = reads;
     },
     failNext: (fragment, status, message) => forcedErrors.push({ fragment, status, message }),
   };

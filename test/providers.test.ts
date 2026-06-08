@@ -399,7 +399,7 @@ describe("ContainerImage", () => {
         expect(updated.ref).not.toBe(first.ref);
         expect(updated.stableRef).toBe(first.stableRef);
         expect(updated.digest).not.toBe(first.digest);
-        expect(imageCommands.map((command) => command.args[0])).toEqual(["login", "build", "push", "push"]);
+        expect(imageCommands.map((command) => command.args[0])).toEqual(["build", "push", "push"]);
       } finally {
         rmSync(context, { recursive: true, force: true });
       }
@@ -600,6 +600,60 @@ describe("ContainerImage", () => {
         expect(imageCommands[3]?.args).toEqual(["push", image.stableRef]);
       } finally {
         rmSync(context, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("serializes and reuses Docker login for same-registry images", (stack) =>
+    Effect.gen(function* () {
+      const apiContext = mkdtempSync(join(tmpdir(), "alchemy-scaleway-api-image-"));
+      const webContext = mkdtempSync(join(tmpdir(), "alchemy-scaleway-web-image-"));
+      writeFileSync(join(apiContext, "Dockerfile"), "FROM scratch\n");
+      writeFileSync(join(webContext, "Dockerfile"), "FROM scratch\n");
+      let loginInFlight = false;
+      Scaleway.setContainerImageCommandRunner((command) => {
+        imageCommands.push(command);
+        if (command.args[0] !== "login") return Effect.void;
+        return Effect.tryPromise({
+          try: () => new Promise<void>((resolve, reject) => {
+            if (loginInFlight) {
+              reject(new Error("concurrent docker login"));
+              return;
+            }
+            loginInFlight = true;
+            setTimeout(() => {
+              loginInFlight = false;
+              resolve();
+            }, 10);
+          }),
+          catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+        });
+      });
+
+      try {
+        yield* stack.deploy(
+          Effect.all([
+            Scaleway.ContainerImage("ApiImage", {
+              registry: "rg.fr-par.scw.cloud/demo-registry",
+              context: apiContext,
+              repository: "api",
+              tag: "dev",
+            }),
+            Scaleway.ContainerImage("WebImage", {
+              registry: "rg.fr-par.scw.cloud/demo-registry",
+              context: webContext,
+              repository: "web",
+              tag: "dev",
+            }),
+          ]),
+        );
+
+        expect(imageCommands.filter((command) => command.args[0] === "login")).toHaveLength(1);
+        expect(imageCommands.filter((command) => command.args[0] === "build")).toHaveLength(2);
+        expect(imageCommands.filter((command) => command.args[0] === "push")).toHaveLength(4);
+      } finally {
+        rmSync(apiContext, { recursive: true, force: true });
+        rmSync(webContext, { recursive: true, force: true });
       }
     }),
   );
@@ -1361,6 +1415,28 @@ describe("Domain", () => {
       expect(requests("POST", "/domains")).toHaveLength(3);
       expect(requests("DELETE", "/domains/")).toHaveLength(2);
     }),
+  );
+
+  test.provider("waits for failed domain deletion before retrying same hostname", (stack) =>
+    Effect.gen(function* () {
+      mock.failNextDomainDeploys(1);
+      mock.makeDomainDeleteStale(1);
+      const created = yield* stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          const api = yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+          });
+          return yield* Scaleway.Domain("Domain", { container: api, hostname: "api.example.com" });
+        }),
+      );
+
+      expect(created.domainId).toMatch(/^dom-/);
+      expect(requests("POST", "/domains")).toHaveLength(2);
+      expect(requests("GET", "/domains/").length).toBeGreaterThan(1);
+    }),
+    { timeout: 10_000 },
   );
 
   test.provider("fails after repeated transient deployment errors", (stack) =>
