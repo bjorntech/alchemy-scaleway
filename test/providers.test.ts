@@ -2452,6 +2452,33 @@ systemctl start docker
     }),
   );
 
+  test.provider("replacement recovery detaches live flexible IP when persisted ref lacks serverId", () =>
+    Effect.gen(function* () {
+      mock.addFlexibleIp("ip-managed", { serverId: "srv-old" });
+      const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      yield* provider.reconcile!({
+        id: "App",
+        instanceId: "test",
+        olds: { commercialType: "DEV1-S" },
+        news: {
+          zone: "fr-par-1",
+          name: "app-managed",
+          commercialType: "DEV1-S",
+          publicIps: ["ip-managed"],
+        },
+        oldBindings: [],
+        newBindings: [],
+        output: undefined,
+        session: { note: () => Effect.void },
+      } as any);
+
+      const detach = requests("PATCH", "/ips/ip-managed").at(0)!;
+      expect(requests("GET", "/ips/ip-managed")).toHaveLength(1);
+      expect(JSON.parse(detach.body).server).toBeNull();
+      expect(requests("POST", "/servers")).toHaveLength(1);
+    }),
+  );
+
   test.provider("creates then updates instance metadata and attachments", (stack) =>
     Effect.gen(function* () {
       mock.addFlexibleIp("ip-existing");
