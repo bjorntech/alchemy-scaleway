@@ -799,6 +799,29 @@ describe("DatabaseInstance", () => {
     }),
   );
 
+  test.provider("waits until deleted database disappears from project listing", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.DatabaseInstance("Database", {
+          engine: "PostgreSQL-15",
+          nodeType: "db-dev-s",
+          userName: "app",
+          password: databasePassword(),
+        }).pipe(destroy()),
+      );
+
+      mock.makeDatabaseDeleteStaleInList(1);
+      yield* stack.destroy();
+
+      expect(requests("DELETE", `/rdb/v1/regions/fr-par/instances/${created.databaseInstanceId}`)).toHaveLength(1);
+      const listChecks = requests("GET", "/rdb/v1/regions/fr-par/instances").filter((call) =>
+        new URL(call.url).pathname === "/rdb/v1/regions/fr-par/instances"
+      );
+      expect(listChecks.length).toBeGreaterThan(1);
+    }),
+    { timeout: 10_000 },
+  );
+
   test.provider("changing project forces a replace", (stack) =>
     Effect.gen(function* () {
       const first = yield* stack.deploy(
