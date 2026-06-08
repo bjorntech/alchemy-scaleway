@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { adopt as adoptResource } from "alchemy/AdoptPolicy";
@@ -399,6 +399,73 @@ describe("ContainerImage", () => {
         expect(updated.ref).not.toBe(first.ref);
         expect(updated.stableRef).toBe(first.stableRef);
         expect(updated.digest).not.toBe(first.digest);
+        expect(imageCommands.map((command) => command.args[0])).toEqual(["login", "build", "push", "push"]);
+      } finally {
+        rmSync(context, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("excludes dockerignored paths from source hashing", (stack) =>
+    Effect.gen(function* () {
+      const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      writeFileSync(join(context, "Dockerfile"), "FROM scratch\n");
+      writeFileSync(join(context, ".dockerignore"), "ignored/\n*.log\n!important.log\nnested/**/*.tmp\nquestion?.txt\n");
+      writeFileSync(join(context, "app.txt"), "first\n");
+      writeFileSync(join(context, "debug.log"), "ignored log\n");
+      writeFileSync(join(context, "important.log"), "included log\n");
+      writeFileSync(join(context, "question1.txt"), "ignored question\n");
+      mkdirSync(join(context, "ignored"));
+      mkdirSync(join(context, "nested"));
+      mkdirSync(join(context, "nested", "deep"));
+      writeFileSync(join(context, "ignored", "data.txt"), "ignored data\n");
+      writeFileSync(join(context, "nested", "deep", "data.tmp"), "ignored tmp\n");
+      symlinkSync(join(context, "missing"), join(context, "ignored", "broken-link"));
+
+      try {
+        const program = Scaleway.ContainerImage("ApiImage", {
+          registry: "rg.fr-par.scw.cloud/demo-registry",
+          context,
+          repository: "api",
+          tag: "dev",
+        });
+        const first = yield* stack.deploy(program);
+        imageCommands = [];
+        writeFileSync(join(context, "debug.log"), "changed ignored log\n");
+        writeFileSync(join(context, "ignored", "data.txt"), "changed ignored data\n");
+        writeFileSync(join(context, "nested", "deep", "data.tmp"), "changed ignored tmp\n");
+        writeFileSync(join(context, "question1.txt"), "changed ignored question\n");
+        const unchanged = yield* stack.deploy(program);
+
+        expect(unchanged.digest).toBe(first.digest);
+        expect(imageCommands).toHaveLength(0);
+
+        writeFileSync(join(context, "important.log"), "changed included log\n");
+        const updated = yield* stack.deploy(program);
+        expect(updated.digest).not.toBe(first.digest);
+      } finally {
+        rmSync(context, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("hashes broken symlink metadata without following the target", (stack) =>
+    Effect.gen(function* () {
+      const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      writeFileSync(join(context, "Dockerfile"), "FROM scratch\n");
+      symlinkSync(join(context, "missing"), join(context, "broken-link"));
+
+      try {
+        const image = yield* stack.deploy(
+          Scaleway.ContainerImage("ApiImage", {
+            registry: "rg.fr-par.scw.cloud/demo-registry",
+            context,
+            repository: "api",
+            tag: "dev",
+          }),
+        );
+
+        expect(image.digest).toMatch(/^sha256:/);
         expect(imageCommands.map((command) => command.args[0])).toEqual(["login", "build", "push", "push"]);
       } finally {
         rmSync(context, { recursive: true, force: true });
@@ -2393,9 +2460,10 @@ describe("DnsZone", () => {
       const out = yield* stack.deploy(
         Effect.gen(function* () {
           const project = yield* Scaleway.Project("AppProject", { organizationId: "org-test" });
-          const defaultZone = yield* Scaleway.DnsZone("DefaultZone", { domain: "default.example.test" });
+          const defaultZone = yield* Scaleway.DnsZone("DefaultZone", { domain: "example.test", subdomain: "default" });
           const overrideZone = yield* Scaleway.DnsZone("OverrideZone", {
-            domain: "override.example.test",
+            domain: "example.test",
+            subdomain: "override",
             project,
           });
           return { project, defaultZone, overrideZone };
@@ -2406,13 +2474,58 @@ describe("DnsZone", () => {
       expect(out.overrideZone.projectId).toBe(out.project.projectId);
     }),
   );
+
+  test.provider("uses existing apex zones and fails clearly when they are missing", (stack) =>
+    Effect.gen(function* () {
+      mock.seedDnsZone("existing.example.test", "proj-domain");
+
+      const existing = yield* stack.deploy(
+        Scaleway.DnsZone("ExistingApexZone", {
+          domain: "existing.example.test",
+          project: "proj-domain",
+        }).pipe(adoptResource()),
+      );
+
+      expect(existing.dnsZone).toBe("existing.example.test");
+      expect(existing.subdomain).toBeUndefined();
+      expect(requests("POST", "/domain/v2beta1/dns-zones")).toHaveLength(0);
+
+      yield* Effect.flip(
+        stack.deploy(Scaleway.DnsZone("MissingApexZone", { domain: "missing.example.test" })),
+      ).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("Scaleway DNS apex zone missing.example.test does not exist");
+          expect(String(error)).toContain("Register, transfer, or validate the domain in Scaleway first");
+        }),
+      );
+    }),
+  );
 });
 
 describe("DnsRecord", () => {
+  test.provider("treats incomplete failed-create state as absent", () =>
+    Effect.gen(function* () {
+      const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "IncompleteRecord",
+        instanceId: "test",
+        olds: {
+          project: "proj-test",
+          name: "api.dev",
+          overwriteExisting: true,
+        } as Scaleway.DnsRecord["Props"],
+        output: undefined,
+      });
+
+      expect(read).toBeUndefined();
+    }),
+  );
+
   test.provider("upserts records into a zone name", (stack) =>
     Effect.gen(function* () {
+      mock.seedDnsZone("example.test");
       yield* stack.deploy(
-        Scaleway.DnsZone("Zone", { domain: "example.test" }),
+        Scaleway.DnsZone("Zone", { domain: "example.test" }).pipe(adoptResource()),
       );
 
       const created = yield* stack.deploy(
@@ -2437,9 +2550,10 @@ describe("DnsRecord", () => {
 
   test.provider("upserts explicit DNS records", (stack) =>
     Effect.gen(function* () {
+      mock.seedDnsZone("example.test");
       const created = yield* stack.deploy(
         Effect.gen(function* () {
-          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" });
+          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" }).pipe(adoptResource());
           return yield* Scaleway.DnsRecord("WebRecord", {
             zone,
             name: "www",
@@ -2456,7 +2570,7 @@ describe("DnsRecord", () => {
 
       const updated = yield* stack.deploy(
         Effect.gen(function* () {
-          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" });
+          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" }).pipe(adoptResource());
           return yield* Scaleway.DnsRecord("WebRecord", {
             zone,
             name: "www",
@@ -2473,11 +2587,13 @@ describe("DnsRecord", () => {
 
   test.provider("scopes DNS records to the referenced zone project", (stack) =>
     Effect.gen(function* () {
+      mock.seedDnsZone("shared.example.test", "proj-test");
+      mock.seedDnsZone("shared.example.test", "proj-app");
       yield* stack.deploy(
         Scaleway.DnsZone("DefaultProjectZone", {
           domain: "shared.example.test",
           project: "proj-test",
-        }),
+        }).pipe(adoptResource()),
       );
 
       const created = yield* stack.deploy(
@@ -2485,7 +2601,7 @@ describe("DnsRecord", () => {
           const zone = yield* Scaleway.DnsZone("AppProjectZone", {
             domain: "shared.example.test",
             project: "proj-app",
-          });
+          }).pipe(adoptResource());
           return yield* Scaleway.DnsRecord("AppRecord", {
             zone,
             name: "api",
@@ -2522,11 +2638,12 @@ describe("DnsRecord", () => {
 
   test.provider("scopes DNS records to an explicit project for string zones", (stack) =>
     Effect.gen(function* () {
+      mock.seedDnsZone("string-zone.example.test", "proj-domain");
       yield* stack.deploy(
         Scaleway.DnsZone("SharedProjectZone", {
           domain: "string-zone.example.test",
           project: "proj-domain",
-        }),
+        }).pipe(adoptResource()),
       );
 
       const created = yield* stack.deploy(
@@ -2564,11 +2681,12 @@ describe("DnsRecord", () => {
 
   test.provider("refuses to overwrite an existing unmanaged DNS record by default", (stack) =>
     Effect.gen(function* () {
+      mock.seedDnsZone("conflict.example.test", "proj-domain");
       yield* stack.deploy(
         Scaleway.DnsZone("Zone", {
           domain: "conflict.example.test",
           project: "proj-domain",
-        }),
+        }).pipe(adoptResource()),
       );
       yield* stack.deploy(
         Scaleway.DnsRecord("ExistingRecord", {
@@ -2604,11 +2722,12 @@ describe("DnsRecord", () => {
 
   test.provider("overwrites an existing DNS record when explicitly allowed", (stack) =>
     Effect.gen(function* () {
+      mock.seedDnsZone("overwrite.example.test", "proj-domain");
       yield* stack.deploy(
         Scaleway.DnsZone("Zone", {
           domain: "overwrite.example.test",
           project: "proj-domain",
-        }),
+        }).pipe(adoptResource()),
       );
       yield* stack.deploy(
         Scaleway.DnsRecord("ExistingRecord", {
@@ -2643,11 +2762,13 @@ describe("DnsRecord", () => {
 
   test.provider("recovers zone project when reading legacy DNS record output", (stack) =>
     Effect.gen(function* () {
+      mock.seedDnsZone("legacy.example.test", "proj-test");
+      mock.seedDnsZone("legacy.example.test", "proj-app");
       yield* stack.deploy(
         Scaleway.DnsZone("DefaultProjectZone", {
           domain: "legacy.example.test",
           project: "proj-test",
-        }),
+        }).pipe(adoptResource()),
       );
 
       const result = yield* stack.deploy(
@@ -2655,7 +2776,7 @@ describe("DnsRecord", () => {
           const zone = yield* Scaleway.DnsZone("AppProjectZone", {
             domain: "legacy.example.test",
             project: "proj-app",
-          });
+          }).pipe(adoptResource());
           const record = yield* Scaleway.DnsRecord("AppRecord", {
             zone,
             name: "api",
@@ -2689,9 +2810,10 @@ describe("DnsRecord", () => {
 
   test.provider("writes CNAME targets as absolute hostnames", (stack) =>
     Effect.gen(function* () {
+      mock.seedDnsZone("example.test");
       const created = yield* stack.deploy(
         Effect.gen(function* () {
-          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" });
+          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" }).pipe(adoptResource());
           return yield* Scaleway.DnsRecord("AliasRecord", {
             zone,
             name: "api",
@@ -2707,9 +2829,10 @@ describe("DnsRecord", () => {
 
   test.provider("infers an A record from a FlexibleIp target", (stack) =>
     Effect.gen(function* () {
+      mock.seedDnsZone("example.test");
       const result = yield* stack.deploy(
         Effect.gen(function* () {
-          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" });
+          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" }).pipe(adoptResource());
           const ip = yield* Scaleway.FlexibleIp("PublicIp", { zone: "fr-par-1" });
           const record = yield* Scaleway.DnsRecord("PublicRecord", {
             zone,
@@ -2726,9 +2849,10 @@ describe("DnsRecord", () => {
 
   test.provider("infers a hostname-only CNAME from a RegistryNamespace target", (stack) =>
     Effect.gen(function* () {
+      mock.seedDnsZone("example.test");
       const result = yield* stack.deploy(
         Effect.gen(function* () {
-          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" });
+          const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" }).pipe(adoptResource());
           const registry = yield* Scaleway.RegistryNamespace("Registry", { name: "demo-registry" });
           return yield* Scaleway.DnsRecord("RegistryRecord", {
             zone,

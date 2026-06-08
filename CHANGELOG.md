@@ -8,6 +8,18 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 - Production smoke tests now skip billed VPC connector/VPC Peering coverage by
   default. Set `SCW_SMOKE_EXPENSIVE_NETWORK=1` to include that path explicitly.
+- Production smoke tests now include a disposable child `DnsZone` so live coverage
+  exercises DNS zone creation without adopting the shared apex zone.
+
+### Fixed
+
+- `ContainerImage` source hashing now applies `.dockerignore` rules and hashes
+  symlink metadata without following broken targets, avoiding pre-build failures
+  for Docker contexts that Docker itself can handle.
+- `DnsZone` no longer attempts to create apex DNS zones with an empty
+  `subdomain`. Apex zones are now existing-zone references with a clear error
+  when the domain is not registered or validated in Scaleway; child zones remain
+  creatable with `subdomain`.
 
 ## [0.4.0-beta.51] - 2026-06-06
 

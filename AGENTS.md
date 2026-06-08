@@ -106,6 +106,7 @@ The CRAP script supports `// @crap-ignore` only for wrapper/factory functions th
 - Never commit secrets or local `.env` files.
 - Live Scaleway tests, if added later, must be opt-in and gated by explicit environment variables.
 - For live smoke tests, use the 1Password MCP to resolve the Environment ID for `alchemy-scaleway-production`, then run with `op run --environment <environment-id>`; do not read, print, or commit secret values.
+- When live smoke cleanup exposes a leaked resource or project deletion precondition, fix provider recovery/read/delete behavior and rerun cleanup through Alchemy. Do not manually delete via raw Scaleway APIs except as a last-resort emergency; the goal is to make interrupted deploys and second-run cleanup increasingly reliable.
 - Object Storage requires `SCW_ACCESS_KEY` and `SCW_SECRET_KEY`.
 - Containers require `SCW_SECRET_KEY`, region, and a project id from credentials or resource props.
 - Secret Manager requires `SCW_SECRET_KEY`, region, and a project id from credentials or resource props.

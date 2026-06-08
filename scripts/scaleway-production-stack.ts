@@ -9,10 +9,14 @@ const region = process.env.SCW_DEFAULT_REGION || "fr-par";
 const zone = process.env.SCW_DEFAULT_ZONE || `${region}-1`;
 const prefix = process.env.SCW_SMOKE_PREFIX ?? "alchemy-smoke";
 const dnsZone = process.env.SCW_SMOKE_DNS_ZONE ?? "alchemy-smoke.finnvid.org";
+const dnsDomain = process.env.SCW_SMOKE_DNS_DOMAIN ?? dnsZone.split(".").slice(-2).join(".");
+const dnsZoneSubdomain = dnsZone.endsWith(`.${dnsDomain}`) ? dnsZone.slice(0, -dnsDomain.length - 1) : undefined;
 const dnsLabel = process.env.SCW_SMOKE_DNS_LABEL ?? prefix;
 const domainProjectId = process.env.SCW_DOMAIN_PROJECT_ID ?? process.env.SCW_DEFAULT_PROJECT_ID;
 const organizationId = process.env.SCW_ORGANIZATION_ID;
 const smokeHostname = `${dnsLabel}.${dnsZone}`;
+const childZoneLabel = `${dnsLabel.slice(0, 57).replace(/-+$/g, "")}-child`;
+const childZoneSubdomain = [childZoneLabel, dnsZoneSubdomain].filter(Boolean).join(".");
 const phase = process.env.SCW_SMOKE_PHASE === "create" ? "create" : process.env.SCW_SMOKE_PHASE === "settle" ? "settle" : "update";
 const expensiveNetwork = process.env.SCW_SMOKE_EXPENSIVE_NETWORK === "1";
 
@@ -77,6 +81,12 @@ export default Alchemy.Stack(
       name: dnsLabel,
       target: container,
     });
+
+    const childDnsZone = yield* Scaleway.DnsZone("ChildDnsZone", {
+      domain: dnsDomain,
+      subdomain: childZoneSubdomain,
+      project: domainProjectId,
+    }).pipe(destroy());
 
     const domain = updated
       ? yield* Scaleway.Domain("ContainerDomain", {
@@ -284,6 +294,8 @@ echo "Alchemy Scaleway smoke VM setup complete"
       smokeHostname,
       dnsRecordType: dnsRecord.type,
       dnsRecordProjectId: dnsRecord.projectId,
+      childDnsZone: childDnsZone.dnsZone,
+      childDnsZoneProjectId: childDnsZone.projectId,
       customDomainUrl: domain?.url,
       registryEndpoint: registry.endpoint,
       registryProjectId: registry.projectId,

@@ -32,6 +32,8 @@ export interface ScalewayMock {
   removeBucket(name: string): void;
   /** Seed a bucket that Alchemy does not own (no `alchemy:logical-id` tag). */
   seedBucket(name: string, region: string, tags?: Record<string, string>): void;
+  /** Seed an existing DNS zone, such as an apex zone registered outside Alchemy. */
+  seedDnsZone(dnsZone: string, projectId?: string): void;
   /** Make the next created custom domains enter Scaleway's deployment error state. */
   failNextDomainDeploys(count: number): void;
   /** Make the next matching Containers request fail with a status + message. */
@@ -264,6 +266,18 @@ export function installScalewayMock(): ScalewayMock {
     return subdomain ? `${subdomain}.${zone.domain}` : zone.domain as string;
   };
   const zoneKeyOf = (zone: Record<string, unknown>) => `${zone.project_id ?? ""}:${zoneNameOf(zone)}`;
+  const zoneRecordOf = (dnsZone: string, projectId = "proj-test") => {
+    return {
+      ns: ["ns0.dom.scw.cloud", "ns1.dom.scw.cloud"],
+      ns_default: ["ns0.dom.scw.cloud", "ns1.dom.scw.cloud"],
+      ns_master: [],
+      status: "active",
+      updated_at: "2026-06-06T00:00:00Z",
+      domain: dnsZone,
+      subdomain: "",
+      project_id: projectId,
+    };
+  };
   const zoneKey = (dnsZone: string, projectId: string | null) =>
     projectId === null
       ? [...dnsZones.entries()].find(([, zone]) => zoneNameOf(zone) === dnsZone)?.[0]
@@ -291,6 +305,9 @@ export function installScalewayMock(): ScalewayMock {
         return json({ total_count: zones.length, dns_zones: zones });
       }
       if (method === "POST") {
+        if (typeof input.subdomain !== "string" || input.subdomain.length === 0) {
+          return json({ message: "invalid argument: subdomain is required" }, 400);
+        }
         const record: Record<string, unknown> = {
           ns: ["ns0.dom.scw.cloud", "ns1.dom.scw.cloud"],
           ns_default: ["ns0.dom.scw.cloud", "ns1.dom.scw.cloud"],
@@ -1316,6 +1333,10 @@ export function installScalewayMock(): ScalewayMock {
     removeBucket: (name) => buckets.delete(name),
     seedBucket: (name, region, tags = {}) =>
       buckets.set(name, { region, versioning: false, tags, objects: new Map() }),
+    seedDnsZone: (dnsZone, projectId = "proj-test") => {
+      const record = zoneRecordOf(dnsZone, projectId);
+      dnsZones.set(zoneKeyOf(record), record);
+    },
     failNextDomainDeploys: (count) => {
       domainDeployErrorsRemaining = count;
     },
