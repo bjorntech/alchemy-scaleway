@@ -104,6 +104,69 @@ export interface ScalewayDomainRecord {
   error_message?: string;
 }
 
+export interface ScalewayFunctionNamespaceRecord {
+  id: string;
+  name: string;
+  project_id: string;
+  region?: string;
+  description?: string;
+  environment_variables?: Record<string, string>;
+  status?: string;
+  error_message?: string;
+  registry_namespace_id?: string;
+  registry_endpoint?: string;
+  tags?: string[];
+}
+
+export interface ScalewayFunctionRecord {
+  id: string;
+  name: string;
+  namespace_id: string;
+  region?: string;
+  status?: string;
+  environment_variables?: Record<string, string>;
+  min_scale?: number;
+  max_scale?: number;
+  runtime?: string;
+  memory_limit?: number;
+  cpu_limit?: number;
+  timeout?: string;
+  handler?: string;
+  error_message?: string;
+  build_message?: string;
+  runtime_message?: string;
+  privacy?: string;
+  description?: string;
+  domain_name?: string;
+  http_option?: string;
+  sandbox?: string;
+  tags?: string[];
+  private_network_id?: string;
+}
+
+export interface ScalewayFunctionCronRecord {
+  id: string;
+  function_id: string;
+  schedule: string;
+  args?: Record<string, unknown>;
+  status?: string;
+  name?: string;
+}
+
+export interface ScalewayFunctionDomainRecord {
+  id: string;
+  function_id: string;
+  hostname: string;
+  url?: string;
+  status?: string;
+  error_message?: string;
+}
+
+export interface ScalewayUploadUrlRecord {
+  url: string;
+  headers?: Record<string, string>;
+}
+
 export interface ScalewayDnsZoneRecord {
   domain: string;
   subdomain?: string;
@@ -491,6 +554,26 @@ export interface ScalewayClients {
     getDomain(domainId: string): Effect.Effect<ScalewayDomainRecord, ScalewayError>;
     deleteDomain(domainId: string): Effect.Effect<void, ScalewayError>;
   };
+  functions: {
+    createNamespace(input: Record<string, unknown>): Effect.Effect<ScalewayFunctionNamespaceRecord, ScalewayError>;
+    getNamespace(namespaceId: string): Effect.Effect<ScalewayFunctionNamespaceRecord, ScalewayError>;
+    updateNamespace(namespaceId: string, input: Record<string, unknown>): Effect.Effect<ScalewayFunctionNamespaceRecord, ScalewayError>;
+    deleteNamespace(namespaceId: string): Effect.Effect<void, ScalewayError>;
+    createFunction(input: Record<string, unknown>): Effect.Effect<ScalewayFunctionRecord, ScalewayError>;
+    getFunction(functionId: string): Effect.Effect<ScalewayFunctionRecord, ScalewayError>;
+    updateFunction(functionId: string, input: Record<string, unknown>): Effect.Effect<ScalewayFunctionRecord, ScalewayError>;
+    deleteFunction(functionId: string): Effect.Effect<void, ScalewayError>;
+    deployFunction(functionId: string): Effect.Effect<ScalewayFunctionRecord, ScalewayError>;
+    getFunctionUploadUrl(functionId: string, contentLength: number): Effect.Effect<ScalewayUploadUrlRecord, ScalewayError>;
+    createCron(input: Record<string, unknown>): Effect.Effect<ScalewayFunctionCronRecord, ScalewayError>;
+    getCron(cronId: string): Effect.Effect<ScalewayFunctionCronRecord, ScalewayError>;
+    updateCron(cronId: string, input: Record<string, unknown>): Effect.Effect<ScalewayFunctionCronRecord, ScalewayError>;
+    deleteCron(cronId: string): Effect.Effect<void, ScalewayError>;
+    createDomain(input: Record<string, unknown>): Effect.Effect<ScalewayFunctionDomainRecord, ScalewayError>;
+    listDomains(functionId: string): Effect.Effect<ScalewayFunctionDomainRecord[], ScalewayError>;
+    getDomain(domainId: string): Effect.Effect<ScalewayFunctionDomainRecord, ScalewayError>;
+    deleteDomain(domainId: string): Effect.Effect<void, ScalewayError>;
+  };
   dns: {
     listZones(input: { domain?: string; dnsZone?: string; projectId?: string }): Effect.Effect<ScalewayDnsZoneRecord[], ScalewayError>;
     createZone(input: { domain: string; subdomain: string; project_id: string }): Effect.Effect<ScalewayDnsZoneRecord, ScalewayError>;
@@ -730,6 +813,7 @@ export const makeScalewayClients = Effect.gen(function* () {
   const { apiUrl, region, projectId } = credentials;
   const secretKey = Redacted.value(credentials.secretKey);
   const base = `/containers/v1/regions/${region}`;
+  const functionsBase = `/functions/v1beta1/regions/${region}`;
   const registryBase = `/registry/v1/regions/${region}`;
   const secretManagerBase = `/secret-manager/v1beta1/regions/${region}`;
   const vpcBase = `/vpc/v2/regions/${region}`;
@@ -845,6 +929,42 @@ export const makeScalewayClients = Effect.gen(function* () {
         ),
       getDomain: (id) => request("GET", `${base}/domains/${id}`).pipe(Effect.map(decodeDomain)),
       deleteDomain: (id) => request<void>("DELETE", `${base}/domains/${id}`),
+    },
+    functions: {
+      createNamespace: (input) =>
+        request("POST", `${functionsBase}/namespaces`, input).pipe(Effect.map(decodeFunctionNamespace)),
+      getNamespace: (id) =>
+        request("GET", `${functionsBase}/namespaces/${id}`).pipe(Effect.map(decodeFunctionNamespace)),
+      updateNamespace: (id, input) =>
+        request("PATCH", `${functionsBase}/namespaces/${id}`, input).pipe(Effect.map(decodeFunctionNamespace)),
+      deleteNamespace: (id) => request<void>("DELETE", `${functionsBase}/namespaces/${id}`),
+      createFunction: (input) =>
+        request("POST", `${functionsBase}/functions`, input).pipe(Effect.map(decodeFunction)),
+      getFunction: (id) =>
+        request("GET", `${functionsBase}/functions/${id}`).pipe(Effect.map(decodeFunction)),
+      updateFunction: (id, input) =>
+        request("PATCH", `${functionsBase}/functions/${id}`, input).pipe(Effect.map(decodeFunction)),
+      deleteFunction: (id) => request<void>("DELETE", `${functionsBase}/functions/${id}`),
+      deployFunction: (id) =>
+        request("POST", `${functionsBase}/functions/${id}/deploy`, {}).pipe(Effect.map(decodeFunction)),
+      getFunctionUploadUrl: (id, contentLength) =>
+        request("GET", `${functionsBase}/functions/${id}/upload-url${query({ content_length: contentLength })}`).pipe(Effect.map(decodeUploadUrl)),
+      createCron: (input) =>
+        request("POST", `${functionsBase}/crons`, input).pipe(Effect.map(decodeFunctionCron)),
+      getCron: (id) =>
+        request("GET", `${functionsBase}/crons/${id}`).pipe(Effect.map(decodeFunctionCron)),
+      updateCron: (id, input) =>
+        request("PATCH", `${functionsBase}/crons/${id}`, input).pipe(Effect.map(decodeFunctionCron)),
+      deleteCron: (id) => request<void>("DELETE", `${functionsBase}/crons/${id}`),
+      createDomain: (input) =>
+        request("POST", `${functionsBase}/domains`, input).pipe(Effect.map(decodeFunctionDomain)),
+      listDomains: (functionId) =>
+        listAllPages<ScalewayFunctionDomainRecord, "domains">("domains", (page, pageSize) =>
+          `${functionsBase}/domains${query({ function_id: functionId, page, page_size: pageSize })}`
+        ),
+      getDomain: (id) =>
+        request("GET", `${functionsBase}/domains/${id}`).pipe(Effect.map(decodeFunctionDomain)),
+      deleteDomain: (id) => request<void>("DELETE", `${functionsBase}/domains/${id}`),
     },
     dns: {
       listZones: ({ domain, dnsZone, projectId }) =>
@@ -1392,6 +1512,11 @@ const decodeNamespace = (value: unknown) => value as ScalewayNamespaceRecord;
 const decodeContainer = (value: unknown) => value as ScalewayContainerRecord;
 const decodeTrigger = (value: unknown) => value as ScalewayTriggerRecord;
 const decodeDomain = (value: unknown) => value as ScalewayDomainRecord;
+const decodeFunctionNamespace = (value: unknown) => value as ScalewayFunctionNamespaceRecord;
+const decodeFunction = (value: unknown) => value as ScalewayFunctionRecord;
+const decodeFunctionCron = (value: unknown) => value as ScalewayFunctionCronRecord;
+const decodeFunctionDomain = (value: unknown) => value as ScalewayFunctionDomainRecord;
+const decodeUploadUrl = (value: unknown) => value as ScalewayUploadUrlRecord;
 const decodeProject = (value: unknown) => envelope<ScalewayProjectRecord>(value, "project");
 const decodeDnsZone = (value: unknown) => value as ScalewayDnsZoneRecord;
 const decodeRegistryNamespace = (value: unknown) => value as ScalewayRegistryNamespaceRecord;

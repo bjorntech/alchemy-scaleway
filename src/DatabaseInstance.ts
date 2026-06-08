@@ -177,7 +177,7 @@ export const DatabaseInstanceProvider = () =>
 
       const deleteWhenAccepted = (region: string, databaseInstanceId: string, session: { note(message: string): Effect.Effect<void> }) =>
         Effect.gen(function* () {
-          while (true) {
+          for (let attempt = 1; attempt <= 120; attempt++) {
             const accepted = yield* clients.rdb
               .deleteInstance({ region, instanceId: databaseInstanceId })
               .pipe(
@@ -189,9 +189,14 @@ export const DatabaseInstanceProvider = () =>
               yield* session.note("delete accepted status=200");
               return;
             }
-            yield* session.note("waiting database delete acceptance status=transient");
+            const existing = yield* clients.rdb
+              .getInstance({ region, instanceId: databaseInstanceId })
+              .pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
+            if (!existing) return;
+            yield* session.note(`waiting database delete acceptance status=${existing.status ?? "transient"}`);
             yield* Effect.sleep("5 seconds");
           }
+          yield* clients.rdb.deleteInstance({ region, instanceId: databaseInstanceId });
         });
 
       return DatabaseInstance.Provider.of({

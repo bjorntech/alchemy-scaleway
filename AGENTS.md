@@ -55,6 +55,10 @@ Current resources:
 - `Container.image` accepts public external image refs such as Docker Hub and GHCR strings; private external registry pull credentials are not exposed by the current Scaleway Containers API, so private deploys should use Scaleway Registry or registry-side access policy.
 - `Trigger` - container trigger (v1 `/triggers`): cron, SQS, or NATS source.
 - `Domain` - container custom domain.
+- `FunctionNamespace` - Scaleway Serverless Functions namespace lifecycle.
+- `Function` - Scaleway Serverless Function metadata plus prebuilt ZIP upload/deploy lifecycle.
+- `FunctionCron` - Serverless Function cron lifecycle.
+- `FunctionDomain` - Serverless Function custom domain lifecycle.
 - `DnsZone` - Scaleway Domains and DNS zone.
 - `DnsRecord` - Scaleway Domains and DNS record set with resource target support.
 - `RegistryNamespace` - Scaleway Container Registry namespace.
@@ -95,6 +99,7 @@ The CRAP script supports `// @crap-ignore` only for wrapper/factory functions th
 ## Implementation Guidance
 
 - Keep Scaleway Containers endpoint mappings and response semantics centralized in `Clients.ts`.
+- Keep Scaleway Functions endpoint mappings and response semantics centralized in `Clients.ts`, separate from Containers.
 - Keep Object Storage S3-compatible behavior separate from Containers REST behavior.
 - Keep readiness polling behavior internal to resource reconciliation.
 - Preserve clear update-vs-replace rules in each resource's `diff` implementation.
@@ -109,5 +114,6 @@ The CRAP script supports `// @crap-ignore` only for wrapper/factory functions th
 - When live smoke cleanup exposes a leaked resource or project deletion precondition, fix provider recovery/read/delete behavior and rerun cleanup through Alchemy. Do not manually delete via raw Scaleway APIs except as a last-resort emergency; the goal is to make interrupted deploys and second-run cleanup increasingly reliable.
 - Object Storage requires `SCW_ACCESS_KEY` and `SCW_SECRET_KEY`.
 - Containers require `SCW_SECRET_KEY`, region, and a project id from credentials or resource props.
+- Serverless Functions require `SCW_SECRET_KEY`, region, and a project id from credentials or resource props.
 - Secret Manager requires `SCW_SECRET_KEY`, region, and a project id from credentials or resource props.
 - Managed Database for PostgreSQL/MySQL requires `SCW_SECRET_KEY`, region, and a project id from credentials or resource props.

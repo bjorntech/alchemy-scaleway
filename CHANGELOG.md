@@ -4,6 +4,13 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+### Added
+
+- Added initial Scaleway Serverless Functions resources: `FunctionNamespace`,
+  `Function`, `FunctionCron`, and `FunctionDomain`. `Function` deploys a
+  prebuilt ZIP through Scaleway upload URLs, stores a source hash, and skips
+  upload/deploy on unchanged ZIP contents.
+
 ## [0.4.4-beta.51] - 2026-06-08
 
 ### Fixed

@@ -12,6 +12,7 @@ import type { Container } from "./Container.ts";
 import type { DnsZone } from "./DnsZone.ts";
 import { dnsZoneName } from "./DnsZone.ts";
 import type { FlexibleIp } from "./FlexibleIp.ts";
+import type { Function as ScalewayFunction } from "./Function.ts";
 import type { Instance } from "./Instance.ts";
 import { isNotFound } from "./Errors.ts";
 import { credentialsProjectId, omitUndefined, projectInput, resolveRef, storedProjectInput, type ProjectRef } from "./Internal.ts";
@@ -22,7 +23,7 @@ export type DnsRecordType = ScalewayDnsRecordType;
 
 export type DnsZoneRef = string | DnsZone;
 
-export type DnsRecordTarget = string | Container | FlexibleIp | Instance | RegistryNamespace | Bucket;
+export type DnsRecordTarget = string | Container | ScalewayFunction | FlexibleIp | Instance | RegistryNamespace | Bucket;
 
 export interface DnsRecordValue {
   data: string;
@@ -109,6 +110,7 @@ const targetData = (target: DnsRecordTarget): Effect.Effect<string> =>
   Effect.gen(function* () {
     if (typeof target === "string") return hostnameOnly(target);
     if ("address" in target) return yield* resolveRef(target.address);
+    if ("domainName" in target) return hostnameOnly(yield* resolveRef(target.domainName));
     if ("publicEndpoint" in target) return hostnameOnly(yield* resolveRef(target.publicEndpoint));
     if ("endpoint" in target) return hostnameOnly(yield* resolveRef(target.endpoint));
     if ("publicIpAddresses" in target) {

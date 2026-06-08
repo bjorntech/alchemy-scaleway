@@ -58,6 +58,34 @@ export {
 export { DnsZone, DnsZoneProvider, dnsZoneName, type DnsZoneProps } from "./DnsZone.ts";
 export { FlexibleIp, FlexibleIpProvider, type FlexibleIpProps, type FlexibleIpType } from "./FlexibleIp.ts";
 export {
+  Function,
+  type FunctionHttpOption,
+  type FunctionNamespaceRef,
+  type FunctionPrivacy,
+  type FunctionPrivateNetworkRef,
+  FunctionProvider,
+  type FunctionProps,
+  type FunctionSandbox,
+  type FunctionSourceZip,
+} from "./Function.ts";
+export {
+  FunctionCron,
+  FunctionCronProvider,
+  type FunctionCronProps,
+  type FunctionCronRef,
+} from "./FunctionCron.ts";
+export {
+  FunctionDomain,
+  FunctionDomainProvider,
+  type FunctionDomainProps,
+  type FunctionRef,
+} from "./FunctionDomain.ts";
+export {
+  FunctionNamespace,
+  FunctionNamespaceProvider,
+  type FunctionNamespaceProps,
+} from "./FunctionNamespace.ts";
+export {
   Instance,
   type InstanceBootType,
   type InstanceDesiredState,

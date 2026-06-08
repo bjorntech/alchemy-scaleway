@@ -1,0 +1,140 @@
+import { Resource } from "alchemy";
+import { isResolved } from "alchemy/Diff";
+import * as Provider from "alchemy/Provider";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
+import { makeScalewayClients, type ScalewayFunctionNamespaceRecord } from "./Clients.ts";
+import { isNotFound } from "./Errors.ts";
+import { omitUndefined, physicalName, projectId, projectInput, recordEquals, withManagedProjectDefault, type ProjectRef } from "./Internal.ts";
+import type { Providers } from "./Providers.ts";
+
+export interface FunctionNamespaceProps {
+  name?: string;
+  project?: ProjectRef;
+  description?: string;
+  environmentVariables?: Record<string, string>;
+  tags?: string[];
+}
+
+export type FunctionNamespace = Resource<
+  "Scaleway.FunctionNamespace",
+  FunctionNamespaceProps,
+  {
+    namespaceId: string;
+    name: string;
+    projectId: string;
+    region: string;
+    description?: string;
+    environmentVariables?: Record<string, string>;
+    registryNamespaceId?: string;
+    registryEndpoint?: string;
+    tags?: string[];
+  },
+  never,
+  Providers
+>;
+
+export const FunctionNamespace = withManagedProjectDefault(Resource<FunctionNamespace>("Scaleway.FunctionNamespace"));
+
+class FunctionNamespaceFailed extends Data.TaggedError("Scaleway.FunctionNamespaceFailed")<{
+  namespaceId: string;
+  status: string;
+}> {}
+
+function tagsEqual(left: string[] | undefined, right: string[] | undefined) {
+  return JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
+}
+
+// @crap-ignore: provider factory wraps lifecycle closures scored separately.
+export const FunctionNamespaceProvider = () =>
+  Provider.effect(
+    FunctionNamespace,
+    Effect.gen(function* () {
+      const clients = yield* makeScalewayClients;
+      const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 63 });
+      const toAttributes = (record: ScalewayFunctionNamespaceRecord): FunctionNamespace["Attributes"] =>
+        omitUndefined({
+          namespaceId: record.id,
+          name: record.name,
+          projectId: record.project_id,
+          region: clients.region,
+          description: record.description,
+          environmentVariables: record.environment_variables,
+          registryNamespaceId: record.registry_namespace_id,
+          registryEndpoint: record.registry_endpoint,
+          tags: record.tags,
+        }) as FunctionNamespace["Attributes"];
+      const waitForReady = (namespaceId: string, session: { note(message: string): Effect.Effect<void> }) =>
+        Effect.gen(function* () {
+          while (true) {
+            const record = yield* clients.functions.getNamespace(namespaceId);
+            const status = record.status?.toLowerCase();
+            if (!status || status === "ready") return toAttributes(record);
+            if (status === "error") {
+              return yield* new FunctionNamespaceFailed({
+                namespaceId,
+                status: record.status ?? "unknown",
+              });
+            }
+            yield* session.note(`waiting function namespace ready status=${record.status ?? "unknown"}`);
+            yield* Effect.sleep("1 second");
+          }
+        });
+      const readyAttributes = (record: ScalewayFunctionNamespaceRecord, session: { note(message: string): Effect.Effect<void> }) =>
+        record.status?.toLowerCase() === "ready" ? Effect.succeed(toAttributes(record)) : waitForReady(record.id, session);
+
+      return FunctionNamespace.Provider.of({
+        stables: ["namespaceId", "projectId", "region"],
+        diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
+          if (!isResolved(news) || !output) return undefined;
+          const name = yield* nameOf(id, news.name);
+          const resolvedProjectId = yield* projectId(projectInput(news), output.projectId);
+          if (resolvedProjectId !== output.projectId) return { action: "replace" } as const;
+          if (
+            output.name !== name ||
+            olds.description !== news.description ||
+            !recordEquals(olds.environmentVariables, news.environmentVariables) ||
+            !tagsEqual(olds.tags, news.tags)
+          ) {
+            return { action: "update" } as const;
+          }
+          return { action: "noop" } as const;
+        }),
+        read: Effect.fnUntraced(function* ({ output }) {
+          if (!output?.namespaceId) return undefined;
+          return yield* clients.functions.getNamespace(output.namespaceId).pipe(
+            Effect.map(toAttributes),
+            Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+          );
+        }),
+        reconcile: Effect.fnUntraced(function* ({ id, news, output, session }) {
+          const name = yield* nameOf(id, news.name);
+          const resolvedProjectId = yield* projectId(projectInput(news), output?.projectId);
+          const body = omitUndefined({
+            name,
+            description: news.description,
+            environment_variables: news.environmentVariables,
+            tags: news.tags,
+          });
+          if (output?.namespaceId) {
+            const updated = yield* clients.functions.updateNamespace(output.namespaceId, body);
+            yield* session.note(`Updated Scaleway function namespace ${output.namespaceId}`);
+            return yield* readyAttributes(updated, session);
+          }
+          const created = yield* clients.functions.createNamespace({
+            ...body,
+            name,
+            project_id: resolvedProjectId,
+          });
+          yield* session.note(`Created Scaleway function namespace ${created.id}`);
+          return yield* readyAttributes(created, session);
+        }),
+        delete: Effect.fnUntraced(function* ({ output, session }) {
+          yield* clients.functions
+            .deleteNamespace(output.namespaceId)
+            .pipe(Effect.catchIf(isNotFound, () => Effect.void));
+          yield* session.note(`Deleted Scaleway function namespace ${output.namespaceId}`);
+        }),
+      });
+    }),
+  );

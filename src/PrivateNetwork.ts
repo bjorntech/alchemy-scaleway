@@ -52,6 +52,7 @@ const vpcIdOf = (vpc: VpcRef | undefined) => {
   if (typeof vpc === "string") return resolveRef(vpc);
   return resolveRef(vpc.vpcId);
 };
+const isPreconditionError = (error: unknown) => String((error as { message?: unknown })?.message ?? "").toLowerCase().includes("precondition is not respected");
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const PrivateNetworkProvider = () =>
@@ -149,9 +150,20 @@ export const PrivateNetworkProvider = () =>
           return toAttributes(record);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
-          yield* clients.vpc
-            .deletePrivateNetwork(output.privateNetworkId)
-            .pipe(Effect.catchIf(isNotFound, () => Effect.void));
+          for (let attempt = 1; attempt <= 30; attempt++) {
+            const deleted = yield* clients.vpc.deletePrivateNetwork(output.privateNetworkId).pipe(
+              Effect.as(true),
+              Effect.catchIf(isNotFound, () => Effect.succeed(true)),
+              Effect.catchIf(isPreconditionError, () => Effect.succeed(false)),
+            );
+            if (deleted) break;
+            if (attempt === 30) {
+              yield* clients.vpc.deletePrivateNetwork(output.privateNetworkId);
+              break;
+            }
+            yield* session.note("waiting private network deletion status=precondition");
+            yield* Effect.sleep("5 seconds");
+          }
           yield* session.note(`Deleted Scaleway private network ${output.privateNetworkId}`);
         }),
       });
