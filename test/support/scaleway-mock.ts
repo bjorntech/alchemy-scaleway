@@ -17,7 +17,7 @@ export interface ScalewayMock {
   restore(): void;
   /** Enable provider-like transient create/delete states for focused lifecycle tests. */
   enableAsyncLifecycle(): void;
-  addFlexibleIp(id: string): void;
+  addFlexibleIp(id: string, options?: { serverId?: string }): void;
   setFlexibleIpTags(id: string, tags: string[]): void;
   /** Drop a record so the next `read`/`get` behaves like a 404. */
   removeContainer(id: string): void;
@@ -686,6 +686,10 @@ export function installScalewayMock(): ScalewayMock {
 
     if (kind === "secrets" && subresource === "versions") {
       const versions = secretVersions.get(secretId) ?? [];
+      if (!revision && method === "GET") {
+        const page = pageOf(versions, new URLSearchParams());
+        return json({ versions: page.items, total_count: page.total_count });
+      }
       if (!revision && method === "POST") {
         const version = {
           revision: versions.length + 1,
@@ -700,6 +704,16 @@ export function installScalewayMock(): ScalewayMock {
         secretVersions.set(secretId, versions);
         secrets.set(secretId, { ...existing, version_count: versions.length });
         return json(version);
+      }
+      if (revision && method === "DELETE") {
+        const revisionNumber = Number(revision);
+        const remaining = versions.filter((version) => version.revision !== revisionNumber);
+        if (remaining.length === versions.length) return json({ message: "secret version not found" }, 404);
+        const latestRevision = Math.max(0, ...remaining.map((version) => Number(version.revision)));
+        for (const version of remaining) version.latest = version.revision === latestRevision;
+        secretVersions.set(secretId, remaining);
+        secrets.set(secretId, { ...existing, version_count: remaining.length });
+        return noContent();
       }
       if (method === "GET") {
         const version = revision === "latest" ? versions.at(-1) : versions[Number(revision) - 1];
@@ -1222,6 +1236,12 @@ export function installScalewayMock(): ScalewayMock {
     }
 
     if (kind === "servers" && !nested) {
+      if (!id && method === "GET") {
+        const project = params.get("project") ?? undefined;
+        const matching = [...servers.values()].filter((server) => !project || server.project === project);
+        const page = pageOf(matching, params);
+        return json({ servers: page.items, total_count: page.total_count });
+      }
       if (!id && method === "POST") {
         const record: Record<string, unknown> = {
           id: nextId("srv"),
@@ -1312,6 +1332,9 @@ export function installScalewayMock(): ScalewayMock {
         return json({ security_group: updated });
       }
       if (!nested && method === "DELETE") {
+        if ([...servers.values()].some((server) => (server.security_group as { id?: unknown } | undefined)?.id === id)) {
+          return json({ message: "precondition is not respected" }, 412);
+        }
         securityGroups.delete(id);
         securityGroupRules.delete(id);
         return noContent();
@@ -1513,7 +1536,16 @@ export function installScalewayMock(): ScalewayMock {
     makeDatabaseDeleteStaleInList: (reads) => {
       staleRdbListReads = reads;
     },
-    addFlexibleIp: (id) => flexibleIps.set(id, { id, zone: "fr-par-1", project: "proj-test", address: `203.0.113.${counter + 1}`, state: "attached", type: "routed_ipv4", tags: [] }),
+    addFlexibleIp: (id, options = {}) => flexibleIps.set(id, {
+      id,
+      zone: "fr-par-1",
+      project: "proj-test",
+      address: `203.0.113.${counter + 1}`,
+      state: "attached",
+      type: "routed_ipv4",
+      tags: [],
+      server: options.serverId ? { id: options.serverId } : undefined,
+    }),
     setFlexibleIpTags: (id, tags) => {
       const existing = flexibleIps.get(id);
       if (existing) flexibleIps.set(id, { ...existing, tags });

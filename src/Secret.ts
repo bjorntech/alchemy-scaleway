@@ -181,7 +181,7 @@ export const SecretProvider = () =>
           ) {
             return { action: "update" } as const;
           }
-          return { action: "noop" } as const;
+          return { action: "update" } as const;
         }),
         read: Effect.fnUntraced(function* ({ output }) {
           if (!output?.secretId) return undefined;
@@ -234,6 +234,14 @@ export const SecretProvider = () =>
           if (output.protected) {
             yield* clients.secretManager
               .unprotectSecret(output.secretId)
+              .pipe(Effect.catchIf(isNotFound, () => Effect.void));
+          }
+          const versions = yield* clients.secretManager
+            .listVersions(output.secretId)
+            .pipe(Effect.catchIf(isNotFound, () => Effect.succeed([])));
+          for (const version of versions) {
+            yield* clients.secretManager
+              .deleteVersion(output.secretId, version.revision)
               .pipe(Effect.catchIf(isNotFound, () => Effect.void));
           }
           yield* clients.secretManager

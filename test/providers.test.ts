@@ -810,6 +810,38 @@ describe("Secret", () => {
       ).toBeGreaterThan(0);
     }),
   );
+
+  test.provider("destroy permanently deletes secret versions before deleting the secret", (stack) =>
+    Effect.gen(function* () {
+      const program = (value: string) => Scaleway.Secret("ApiSecret", { value: Redacted.make(value) });
+      const created = yield* stack.deploy(program("v1"));
+      yield* stack.deploy(program("v2"));
+      yield* stack.destroy();
+
+      const versionDeletes = requests("DELETE", `/secrets/${created.secretId}/versions/`);
+      const secretDeletes = requests("DELETE", `/secrets/${created.secretId}`)
+        .filter((call) => !call.url.includes("/versions/"));
+      expect(versionDeletes).toHaveLength(2);
+      expect(secretDeletes).toHaveLength(1);
+      expect(mock.calls.indexOf(versionDeletes[0]!)).toBeLessThan(mock.calls.indexOf(secretDeletes[0]!));
+      expect(mock.calls.indexOf(versionDeletes[1]!)).toBeLessThan(mock.calls.indexOf(secretDeletes[0]!));
+    }),
+  );
+
+  test.provider("destroy deletes a secret after retain is removed", (stack) =>
+    Effect.gen(function* () {
+      const retained = Scaleway.Secret("ApiSecret", { value: Redacted.make("v1") }).pipe(retain());
+      const normal = Scaleway.Secret("ApiSecret", { value: Redacted.make("v1") });
+      yield* stack.deploy(retained);
+      const active = yield* stack.deploy(normal);
+      yield* stack.destroy();
+
+      expect(requests("DELETE", `/secrets/${active.secretId}/versions/`)).toHaveLength(1);
+      expect(
+        requests("DELETE", `/secrets/${active.secretId}`).filter((call) => !call.url.includes("/versions/")),
+      ).toHaveLength(1);
+    }),
+  );
 });
 
 describe("DatabaseInstance", () => {
@@ -2341,6 +2373,85 @@ systemctl start docker
     }),
   );
 
+  test.provider("replaces attached public IP instances delete-first", () =>
+    Effect.gen(function* () {
+      const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const diff = yield* provider.diff!({
+        id: "App",
+        instanceId: "test",
+        olds: { commercialType: "DEV1-S", cloudInit: "#!/bin/bash\necho first\n" },
+        news: { commercialType: "DEV1-S", cloudInit: "#!/bin/bash\necho second\n" },
+        oldBindings: [],
+        newBindings: [],
+        output: {
+          serverId: "srv-existing",
+          name: "App",
+          zone: "fr-par-1",
+          projectId: "proj-test",
+          commercialType: "DEV1-S",
+          state: "running",
+          publicIpIds: ["ip-existing"],
+          cloudInitHash: sha256("#!/bin/bash\necho first\n"),
+        },
+      });
+
+      expect(diff).toEqual({ action: "replace", deleteFirst: true });
+    }),
+  );
+
+  test.provider("replacement create uses project from attached resources", () =>
+    Effect.gen(function* () {
+      const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      yield* provider.reconcile!({
+        id: "App",
+        instanceId: "test",
+        olds: { commercialType: "DEV1-S" },
+        news: {
+          zone: "fr-par-1",
+          name: "app-managed",
+          commercialType: "DEV1-S",
+          securityGroup: { securityGroupId: "sg-managed", projectId: "proj-managed" },
+          publicIps: [{ ipId: "ip-managed", address: "51.15.1.2", zone: "fr-par-1", projectId: "proj-managed" }],
+        } as any,
+        oldBindings: [],
+        newBindings: [],
+        output: undefined,
+        session: { note: () => Effect.void },
+      } as any);
+
+      const createBody = JSON.parse(requests("POST", "/servers").at(-1)!.body);
+      expect(createBody.project).toBe("proj-managed");
+      expect(createBody.security_group).toBe("sg-managed");
+      expect(createBody.public_ips).toEqual(["ip-managed"]);
+    }),
+  );
+
+  test.provider("replacement create detaches reused flexible IP before server create", () =>
+    Effect.gen(function* () {
+      mock.addFlexibleIp("ip-managed", { serverId: "srv-old" });
+      const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      yield* provider.reconcile!({
+        id: "App",
+        instanceId: "test",
+        olds: { commercialType: "DEV1-S" },
+        news: {
+          zone: "fr-par-1",
+          name: "app-managed",
+          commercialType: "DEV1-S",
+          publicIps: [{ ipId: "ip-managed", address: "51.15.1.2", zone: "fr-par-1", projectId: "proj-managed", serverId: "srv-old" }],
+        } as any,
+        oldBindings: [],
+        newBindings: [],
+        output: undefined,
+        session: { note: () => Effect.void },
+      } as any);
+
+      const detach = requests("PATCH", "/ips/ip-managed").at(0)!;
+      expect(JSON.parse(detach.body).server).toBeNull();
+      expect(requests("POST", "/servers")).toHaveLength(1);
+    }),
+  );
+
   test.provider("creates then updates instance metadata and attachments", (stack) =>
     Effect.gen(function* () {
       mock.addFlexibleIp("ip-existing");
@@ -2672,6 +2783,36 @@ describe("SecurityGroup", () => {
         output: created,
       });
       expect(missing).toBeUndefined();
+    }),
+  );
+
+  test.provider("delete terminates orphaned tagged instances before removing security group", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Effect.gen(function* () {
+          const securityGroup = yield* Scaleway.SecurityGroup("Firewall", { zone: "fr-par-1" });
+          const instance = yield* Scaleway.Instance("App", {
+            zone: "fr-par-1",
+            commercialType: "DEV1-S",
+            securityGroup,
+            desiredState: "running",
+          });
+          return { securityGroup, instance };
+        }),
+      );
+      const provider = yield* Scaleway.SecurityGroup.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+
+      yield* provider.delete!({
+        id: "Firewall",
+        instanceId: "test",
+        olds: { zone: "fr-par-1" },
+        output: created.securityGroup,
+        session: { note: () => Effect.void },
+      } as any);
+
+      expect(requests("GET", "/servers?project=proj-test")).toHaveLength(1);
+      expect(requests("POST", `/servers/${created.instance.serverId}/action`).map((call) => JSON.parse(call.body).action)).toContain("terminate");
+      expect(requests("DELETE", `/security_groups/${created.securityGroup.securityGroupId}`)).toHaveLength(2);
     }),
   );
 });

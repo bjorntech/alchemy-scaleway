@@ -48,6 +48,7 @@ const missingApexZoneError = (dnsZone: string) =>
   new Error(
     `Scaleway DNS apex zone ${dnsZone} does not exist in this project. Register, transfer, or validate the domain in Scaleway first, then use DnsZone as an existing-zone reference; pass subdomain to create a child DNS zone.`,
   );
+const isDnsZoneMissing = (error: unknown) => isNotFound(error) || String((error as { message?: unknown })?.message ?? "").toLowerCase().includes("domain not found");
 
 const toAttributes = (zone: ScalewayDnsZoneRecord): DnsZone["Attributes"] =>
   omitUndefined({
@@ -115,7 +116,7 @@ export const DnsZoneProvider = () =>
         delete: Effect.fnUntraced(function* ({ output, session }) {
           if (!output.dnsZone || !output.projectId) return;
           yield* clients.dns.deleteZone({ dnsZone: output.dnsZone, projectId: output.projectId }).pipe(
-            Effect.catchIf(isNotFound, () => Effect.void),
+            Effect.catchIf(isDnsZoneMissing, () => Effect.void),
           );
           yield* session.note(`Deleted Scaleway DNS zone ${output.dnsZone}`);
         }),
