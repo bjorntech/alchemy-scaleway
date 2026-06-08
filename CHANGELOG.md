@@ -4,6 +4,12 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+### Fixed
+
+- `Instance` replacement recovery now checks live Flexible IP attachment before
+  replacement create, allowing stacks already stuck in a persisted create-first
+  `replacing` transaction to detach the reused IP and continue (#53).
+
 ## [0.5.0-beta.51] - 2026-06-08
 
 ### Added

@@ -133,6 +133,15 @@ const publicIpAttachmentOf = (publicIp: InstancePublicIpRef) =>
   typeof publicIp === "string" || !("serverId" in publicIp) || publicIp.serverId === undefined
     ? Effect.succeed(undefined)
     : resolveRef(publicIp.serverId).pipe(Effect.map((serverId) => serverId || undefined));
+const livePublicIpAttachment = (zone: string, publicIp: string) =>
+  makeScalewayClients.pipe(
+    Effect.flatMap((clients) =>
+      clients.instance.getFlexibleIp({ zone, ip: publicIp }).pipe(
+        Effect.map((record) => record.server?.id),
+        Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+      )
+    ),
+  );
 const securityGroupIdOf = (securityGroup: InstanceSecurityGroupRef) => {
   return resolveRef(typeof securityGroup === "string" ? securityGroup : securityGroup.securityGroupId);
 };
@@ -287,9 +296,10 @@ export const InstanceProvider = () =>
           if (!output?.serverId && publicIps !== undefined) {
             for (const [index, publicIp] of publicIps.entries()) {
               const attachedServerId = news.publicIps ? yield* publicIpAttachmentOf(news.publicIps[index]) : undefined;
-              if (attachedServerId) {
+              const liveAttachedServerId = attachedServerId ?? (yield* livePublicIpAttachment(zone, publicIp));
+              if (liveAttachedServerId) {
                 yield* clients.instance.updateFlexibleIp({ zone, ip: publicIp, server: null }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
-                yield* session.note(`detached public IP ${publicIp} from previous instance ${attachedServerId}`);
+                yield* session.note(`detached public IP ${publicIp} from previous instance ${liveAttachedServerId}`);
               }
             }
           }
