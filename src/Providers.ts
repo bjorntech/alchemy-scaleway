@@ -12,6 +12,10 @@ import { Domain, DomainProvider } from "./Domain.ts";
 import { DnsRecord, DnsRecordProvider } from "./DnsRecord.ts";
 import { DnsZone, DnsZoneProvider } from "./DnsZone.ts";
 import { FlexibleIp, FlexibleIpProvider } from "./FlexibleIp.ts";
+import { Function as ScalewayFunction, FunctionProvider } from "./Function.ts";
+import { FunctionCron, FunctionCronProvider } from "./FunctionCron.ts";
+import { FunctionDomain, FunctionDomainProvider } from "./FunctionDomain.ts";
+import { FunctionNamespace, FunctionNamespaceProvider } from "./FunctionNamespace.ts";
 import { Instance, InstanceProvider } from "./Instance.ts";
 import { Namespace, NamespaceProvider } from "./Namespace.ts";
 import { PrivateNic, PrivateNicProvider } from "./PrivateNic.ts";
@@ -45,6 +49,10 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
       ContainerImage,
       Trigger,
       Domain,
+      FunctionNamespace,
+      ScalewayFunction,
+      FunctionCron,
+      FunctionDomain,
       DnsZone,
       DnsRecord,
       RegistryNamespace,
@@ -70,6 +78,10 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
         ContainerImageProvider(),
         TriggerProvider(),
         DomainProvider(),
+        FunctionNamespaceProvider(),
+        FunctionProvider(),
+        FunctionCronProvider(),
+        FunctionDomainProvider(),
         DnsZoneProvider(),
         DnsRecordProvider(),
         RegistryNamespaceProvider(),

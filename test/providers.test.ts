@@ -82,6 +82,13 @@ const requests = (method: string, fragment: string) =>
 
 const sha256 = (value: string) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
+const functionZip = (name: string, content: string) => {
+  const dir = mkdtempSync(join(tmpdir(), "alchemy-scaleway-function-"));
+  const zipPath = join(dir, name);
+  writeFileSync(zipPath, content);
+  return { dir, zipPath };
+};
+
 const terminateActions = () =>
   requests("POST", "/action").filter((call) => JSON.parse(call.body).action === "terminate");
 
@@ -1537,6 +1544,200 @@ describe("Domain", () => {
       );
       expect(requests("POST", "/domains")).toHaveLength(11);
       expect(requests("DELETE", "/domains/")).toHaveLength(10);
+    }),
+  );
+});
+
+describe("Function", () => {
+  test.provider("creates namespace and deploys function zip", (stack) =>
+    Effect.gen(function* () {
+      const { dir, zipPath } = functionZip("function.zip", "v1");
+      try {
+        const out = yield* stack.deploy(
+          Effect.gen(function* () {
+            const ns = yield* Scaleway.FunctionNamespace("FnNs", {
+              environmentVariables: { SHARED: "yes" },
+            });
+            const fn = yield* Scaleway.Function("Fn", {
+              namespace: ns,
+              runtime: "node20",
+              handler: "handler.handle",
+              source: { zipPath },
+              environmentVariables: { APP: "api" },
+              secretEnvironmentVariables: { TOKEN: Redacted.make("secret-token") },
+              minScale: 0,
+              maxScale: 2,
+              memoryLimit: 128,
+              timeout: "5s",
+              privacy: "public",
+              httpOption: "redirected",
+            });
+            return { ns, fn };
+          }),
+        );
+
+        expect(out.ns.namespaceId).toMatch(/^fnns-/);
+        expect(out.ns.registryEndpoint).toBe("rg.fr-par.scw.cloud/functions");
+        expect(out.fn.functionId).toMatch(/^fn-/);
+        expect(out.fn.namespaceId).toBe(out.ns.namespaceId);
+        expect(out.fn.status).toBe("ready");
+        expect(out.fn.sourceHash).toBe(sha256("v1").slice("sha256:".length));
+        expect(requests("GET", "/upload-url")).toHaveLength(1);
+        expect(new URL(requests("GET", "/upload-url")[0]?.url ?? "").searchParams.get("content_length")).toBe("2");
+        expect(requests("PUT", "function-upload.local")).toHaveLength(1);
+        expect(requests("POST", "/deploy")).toHaveLength(1);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("skips upload for unchanged zip and redeploys changed zip", (stack) =>
+    Effect.gen(function* () {
+      const { dir, zipPath } = functionZip("function.zip", "v1");
+      const program = () =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+          return yield* Scaleway.Function("Fn", {
+            namespace: ns,
+            runtime: "node20",
+            handler: "handler.handle",
+            source: { zipPath },
+          });
+        });
+      try {
+        const first = yield* stack.deploy(program());
+        const second = yield* stack.deploy(program());
+        writeFileSync(zipPath, "v2");
+        const third = yield* stack.deploy(program());
+
+        expect(second.functionId).toBe(first.functionId);
+        expect(third.functionId).toBe(first.functionId);
+        expect(third.sourceHash).not.toBe(first.sourceHash);
+        expect(requests("PUT", "function-upload.local")).toHaveLength(2);
+        expect(requests("POST", "/deploy")).toHaveLength(2);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("redeploys metadata changes without reuploading unchanged zip", (stack) =>
+    Effect.gen(function* () {
+      const { dir, zipPath } = functionZip("function.zip", "v1");
+      const program = (app: string) =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+          return yield* Scaleway.Function("Fn", {
+            namespace: ns,
+            runtime: "node20",
+            handler: "handler.handle",
+            source: { zipPath },
+            environmentVariables: { APP: app },
+          });
+        });
+      try {
+        const first = yield* stack.deploy(program("api"));
+        const second = yield* stack.deploy(program("worker"));
+
+        expect(second.functionId).toBe(first.functionId);
+        expect(requests("PUT", "function-upload.local")).toHaveLength(1);
+        expect(requests("POST", "/deploy")).toHaveLength(2);
+        expect(requests("PATCH", "/functions/").at(-1)?.body).toContain("worker");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("sends removed secret keys on function update", (stack) =>
+    Effect.gen(function* () {
+      const { dir, zipPath } = functionZip("function.zip", "v1");
+      const program = (secrets: Scaleway.FunctionProps["secretEnvironmentVariables"]) =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+          return yield* Scaleway.Function("Fn", {
+            namespace: ns,
+            runtime: "node20",
+            handler: "handler.handle",
+            source: { zipPath },
+            secretEnvironmentVariables: secrets,
+          });
+        });
+      try {
+        yield* stack.deploy(program({ KEEP: Redacted.make("one"), DROP: Redacted.make("two") }));
+        yield* stack.deploy(program({ KEEP: Redacted.make("one") }));
+
+        const patch = JSON.parse(requests("PATCH", "/functions/").at(-1)?.body ?? "{}");
+        expect(patch.secret_environment_variables).toEqual([{ key: "KEEP", value: "one" }, { key: "DROP" }]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("updates when function private network changes", (stack) =>
+    Effect.gen(function* () {
+      const { dir, zipPath } = functionZip("function.zip", "v1");
+      const program = (privateNetwork: string) =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+          return yield* Scaleway.Function("Fn", {
+            namespace: ns,
+            runtime: "node20",
+            handler: "handler.handle",
+            source: { zipPath },
+            privateNetwork,
+          });
+        });
+      try {
+        const first = yield* stack.deploy(program("pn-a"));
+        const second = yield* stack.deploy(program("pn-b"));
+
+        expect(second.functionId).toBe(first.functionId);
+        expect(second.privateNetworkId).toBe("pn-b");
+        expect(requests("PATCH", "/functions/").at(-1)?.body).toContain("pn-b");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("creates standalone function cron and domain", (stack) =>
+    Effect.gen(function* () {
+      const { dir, zipPath } = functionZip("function.zip", "v1");
+      try {
+        const out = yield* stack.deploy(
+          Effect.gen(function* () {
+            const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+            const fn = yield* Scaleway.Function("Fn", {
+              namespace: ns,
+              runtime: "node20",
+              handler: "handler.handle",
+              source: { zipPath },
+            });
+            const cron = yield* Scaleway.FunctionCron("Cron", {
+              function: fn,
+              schedule: "0 * * * *",
+              args: { path: "/hourly" },
+            });
+            const domain = yield* Scaleway.FunctionDomain("Domain", {
+              function: fn,
+              hostname: "fn.example.com",
+            });
+            return { fn, cron, domain };
+          }),
+        );
+
+        expect(out.cron.cronId).toMatch(/^fncron-/);
+        expect(out.cron.functionId).toBe(out.fn.functionId);
+        expect(out.cron.schedule).toBe("0 * * * *");
+        expect(out.domain.domainId).toMatch(/^fndom-/);
+        expect(out.domain.functionId).toBe(out.fn.functionId);
+        expect(out.domain.url).toBe("https://fn.example.com");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }),
   );
 });
@@ -3042,6 +3243,37 @@ describe("DnsRecord", () => {
 
       expect(result.type).toBe("CNAME");
       expect(result.records[0].data).toBe("rg.fr-par.scw.cloud.");
+    }),
+  );
+
+  test.provider("infers a CNAME from a Function target", (stack) =>
+    Effect.gen(function* () {
+      mock.seedDnsZone("example.test");
+      const { dir, zipPath } = functionZip("function.zip", "v1");
+      try {
+        const result = yield* stack.deploy(
+          Effect.gen(function* () {
+            const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.test" }).pipe(adoptResource());
+            const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+            const fn = yield* Scaleway.Function("Fn", {
+              namespace: ns,
+              runtime: "node20",
+              handler: "handler.handle",
+              source: { zipPath },
+            });
+            return yield* Scaleway.DnsRecord("FunctionRecord", {
+              zone,
+              name: "fn",
+              target: fn,
+            });
+          }),
+        );
+
+        expect(result.type).toBe("CNAME");
+        expect(result.records[0].data).toContain(".functions.fnc.fr-par.scw.cloud.");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }),
   );
 });

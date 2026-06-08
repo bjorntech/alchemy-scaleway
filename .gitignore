@@ -5,3 +5,4 @@ dist/
 *.tsbuildinfo
 .alchemy/
 .claude/
+scripts/smoke-function/function.zip

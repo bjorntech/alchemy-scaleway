@@ -15,10 +15,12 @@ const dnsLabel = process.env.SCW_SMOKE_DNS_LABEL ?? prefix;
 const domainProjectId = process.env.SCW_DOMAIN_PROJECT_ID ?? process.env.SCW_DEFAULT_PROJECT_ID;
 const organizationId = process.env.SCW_ORGANIZATION_ID;
 const smokeHostname = `${dnsLabel}.${dnsZone}`;
+const functionDnsLabel = `${dnsLabel.slice(0, 60).replace(/-+$/g, "")}-fn`;
 const childZoneLabel = `${dnsLabel.slice(0, 57).replace(/-+$/g, "")}-child`;
 const childZoneSubdomain = [childZoneLabel, dnsZoneSubdomain].filter(Boolean).join(".");
 const phase = process.env.SCW_SMOKE_PHASE === "create" ? "create" : process.env.SCW_SMOKE_PHASE === "settle" ? "settle" : "update";
 const expensiveNetwork = process.env.SCW_SMOKE_EXPENSIVE_NETWORK === "1";
+const functionZipPath = process.env.SCW_SMOKE_FUNCTION_ZIP ?? "scripts/smoke-function/function.zip";
 
 const tags = ["alchemy-smoke-test"];
 const updatedTags = ["alchemy-smoke-test", "updated"];
@@ -49,6 +51,15 @@ export default Alchemy.Stack(
         ? "alchemy-scaleway production smoke test updated"
         : "alchemy-scaleway production smoke test",
       environmentVariables: { ALCHEMY_SMOKE_TEST: updated ? "updated" : "true" },
+    });
+
+    const functionNamespace = yield* Scaleway.FunctionNamespace("FunctionNamespace", {
+      name: `${prefix}-fn-ns`,
+      description: updated
+        ? "alchemy-scaleway production smoke test updated"
+        : "alchemy-scaleway production smoke test",
+      environmentVariables: { ALCHEMY_SMOKE_TEST: updated ? "updated" : "true" },
+      tags: activeTags,
     });
 
     const registry = yield* Scaleway.RegistryNamespace("Registry", {
@@ -149,6 +160,50 @@ export default Alchemy.Stack(
       defaultRoutePropagation: true,
     });
 
+    const fn = yield* Scaleway.Function("Function", {
+      namespace: functionNamespace,
+      name: `${prefix.slice(0, 25)}-fn`,
+      runtime: "node20",
+      handler: "handler.handle",
+      source: { zipPath: functionZipPath },
+      environmentVariables: { ALCHEMY_SMOKE_TEST: updated ? "updated" : "true" },
+      secretEnvironmentVariables: updated
+        ? { TOKEN: Redacted.make("smoke-function-secret-updated") }
+        : { TOKEN: Redacted.make("smoke-function-secret"), REMOVE_ME: Redacted.make("removed-on-update") },
+      minScale: 0,
+      maxScale: 1,
+      memoryLimit: 128,
+      timeout: updated ? "20s" : "10s",
+      privacy: "public",
+      description: updated
+        ? "alchemy-scaleway production smoke test updated"
+        : "alchemy-scaleway production smoke test",
+      httpOption: updated ? "redirected" : "enabled",
+      tags: activeTags,
+      privateNetwork,
+    });
+
+    const functionCron = yield* Scaleway.FunctionCron("FunctionCron", {
+      function: fn,
+      name: `${prefix.slice(0, 25)}-fn-cron`,
+      schedule: updated ? "*/15 * * * *" : "*/30 * * * *",
+      args: { phase },
+    });
+
+    const functionDnsRecord = yield* Scaleway.DnsRecord("FunctionDns", {
+      zone: dnsZone,
+      project: domainProjectId,
+      name: functionDnsLabel,
+      target: fn,
+    });
+
+    const functionDomain = updated
+      ? yield* Scaleway.FunctionDomain("FunctionDomain", {
+          function: fn,
+          hostname: Output.interpolate`${functionDnsRecord.name}.${functionDnsRecord.dnsZone}`,
+        })
+      : undefined;
+
     const acl = yield* Scaleway.VpcAcl("VpcAcl", {
       vpc,
       defaultPolicy: updated ? "accept" : "drop",
@@ -247,6 +302,7 @@ echo "Alchemy Scaleway smoke VM setup complete"
         project.projectId,
         namespace.projectId,
         registry.projectId,
+        functionNamespace.projectId,
         secret.projectId,
         database.projectId,
         vpc.projectId,
@@ -260,6 +316,7 @@ echo "Alchemy Scaleway smoke VM setup complete"
         const resources = [
           "namespace",
           "registry",
+          "functionNamespace",
           "secret",
           "database",
           "vpc",
@@ -288,6 +345,16 @@ echo "Alchemy Scaleway smoke VM setup complete"
       projectId: project.projectId,
       namespaceId: namespace.namespaceId,
       namespaceProjectId: namespace.projectId,
+      functionNamespaceId: functionNamespace.namespaceId,
+      functionNamespaceProjectId: functionNamespace.projectId,
+      functionId: fn.functionId,
+      functionUrl: fn.url,
+      functionStatus: fn.status,
+      functionSourceHash: fn.sourceHash,
+      functionCronId: functionCron.cronId,
+      functionCronSchedule: functionCron.schedule,
+      functionDnsRecordType: functionDnsRecord.type,
+      functionCustomDomainUrl: functionDomain?.url,
       imageRef: image.ref,
       containerUrl: container.url,
       containerProjectId: container.projectId,

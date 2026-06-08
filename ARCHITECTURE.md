@@ -19,6 +19,10 @@ src/
   Container.ts      Serverless Container resource, including optional domains/crons
   Trigger.ts        Container trigger resource (cron/sqs/nats)
   Domain.ts         Container custom domain resource
+  FunctionNamespace.ts Serverless Functions namespace resource
+  Function.ts       Serverless Function ZIP upload/deploy resource
+  FunctionCron.ts   Serverless Function cron resource
+  FunctionDomain.ts Serverless Function custom domain resource
   DnsZone.ts        Domains and DNS zone resource
   DnsRecord.ts      Domains and DNS record-set resource
   RegistryNamespace.ts Container Registry namespace resource
@@ -67,6 +71,7 @@ Apply the same rule to Scaleway:
 - Deletes are idempotent and ignore 404 responses.
 - Container, trigger, and domain readiness waits use Effect sleeps inside provider reconciliation.
 - `Container` may orchestrate custom domains and cron triggers from `domains`/`crons` props for the common service deployment workflow. Standalone `Domain` and `Trigger` resources remain available for explicit control.
+- Serverless Functions use the separate `/functions/v1beta1` API. `Function` keeps packaging concerns minimal for now: callers provide a prebuilt ZIP path, the provider hashes the ZIP, uploads it through Scaleway's signed upload URL when the hash changes, calls deploy, and waits for readiness. Keep future bundling/runtime helpers separate from the cloud reconciliation path, similar to how Alchemy Workers separate bundling from provider upload.
 - `DnsZone` provisions Scaleway Domains and DNS child zones and defaults to retain-on-removal like Cloudflare zones. Apex zones are read/adopt-only references because Scaleway's DNS zone create endpoint requires `subdomain`; apex domain ownership is handled by registration, transfer, or external-domain validation rather than `POST /dns-zones`. Existing zones have no ownership marker, so read paths report them as unowned unless adoption is explicit.
 - `DnsRecord` owns one complete record set for a zone/name/type, using Scaleway's record `set` operation for convergent upserts. When passed a `DnsZone` resource it carries the zone project into DNS record operations, which supports shared DNS projects pointing at resources in separate application projects. It can target existing resources that expose IP addresses or hostnames, while explicit `records` remain available for advanced DNS data.
 - `RegistryNamespace` provisions the Container Registry namespace needed to host images consumed by `Container.image`. `ContainerImage` can build a local Docker context, log in to that registry with Scaleway credentials, push the tag, and return `ref` for `Container.image`; external CI remains optional for teams that prefer prebuilt images.

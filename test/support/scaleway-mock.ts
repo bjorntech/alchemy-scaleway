@@ -105,6 +105,11 @@ export function installScalewayMock(): ScalewayMock {
   const containers = new Map<string, Record<string, unknown>>();
   const triggers = new Map<string, Record<string, unknown>>();
   const domains = new Map<string, Record<string, unknown>>();
+  const functionNamespaces = new Map<string, Record<string, unknown>>();
+  const functions = new Map<string, Record<string, unknown>>();
+  const functionCrons = new Map<string, Record<string, unknown>>();
+  const functionDomains = new Map<string, Record<string, unknown>>();
+  const uploadedFunctionZips = new Set<string>();
   const dnsZones = new Map<string, Record<string, unknown>>();
   const dnsRecords = new Map<string, Array<Record<string, unknown>>>();
   const projects = new Map<string, Record<string, unknown>>();
@@ -419,6 +424,135 @@ export function installScalewayMock(): ScalewayMock {
     }
 
     return json({ message: `unhandled dns request ${method} ${pathname}` }, 400);
+  };
+
+  const functionsHandler = (method: string, pathname: string, search: string, body: unknown): Response => {
+    const segments = pathname.split("/").filter(Boolean); // [functions, v1beta1, regions, fr-par, kind, id?, action?]
+    const kind = segments[4];
+    const id = segments[5];
+    const action = segments[6];
+    const input = (body ?? {}) as Record<string, unknown>;
+    const params = new URLSearchParams(search);
+
+    if (kind === "namespaces") {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("fnns"),
+          region: "fr-par",
+          status: "ready",
+          registry_namespace_id: nextId("regns"),
+          registry_endpoint: "rg.fr-par.scw.cloud/functions",
+          ...input,
+        };
+        functionNamespaces.set(record.id as string, record);
+        return json(record);
+      }
+      const existing = functionNamespaces.get(id);
+      if (!existing) return json({ message: "function namespace not found" }, 404);
+      if (method === "GET") return json(existing);
+      if (method === "PATCH") {
+        const updated = { ...existing, ...input };
+        functionNamespaces.set(id, updated);
+        return json(updated);
+      }
+      if (method === "DELETE") {
+        functionNamespaces.delete(id);
+        return noContent();
+      }
+    }
+
+    if (kind === "functions") {
+      if (!id && method === "POST") {
+        const record = {
+          id: nextId("fn"),
+          region: "fr-par",
+          status: "created",
+          domain_name: `${nextId("fn")}.functions.fnc.fr-par.scw.cloud`,
+          ...input,
+        };
+        functions.set(record.id as string, record);
+        return json(record);
+      }
+      const existing = functions.get(id);
+      if (!existing) return json({ message: "function not found" }, 404);
+      if (action === "upload-url" && method === "GET") {
+        if (!params.has("content_length")) return json({ message: "content_length is required" }, 400);
+        return json({ url: `https://function-upload.local/${id}.zip`, headers: { "content-type": "application/zip" } });
+      }
+      if (action === "deploy" && method === "POST") {
+        if (!uploadedFunctionZips.has(id)) return json({ message: "function zip missing" }, 400);
+        const updated = { ...existing, status: "ready" };
+        functions.set(id, updated);
+        return json(updated);
+      }
+      if (method === "GET") return json(existing);
+      if (method === "PATCH") {
+        const updated = { ...existing, ...input };
+        if (Array.isArray(input.secret_environment_variables)) {
+          const previous = new Map(
+            ((existing.secret_environment_variables as Array<Record<string, unknown>> | undefined) ?? [])
+              .map((entry) => [entry.key, entry]),
+          );
+          for (const entry of input.secret_environment_variables) {
+            if (typeof entry.key !== "string") continue;
+            if ("value" in entry) previous.set(entry.key, entry);
+            else previous.delete(entry.key);
+          }
+          updated.secret_environment_variables = [...previous.values()];
+        }
+        functions.set(id, updated);
+        return json(updated);
+      }
+      if (method === "DELETE") {
+        functions.delete(id);
+        return noContent();
+      }
+    }
+
+    if (kind === "crons") {
+      if (!id && method === "POST") {
+        const record = { id: nextId("fncron"), status: "ready", ...input };
+        functionCrons.set(record.id as string, record);
+        return json(record);
+      }
+      const existing = functionCrons.get(id);
+      if (!existing) return json({ message: "function cron not found" }, 404);
+      if (method === "GET") return json(existing);
+      if (method === "PATCH") {
+        const updated = { ...existing, ...input };
+        functionCrons.set(id, updated);
+        return json(updated);
+      }
+      if (method === "DELETE") {
+        functionCrons.delete(id);
+        return noContent();
+      }
+    }
+
+    if (kind === "domains") {
+      if (!id && method === "GET") {
+        const functionId = params.get("function_id");
+        const page = pageOf([...functionDomains.values()].filter((domain) => !functionId || domain.function_id === functionId), params);
+        return json({ domains: page.items, total_count: page.total_count });
+      }
+      if (!id && method === "POST") {
+        if ([...functionDomains.values()].some((domain) => domain.hostname === input.hostname && domain.function_id === input.function_id)) {
+          return json({ message: "resource already exists" }, 409);
+        }
+        const record = { id: nextId("fndom"), status: "ready", url: `https://${input.hostname}`, ...input };
+        functionDomains.set(record.id as string, record);
+        return json(record);
+      }
+      const existing = functionDomains.get(id);
+      if (!existing) return json({ message: "function domain not found" }, 404);
+      if (method === "GET") return json(existing);
+      if (method === "DELETE") {
+        functionDomains.delete(id);
+        return noContent();
+      }
+    }
+
+    return json({ message: `unhandled functions request ${method} ${pathname}` }, 400);
   };
 
   const accountHandler = (method: string, pathname: string, search: string, body: unknown): Response => {
@@ -1352,7 +1486,15 @@ export function installScalewayMock(): ScalewayMock {
       if (parsed.pathname.startsWith("/block/")) {
         return blockHandler(method, parsed.pathname);
       }
+      if (parsed.pathname.startsWith("/functions/")) {
+        return functionsHandler(method, parsed.pathname, parsed.search, parsedBody);
+      }
       return containersHandler(method, parsed.pathname, parsedBody);
+    }
+    if (parsed.host === "function-upload.local") {
+      if (method !== "PUT") return json({ message: "expected upload PUT" }, 405);
+      uploadedFunctionZips.add(parsed.pathname.replace(/^\//, "").replace(/\.zip$/, ""));
+      return noContent();
     }
     if (parsed.host.endsWith(".scw.cloud")) {
       return objectStorageHandler(method, parsed.host, parsed.pathname, parsed.search, text);
