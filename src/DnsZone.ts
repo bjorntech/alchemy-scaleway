@@ -44,6 +44,11 @@ export const dnsZoneName = (domain: string, subdomain?: string) =>
 const subdomainOf = (zone: ScalewayDnsZoneRecord) =>
   zone.subdomain && zone.subdomain.length > 0 ? zone.subdomain : undefined;
 
+const missingApexZoneError = (dnsZone: string) =>
+  new Error(
+    `Scaleway DNS apex zone ${dnsZone} does not exist in this project. Register, transfer, or validate the domain in Scaleway first, then use DnsZone as an existing-zone reference; pass subdomain to create a child DNS zone.`,
+  );
+
 const toAttributes = (zone: ScalewayDnsZoneRecord): DnsZone["Attributes"] =>
   omitUndefined({
     dnsZone: dnsZoneName(zone.domain, subdomainOf(zone)),
@@ -98,9 +103,10 @@ export const DnsZoneProvider = () =>
             yield* session.note(`Using Scaleway DNS zone ${dnsZone}`);
             return toAttributes(existing);
           }
+          if (!news.subdomain) return yield* Effect.fail(missingApexZoneError(dnsZone));
           const created = yield* clients.dns.createZone({
             domain: news.domain,
-            subdomain: news.subdomain ?? "",
+            subdomain: news.subdomain,
             project_id: desiredProjectId,
           });
           yield* session.note(`Created Scaleway DNS zone ${dnsZone}`);

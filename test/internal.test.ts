@@ -23,6 +23,20 @@ describe("projectId", () => {
     expect(result).toBe("explicit");
   });
 
+  test("uses explicit projectId object first", async () => {
+    const result = await Effect.runPromise(
+      projectId({ projectId: "explicit-object" }).pipe(Effect.provide(credentialsLayer)),
+    );
+    expect(result).toBe("explicit-object");
+  });
+
+  test("falls back when explicit project id is empty", async () => {
+    const result = await Effect.runPromise(
+      projectId("").pipe(Effect.provide(credentialsLayer)),
+    );
+    expect(result).toBe("from-credentials");
+  });
+
   test("falls back to credentials project id", async () => {
     const result = await Effect.runPromise(projectId().pipe(Effect.provide(credentialsLayer)));
     expect(result).toBe("from-credentials");

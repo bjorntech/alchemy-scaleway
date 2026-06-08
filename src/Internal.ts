@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Context from "effect/Context";
+import * as Output from "alchemy/Output";
 import { createPhysicalName } from "alchemy";
 import { toFqn } from "alchemy/FQN";
 import { CurrentNamespace } from "alchemy/Namespace";
@@ -79,9 +80,11 @@ export const physicalName = (
 export const resolveRef = (ref: unknown): Effect.Effect<string> =>
   Effect.gen(function* () {
     if (typeof ref === "string") return ref;
-    const accessor = yield* (
-      ref as { asEffect(): Effect.Effect<Effect.Effect<string>> }
-    ).asEffect();
+    if (typeof ref === "object" && ref !== null && "projectId" in ref) {
+      return yield* resolveRef((ref as { projectId: unknown }).projectId);
+    }
+    if (!Output.isOutput(ref)) throw new Error("Expected a string or Alchemy Output reference.");
+    const accessor = yield* (ref as Output.Output<string, never>).asEffect();
     return yield* accessor;
   });
 
@@ -98,6 +101,9 @@ const defaultProjectId = () =>
   });
 
 const projectIdField = (explicit: unknown) =>
+  isManagedProjectDefault(explicit)
+    ? explicit.projectId
+    :
   typeof explicit === "object" && explicit !== null && "projectId" in explicit
     ? (explicit as { projectId: unknown }).projectId
     : explicit;
@@ -105,11 +111,25 @@ const projectIdField = (explicit: unknown) =>
 const optionalResolvedRef = (ref: unknown) =>
   resolveRef(ref).pipe(Effect.map((value) => value || undefined));
 
-const explicitProjectId = (explicit: unknown) => {
+const persistedManagedProjectId = (): Effect.Effect<string | undefined> =>
+  Effect.gen(function* () {
+    const stack = yield* Stack;
+    const managedProject = singleManagedProject(stack);
+    if (!managedProject) return undefined;
+    const state = yield* yield* State;
+    const persisted = yield* state.get({
+      stack: stack.name,
+      stage: stack.stage,
+      fqn: managedProject.FQN,
+    });
+    const persistedProjectId = (persisted as { attr?: { projectId?: unknown } } | undefined)?.attr?.projectId;
+    return persistedProjectId === undefined ? undefined : yield* optionalResolvedRef(persistedProjectId);
+  }) as Effect.Effect<string | undefined>;
+
+const explicitProjectId = (explicit: unknown): Effect.Effect<string | undefined> => {
   const field = projectIdField(explicit);
-  return field === undefined
-    ? Effect.succeed(undefined)
-    : optionalResolvedRef(field);
+  if (field !== undefined) return optionalResolvedRef(field);
+  return isManagedProjectDefault(explicit) ? persistedManagedProjectId() : Effect.succeed(undefined);
 };
 
 const singleManagedProject = (stack: { resources: Record<string, unknown> }) => {

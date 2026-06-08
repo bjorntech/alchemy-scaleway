@@ -4,8 +4,8 @@ import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import { createHash } from "node:crypto";
-import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { lstat, readdir, readFile, readlink } from "node:fs/promises";
+import { join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { ScalewayCredentials } from "./Credentials.ts";
 import { physicalName, resolveRef } from "./Internal.ts";
@@ -100,20 +100,109 @@ const sortedEntries = (path: string): Effect.Effect<{ name: string }[], Error, n
     catch: (cause) => new Error(`Failed to read Docker context ${path}: ${String(cause)}`),
   });
 
-const hashPath = (hash: ReturnType<typeof createHash>, path: string): Effect.Effect<void, Error, never> =>
+interface DockerIgnoreRule {
+  pattern: string;
+  negated: boolean;
+  directoryOnly: boolean;
+  regex: RegExp;
+}
+
+const toDockerPath = (path: string) => path.split(sep).join("/");
+
+const regexEscape = (value: string) => value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+const globTokenRegex = (token: string) =>
+  token === "**" ? ".*" : token === "*" ? "[^/]*" : token === "?" ? "[^/]" : regexEscape(token);
+
+const globRegex = (pattern: string) =>
+  new RegExp(`^${pattern.match(/\*\*|\*|\?|[^*?]+/g)?.map(globTokenRegex).join("") ?? ""}$`);
+
+const parseDockerIgnore = (content: string): DockerIgnoreRule[] =>
+  content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .flatMap((line) => {
+      const negated = line.startsWith("!");
+      const raw = negated ? line.slice(1).trim() : line;
+      const directoryOnly = raw.endsWith("/");
+      const pattern = raw.replace(/^\/+/, "").replace(/\/+$/, "");
+      return pattern && pattern !== "." ? [{ pattern, negated, directoryOnly, regex: globRegex(pattern) }] : [];
+    });
+
+const readDockerIgnore = (contextRoot: string): Effect.Effect<DockerIgnoreRule[], Error, never> =>
+  Effect.tryPromise({
+    try: async () => {
+      try {
+        return parseDockerIgnore(await readFile(join(contextRoot, ".dockerignore"), "utf8"));
+      } catch (cause) {
+        if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return [];
+        throw cause;
+      }
+    },
+    catch: (cause) => new Error(`Failed to read Docker ignore file ${join(contextRoot, ".dockerignore")}: ${String(cause)}`),
+  });
+
+const pathParts = (path: string) => path.split("/").filter(Boolean);
+
+const matchesRulePattern = (rule: DockerIgnoreRule, path: string) => {
+  if (rule.pattern.includes("/")) return rule.regex.test(path);
+  return pathParts(path).some((part) => rule.regex.test(part));
+};
+
+const directoryPrefixes = (path: string, isDirectory: boolean) => {
+  const parts = pathParts(path);
+  const last = isDirectory ? parts.length : parts.length - 1;
+  return Array.from({ length: Math.max(last, 0) }, (_, index) => parts.slice(0, index + 1).join("/"));
+};
+
+const matchesRule = (rule: DockerIgnoreRule, path: string, isDirectory: boolean) =>
+  rule.directoryOnly
+    ? directoryPrefixes(path, isDirectory).some((prefix) => matchesRulePattern(rule, prefix))
+    : matchesRulePattern(rule, path);
+
+const isIgnored = (rules: DockerIgnoreRule[], path: string, isDirectory: boolean) => {
+  let ignored = false;
+  for (const rule of rules) {
+    if (matchesRule(rule, path, isDirectory)) ignored = !rule.negated;
+  }
+  return ignored;
+};
+
+const hasNegatedDescendantRule = (rules: DockerIgnoreRule[], path: string) =>
+  rules.some((rule) => rule.negated && rule.pattern.includes("/") && rule.pattern.startsWith(`${path}/`));
+
+const hashPath = (
+  hash: ReturnType<typeof createHash>,
+  contextRoot: string,
+  path: string,
+  rules: DockerIgnoreRule[],
+): Effect.Effect<void, Error, never> =>
   Effect.gen(function* () {
     const info = yield* Effect.tryPromise({
-      try: () => stat(path),
+      try: () => lstat(path),
       catch: (cause) => new Error(`Failed to stat Docker context path ${path}: ${String(cause)}`),
     });
+    const relativePath = toDockerPath(relative(contextRoot, path));
+    if (relativePath && isIgnored(rules, relativePath, info.isDirectory())) {
+      if (!info.isDirectory() || !hasNegatedDescendantRule(rules, relativePath)) return;
+    }
     if (info.isDirectory()) {
       for (const entry of yield* sortedEntries(path)) {
-        yield* hashPath(hash, join(path, entry.name));
+        yield* hashPath(hash, contextRoot, join(path, entry.name), rules);
       }
       return;
     }
+    hash.update(relativePath || ".");
+    if (info.isSymbolicLink()) {
+      hash.update("symlink");
+      hash.update(yield* Effect.tryPromise({
+        try: () => readlink(path),
+        catch: (cause) => new Error(`Failed to read Docker context symlink ${path}: ${String(cause)}`),
+      }));
+      return;
+    }
     if (!info.isFile()) return;
-    hash.update(path);
+    hash.update("file");
     hash.update(yield* Effect.tryPromise({
       try: () => readFile(path),
       catch: (cause) => new Error(`Failed to read Docker context file ${path}: ${String(cause)}`),
@@ -123,12 +212,18 @@ const hashPath = (hash: ReturnType<typeof createHash>, path: string): Effect.Eff
 const sourceHash = (props: ContainerImageProps): Effect.Effect<string, Error, never> =>
   Effect.gen(function* () {
     const cwd = props.cwd ?? process.cwd();
+    const contextRoot = resolve(cwd, props.context);
+    const ignoreRules = yield* readDockerIgnore(contextRoot);
     const hash = createHash("sha256");
     hash.update(JSON.stringify(props.buildArgs ?? {}));
     hash.update(props.target ?? "");
     hash.update(props.platform ?? "linux/amd64");
-    yield* hashPath(hash, resolve(cwd, props.context));
-    if (props.dockerfile) yield* hashPath(hash, resolve(cwd, props.dockerfile));
+    yield* hashPath(hash, contextRoot, contextRoot, ignoreRules);
+    if (props.dockerfile) {
+      const dockerfilePath = resolve(cwd, props.dockerfile);
+      if (toDockerPath(relative(contextRoot, dockerfilePath)).startsWith("..")) hash.update(`dockerfile:${toDockerPath(relative(cwd, dockerfilePath))}`);
+      yield* hashPath(hash, contextRoot, dockerfilePath, []);
+    }
     return `sha256:${hash.digest("hex")}`;
   });
 

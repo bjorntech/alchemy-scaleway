@@ -78,6 +78,9 @@ const optionalRef = (ref: unknown): Effect.Effect<string | undefined> =>
       ? resolveRef((ref as { projectId: unknown }).projectId).pipe(Effect.map((value) => value || undefined))
     : resolveRef(ref).pipe(Effect.map((value) => value || undefined));
 
+const hasZone = (props: Partial<Pick<DnsRecordProps, "zone">>): props is Pick<DnsRecordProps, "zone"> =>
+  props.zone !== undefined;
+
 const zoneIdentity = (props: Pick<DnsRecordProps, "zone" | "project">, stored = false) =>
   Effect.gen(function* () {
     const zone = props.zone;
@@ -190,7 +193,7 @@ export const DnsRecordProvider = () =>
           return undefined;
         }),
         read: Effect.fnUntraced(function* ({ olds, output }) {
-          const oldZone = olds ? yield* zoneIdentity(olds, true) : undefined;
+          const oldZone = olds && hasZone(olds) ? yield* zoneIdentity(olds, true) : undefined;
           const zone = output?.dnsZone
             ? { dnsZone: output.dnsZone, projectId: output.projectId ?? oldZone?.projectId }
             : oldZone;
