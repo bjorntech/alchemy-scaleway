@@ -4,6 +4,8 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.4.1-beta.51] - 2026-06-08
+
 ### Changed
 
 - Production smoke tests now skip billed VPC connector/VPC Peering coverage by
