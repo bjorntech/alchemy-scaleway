@@ -48,9 +48,14 @@ const isTransientState = (error: unknown) =>
     .includes("transient state");
 
 const isRetriableDomainDeployError = (error: unknown) =>
-  String((error as { message?: unknown })?.message ?? "")
+  String((error as { message?: unknown })?.message ?? error ?? "")
     .toLowerCase()
     .includes("internal error occurred while deploying the domain");
+
+const isResourceAlreadyExists = (error: unknown) =>
+  error instanceof ScalewayError &&
+  error.statusCode === 409 &&
+  error.message.toLowerCase().includes("resource already exists");
 
 const retryTransient = <A>(effect: Effect.Effect<A, ScalewayError>, session: { note(message: string): Effect.Effect<void> }): Effect.Effect<A, ScalewayError> =>
   effect.pipe(
@@ -147,6 +152,11 @@ export const DomainProvider = () =>
             yield* Effect.sleep("3 seconds");
           }
         });
+      const domainsForHostname = (hostname: string) =>
+        clients.containers.listDomains().pipe(
+          Effect.map((domains) => domains.filter((domain) => domain.hostname === hostname)),
+          Effect.catchIf(isNotFound, () => Effect.succeed([] as ScalewayDomainRecord[])),
+        );
 
       return Domain.Provider.of({
         stables: ["domainId", "containerId", "hostname"],
@@ -166,8 +176,9 @@ export const DomainProvider = () =>
         }),
         reconcile: Effect.fnUntraced(function* ({ news, output, session }) {
           if (output?.domainId) return output;
+          const resolvedContainerId = yield* containerId(news.container);
           const input = {
-            container_id: yield* containerId(news.container),
+            container_id: resolvedContainerId,
             hostname: news.hostname,
           };
           const target = yield* containerEndpoint(news.container);
@@ -193,8 +204,29 @@ export const DomainProvider = () =>
                 ),
               );
             });
+          const recoverExistingDomain = (retriesRemaining = maxDomainDeployRetries): Effect.Effect<Domain["Attributes"], unknown> =>
+            Effect.gen(function* () {
+              const existingDomains = yield* domainsForHostname(news.hostname);
+              const conflict = existingDomains.find((domain) => domain.container_id !== resolvedContainerId);
+              if (conflict) {
+                return yield* Effect.fail(new Error(`Scaleway domain ${news.hostname} already exists for container ${conflict.container_id}`));
+              }
+              const existing = existingDomains.find((domain) => domain.container_id === resolvedContainerId);
+              if (!existing) return yield* createReadyDomain(retriesRemaining);
+              const status = existing.status?.toLowerCase();
+              if (!status || status === "ready") return toAttributes(existing);
+              if (status === "error" && isRetriableDomainDeployError(existing.error_message)) {
+                if (retriesRemaining <= 0) return yield* Effect.fail(new Error(`Scaleway domain ${existing.id} kept failing deployment after retries`));
+                yield* session.note(`Retrying Scaleway domain ${existing.id} after transient deployment error`);
+                yield* clients.containers.deleteDomain(existing.id).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+                yield* waitForDeleted(existing.id, session);
+                return yield* createReadyDomain(retriesRemaining - 1);
+              }
+              return yield* waitForReady(existing.id, session);
+            });
           const createDomain = createReadyDomain();
           return yield* createDomain.pipe(
+            Effect.catchIf(isResourceAlreadyExists, () => recoverExistingDomain()),
             Effect.catchIf(isTransientState, () =>
               Effect.gen(function* () {
                 if (target) {

@@ -39,6 +39,20 @@ export const ProjectProvider = () =>
       const clients = yield* makeScalewayClients;
       const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 64 });
       const isPreconditionError = (error: unknown) => String((error as { message?: unknown })?.message ?? "").toLowerCase().includes("precondition is not respected");
+      const hasAlchemyOwnedFlexibleIp = (projectId: string) =>
+        clients.instance.listFlexibleIps({ zone: `${clients.region}-1`, project: projectId }).pipe(
+          Effect.map((ips) => ips.some((ip) => (ip.tags ?? []).some((tag) => tag.startsWith("alchemy:logical-id=")))),
+          Effect.catchIf(isNotFound, () => Effect.succeed(false)),
+        );
+      const hasAlchemyOwnedDatabase = (projectId: string) =>
+        clients.rdb.listInstances({ region: clients.region, projectId }).pipe(
+          Effect.map((instances) => instances.some((instance) => (instance.tags ?? []).some((tag) => tag.startsWith("alchemy:logical-id=")))),
+          Effect.catchIf(isNotFound, () => Effect.succeed(false)),
+        );
+      const hasAlchemyOwnedRetainedResource = (projectId: string) =>
+        Effect.gen(function* () {
+          return (yield* hasAlchemyOwnedFlexibleIp(projectId)) || (yield* hasAlchemyOwnedDatabase(projectId));
+        });
       const toAttributes = (record: ScalewayProjectRecord): Project["Attributes"] =>
         omitUndefined({
           projectId: record.id,
@@ -72,7 +86,8 @@ export const ProjectProvider = () =>
             Effect.map((projects) => projects.find((project) => project.name === name && project.organization_id === olds.organizationId)),
             Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
           );
-          return found ? Unowned(toAttributes(found)) : undefined;
+          if (!found) return undefined;
+          return (yield* hasAlchemyOwnedRetainedResource(found.id)) ? toAttributes(found) : Unowned(toAttributes(found));
         }),
         reconcile: Effect.fnUntraced(function* ({ id, news, output, session }) {
           const name = yield* nameOf(id, news.name);
@@ -95,18 +110,26 @@ export const ProjectProvider = () =>
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
           while (true) {
-            const deleted = yield* clients.account
+            const result = yield* clients.account
               .deleteProject(output.projectId)
               .pipe(
-                Effect.as(true),
-                Effect.catchIf(isNotFound, () => Effect.succeed(true)),
-                Effect.catchIf(isPreconditionError, () => Effect.succeed(false)),
+                Effect.as("deleted" as const),
+                Effect.catchIf(isNotFound, () => Effect.succeed("deleted" as const)),
+                Effect.catchIf(isPreconditionError, () =>
+                  hasAlchemyOwnedRetainedResource(output.projectId).pipe(Effect.map((retained) => retained ? "retained" as const : "retry" as const))
+                ),
               );
-            if (deleted) break;
+            if (result === "deleted") {
+              yield* session.note(`Deleted Scaleway project ${output.projectId}`);
+              return;
+            }
+            if (result === "retained") {
+              yield* session.note(`Retained Scaleway project ${output.projectId} because retained resources remain`);
+              return;
+            }
             yield* session.note("waiting project deletion status=precondition");
             yield* Effect.sleep("5 seconds");
           }
-          yield* session.note(`Deleted Scaleway project ${output.projectId}`);
         }),
       });
     }),

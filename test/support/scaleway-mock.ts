@@ -38,6 +38,8 @@ export interface ScalewayMock {
   seedDnsZone(dnsZone: string, projectId?: string): void;
   /** Make the next created custom domains enter Scaleway's deployment error state. */
   failNextDomainDeploys(count: number): void;
+  /** Seed a live custom domain for recovery tests. */
+  seedDomain(input: { id: string; containerId: string; hostname: string; status?: string; errorMessage?: string }): void;
   /** Make custom-domain delete keep returning the deleted domain for a few reads. */
   makeDomainDeleteStale(reads: number): void;
   /** Make the next matching Containers request fail with a status + message. */
@@ -126,6 +128,7 @@ export function installScalewayMock(): ScalewayMock {
   let staleDomainDeleteReads = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
   const forcedErrors: Array<{ fragment: string; status: number; message: string }> = [];
+  const recordProject = (record: Record<string, unknown>) => record.project ?? record.project_id;
 
   const containersHandler = (method: string, pathname: string, body: unknown): Response => {
     // The v1 API returns resource objects flat (no envelope), e.g. {"id": ..., "name": ...}.
@@ -241,6 +244,10 @@ export function installScalewayMock(): ScalewayMock {
     }
 
     if (kind === "domains") {
+      if (!id && method === "GET") {
+        const page = pageOf([...domains.values()], new URLSearchParams());
+        return json({ domains: page.items, total_count: page.total_count });
+      }
       if (method === "POST") {
         if ([...domains.values()].some((domain) => domain.hostname === input.hostname && domain.container_id === input.container_id)) {
           return json({ message: "resource already exists" }, 409);
@@ -443,6 +450,9 @@ export function installScalewayMock(): ScalewayMock {
         return json(updated);
       }
       if (method === "DELETE") {
+        if ([...flexibleIps.values()].some((ip) => recordProject(ip) === id) || [...databaseInstances.values()].some((instance) => instance.project_id === id)) {
+          return json({ message: "precondition is not respected" }, 412);
+        }
         projects.delete(id);
         return noContent();
       }
@@ -1193,7 +1203,7 @@ export function installScalewayMock(): ScalewayMock {
       if (!id && method === "GET") {
         const project = params.get("project") ?? undefined;
         const matching = [...flexibleIps.values()].filter((ip) =>
-          ip.zone === zone && (!project || ip.project === project)
+          ip.zone === zone && (!project || recordProject(ip) === project)
         );
         const page = pageOf(matching, params);
         return json({ ips: page.items, total_count: page.total_count });
@@ -1384,6 +1394,15 @@ export function installScalewayMock(): ScalewayMock {
     },
     failNextDomainDeploys: (count) => {
       domainDeployErrorsRemaining = count;
+    },
+    seedDomain: ({ id, containerId, hostname, status = "ready", errorMessage }) => {
+      domains.set(id, {
+        id,
+        container_id: containerId,
+        hostname,
+        status,
+        error_message: errorMessage,
+      });
     },
     makeDomainDeleteStale: (reads) => {
       staleDomainDeleteReads = reads;

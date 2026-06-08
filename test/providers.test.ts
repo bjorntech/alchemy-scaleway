@@ -254,6 +254,46 @@ describe("Project", () => {
       expect(second.namespace.projectId).toBe("proj-test");
     }),
   );
+
+  test.provider("retained managed-project resources keep project and are reused on redeploy", (stack) =>
+    Effect.gen(function* () {
+      const program = Effect.gen(function* () {
+        const project = yield* Scaleway.Project("AppProject", {
+          name: "alchemy-project-retained-ip-test",
+          organizationId: "org-test",
+        });
+        const namespace = yield* Scaleway.Namespace("Ns", {});
+        const ip = yield* Scaleway.FlexibleIp("PublicIp", { zone: "fr-par-1", tags: ["role=edge"] });
+        const database = yield* Scaleway.DatabaseInstance("Database", {
+          name: "alchemy-database-retained-project-test",
+          engine: "PostgreSQL-15",
+          nodeType: "db-dev-s",
+          userName: "app",
+          password: Redacted.make("S3cure-db-password!"),
+          tags: ["role=app"],
+        });
+        return { project, namespace, ip, database };
+      });
+
+      const first = yield* stack.deploy(program);
+      yield* stack.destroy();
+      const second = yield* stack.deploy(program);
+
+      expect(first.ip.projectId).toBe(first.project.projectId);
+      expect(second.project.projectId).toBe(first.project.projectId);
+      expect(second.ip.ipId).toBe(first.ip.ipId);
+      expect(second.ip.projectId).toBe(first.project.projectId);
+      expect(second.database.databaseInstanceId).toBe(first.database.databaseInstanceId);
+      expect(second.database.projectId).toBe(first.project.projectId);
+      expect(second.namespace.projectId).toBe(first.project.projectId);
+      expect(second.namespace.namespaceId).not.toBe(first.namespace.namespaceId);
+      expect(requests("DELETE", `/ips/${first.ip.ipId}`)).toHaveLength(0);
+      expect(requests("DELETE", `/rdb/v1/regions/fr-par/instances/${first.database.databaseInstanceId}`)).toHaveLength(0);
+      expect(requests("POST", "/account/v3/projects")).toHaveLength(1);
+      expect(requests("DELETE", `/account/v3/projects/${first.project.projectId}`)).toHaveLength(1);
+      expect(requests("DELETE", `/namespaces/${first.namespace.namespaceId}`)).toHaveLength(1);
+    }),
+  );
 });
 
 describe("Namespace", () => {
@@ -1437,6 +1477,45 @@ describe("Domain", () => {
       expect(requests("GET", "/domains/").length).toBeGreaterThan(1);
     }),
     { timeout: 10_000 },
+  );
+
+  test.provider("recovers existing ready domain after partial create conflict", (stack) =>
+    Effect.gen(function* () {
+      mock.seedDomain({ id: "dom-existing", containerId: "ctr-existing", hostname: "api.example.com" });
+      const recovered = yield* stack.deploy(
+        Scaleway.Domain("Domain", { container: "ctr-existing", hostname: "api.example.com" }),
+      );
+
+      expect(recovered).toEqual({
+        domainId: "dom-existing",
+        containerId: "ctr-existing",
+        hostname: "api.example.com",
+        url: "https://api.example.com",
+      });
+      expect(requests("POST", "/domains")).toHaveLength(1);
+      expect(requests("GET", "/domains")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("recreates existing errored domain after partial create conflict", (stack) =>
+    Effect.gen(function* () {
+      mock.seedDomain({
+        id: "dom-existing",
+        containerId: "ctr-existing",
+        hostname: "api.example.com",
+        status: "error",
+        errorMessage: "Internal error occurred while deploying the domain",
+      });
+      const recovered = yield* stack.deploy(
+        Scaleway.Domain("Domain", { container: "ctr-existing", hostname: "api.example.com" }),
+      );
+
+      expect(recovered.domainId).toMatch(/^dom-/);
+      expect(recovered.domainId).not.toBe("dom-existing");
+      expect(recovered.containerId).toBe("ctr-existing");
+      expect(requests("POST", "/domains")).toHaveLength(2);
+      expect(requests("DELETE", "/domains/dom-existing")).toHaveLength(1);
+    }),
   );
 
   test.provider("fails after repeated transient deployment errors", (stack) =>
