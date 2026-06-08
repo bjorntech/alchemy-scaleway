@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@finnvid/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.4.3-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes custom-domain retry stabilization and same-registry Docker login concurrency. |
 | `0.4.2-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes `DatabaseInstance` deletion verification before state removal. |
 | `0.4.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes Docker context hashing, DNS zone semantics, and interrupted cleanup recovery. |
 | `0.4.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds `ContainerImage`, public image helpers, and retained resource rediscovery. |

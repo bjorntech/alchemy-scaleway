@@ -136,6 +136,17 @@ export const DomainProvider = () =>
             yield* Effect.sleep("3 seconds");
           }
         });
+      const waitForDeleted = (domainIdValue: string, session: { note(message: string): Effect.Effect<void> }) =>
+        Effect.gen(function* () {
+          while (true) {
+            const existing = yield* clients.containers
+              .getDomain(domainIdValue)
+              .pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
+            if (!existing) return;
+            yield* session.note(`waiting domain deletion status=${existing.status ?? "unknown"}`);
+            yield* Effect.sleep("3 seconds");
+          }
+        });
 
       return Domain.Provider.of({
         stables: ["domainId", "containerId", "hostname"],
@@ -176,7 +187,7 @@ export const DomainProvider = () =>
                     }
                     yield* session.note(`Retrying Scaleway domain ${created.id} after transient deployment error`);
                     yield* clients.containers.deleteDomain(created.id).pipe(Effect.catchIf(isNotFound, () => Effect.void));
-                    yield* Effect.sleep("100 millis");
+                    yield* waitForDeleted(created.id, session);
                     return yield* createReadyDomain(retriesRemaining - 1);
                   }),
                 ),
