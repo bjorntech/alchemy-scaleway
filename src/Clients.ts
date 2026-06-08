@@ -487,6 +487,7 @@ export interface ScalewayClients {
       container_id: string;
       hostname: string;
     }): Effect.Effect<ScalewayDomainRecord, ScalewayError>;
+    listDomains(): Effect.Effect<ScalewayDomainRecord[], ScalewayError>;
     getDomain(domainId: string): Effect.Effect<ScalewayDomainRecord, ScalewayError>;
     deleteDomain(domainId: string): Effect.Effect<void, ScalewayError>;
   };
@@ -838,6 +839,10 @@ export const makeScalewayClients = Effect.gen(function* () {
       deleteTrigger: (id) => request<void>("DELETE", `${base}/triggers/${id}`),
       createDomain: (input) =>
         request("POST", `${base}/domains`, input).pipe(Effect.map(decodeDomain)),
+      listDomains: () =>
+        listAllPages<ScalewayDomainRecord, "domains">("domains", (page, pageSize) =>
+          `${base}/domains${query({ page, page_size: pageSize })}`
+        ),
       getDomain: (id) => request("GET", `${base}/domains/${id}`).pipe(Effect.map(decodeDomain)),
       deleteDomain: (id) => request<void>("DELETE", `${base}/domains/${id}`),
     },

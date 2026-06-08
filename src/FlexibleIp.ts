@@ -98,12 +98,26 @@ export const FlexibleIpProvider = () =>
         reconcile: Effect.fnUntraced(function* ({ id, news, output, session }) {
           const zone = zoneOf(clients.region, news.zone);
           const tags = withAlchemyTag(id, news.tags);
+          const resolvedProjectId = yield* projectId(projectInput(news), output?.projectId);
           let record: ScalewayFlexibleIpRecord;
           if (output?.ipId) {
             record = yield* clients.instance.updateFlexibleIp({ zone, ip: output.ipId, tags, server: news.serverId ?? null, reverse: news.reverse ?? null });
           } else {
-            record = yield* clients.instance.createFlexibleIp({ zone, project: yield* projectId(projectInput(news), output?.projectId), tags, server: news.serverId, type: news.type ?? "routed_ipv4" });
-            if (news.reverse !== undefined) {
+            const found = yield* clients.instance.listFlexibleIps({ zone, project: resolvedProjectId }).pipe(
+              Effect.map((ips) => ips.find((ip) =>
+                hasAlchemyTag(id, ip.tags) &&
+                zoneOf(clients.region, ip.zone) === zone &&
+                ip.project === resolvedProjectId &&
+                ip.type === (news.type ?? "routed_ipv4")
+              )),
+              Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+            );
+            if (found) {
+              record = yield* clients.instance.updateFlexibleIp({ zone, ip: found.id, tags, server: news.serverId ?? null, reverse: news.reverse ?? null });
+            } else {
+              record = yield* clients.instance.createFlexibleIp({ zone, project: resolvedProjectId, tags, server: news.serverId, type: news.type ?? "routed_ipv4" });
+            }
+            if (!found && news.reverse !== undefined) {
               record = yield* clients.instance.updateFlexibleIp({ zone, ip: record.id, tags, server: news.serverId ?? null, reverse: news.reverse }).pipe(
                 Effect.catch((error) =>
                   clients.instance.deleteFlexibleIp({ zone, ip: record.id }).pipe(

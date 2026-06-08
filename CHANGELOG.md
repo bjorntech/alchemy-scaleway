@@ -4,6 +4,17 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.4.4-beta.51] - 2026-06-08
+
+### Fixed
+
+- `Project`, `FlexibleIp`, and `DatabaseInstance` now recover retained
+  managed-project resources after destroy/redeploy without deleting or
+  recreating the project.
+- `Domain` now rediscovers existing custom domains by container and hostname when
+  recovering from partial creates that persisted no `domainId`, avoiding repeated
+  `resource already exists` failures.
+
 ## [0.4.3-beta.51] - 2026-06-08
 
 ### Fixed

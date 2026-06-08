@@ -237,6 +237,7 @@ export const DatabaseInstanceProvider = () =>
         }),
         reconcile: Effect.fnUntraced(function* ({ id, news, output, session }) {
           const name = yield* nameOf(id, news.name);
+          const resolvedProjectId = yield* projectId(projectInput(news), output?.projectId);
           if (output?.databaseInstanceId) {
             const updated = yield* clients.rdb.updateInstance({
               region: output.region,
@@ -249,10 +250,33 @@ export const DatabaseInstanceProvider = () =>
               : yield* waitForReady(output.databaseInstanceId, session);
           }
 
+          const found = yield* clients.rdb.listInstances({ region: clients.region, projectId: resolvedProjectId, name }).pipe(
+            Effect.map((instances) => instances.find((instance) =>
+              instance.name === name &&
+              instance.project_id === resolvedProjectId &&
+              hasAlchemyTag(id, instance.tags) &&
+              instance.engine === news.engine &&
+              instance.node_type === news.nodeType &&
+              instance.is_ha_cluster === (news.highAvailability ?? false) &&
+              instance.volume?.type === (news.volumeType ?? DEFAULT_VOLUME_TYPE) &&
+              instance.volume?.size === (news.volumeSize ?? 0)
+            )),
+            Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+          );
+          if (found) {
+            const updated = yield* clients.rdb.updateInstance({
+              region: clients.region,
+              instanceId: found.id,
+              ...updateInput(id, name, news),
+            });
+            yield* session.note(`Updated Scaleway database instance ${found.id}`);
+            return updated.status?.toLowerCase() === "ready" ? toAttributes(updated) : yield* waitForReady(found.id, session);
+          }
+
           const created = yield* clients.rdb.createInstance({
             region: clients.region,
             ...omitUndefined({
-              project_id: yield* projectId(projectInput(news), output?.projectId),
+              project_id: resolvedProjectId,
               name,
               engine: news.engine,
               user_name: news.userName,
