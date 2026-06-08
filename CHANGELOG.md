@@ -18,6 +18,11 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 - `ContainerImage` source hashing now applies `.dockerignore` rules and hashes
   symlink metadata without following broken targets, avoiding pre-build failures
   for Docker contexts that Docker itself can handle.
+- `DatabaseInstance` deletion now waits for Scaleway RDB reads to report the
+  instance as gone before reporting successful deletion.
+- `DnsRecord` destroy/read now treats incomplete failed-create state as absent
+  when required zone props were never persisted, avoiding cleanup planning
+  crashes after partial failures.
 - `DnsZone` no longer attempts to create apex DNS zones with an empty
   `subdomain`. Apex zones are now existing-zone references with a clear error
   when the domain is not registered or validated in Scaleway; child zones remain
