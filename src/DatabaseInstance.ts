@@ -157,14 +157,20 @@ export const DatabaseInstanceProvider = () =>
           }
         });
 
-      const waitForDeleted = (region: string, databaseInstanceId: string, session: { note(message: string): Effect.Effect<void> }) =>
+      const waitForDeleted = (output: DatabaseInstance["Attributes"], session: { note(message: string): Effect.Effect<void> }) =>
         Effect.gen(function* () {
           while (true) {
             const existing = yield* clients.rdb
-              .getInstance({ region, instanceId: databaseInstanceId })
+              .getInstance({ region: output.region, instanceId: output.databaseInstanceId })
               .pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
-            if (!existing) return;
-            yield* session.note(`waiting database deletion status=${existing.status ?? "unknown"}`);
+            const listed = yield* clients.rdb
+              .listInstances({ region: output.region, projectId: output.projectId, name: output.name })
+              .pipe(
+                Effect.map((instances) => instances.find((instance) => instance.id === output.databaseInstanceId)),
+                Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+              );
+            if (!existing && !listed) return;
+            yield* session.note(`waiting database deletion status=${(existing ?? listed)?.status ?? "unknown"}`);
             yield* Effect.sleep("5 seconds");
           }
         });
@@ -274,7 +280,7 @@ export const DatabaseInstanceProvider = () =>
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
           yield* deleteWhenAccepted(output.region, output.databaseInstanceId, session);
-          yield* waitForDeleted(output.region, output.databaseInstanceId, session);
+          yield* waitForDeleted(output, session);
           yield* session.note(`Deleted Scaleway database instance ${output.databaseInstanceId}`);
         }),
       });

@@ -4,6 +4,15 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.4.2-beta.51] - 2026-06-08
+
+### Fixed
+
+- `DatabaseInstance` deletion now waits for both direct Scaleway RDB reads and
+  project/name listing to stop returning the instance before reporting
+  successful deletion, avoiding local state removal while the database can still
+  block project cleanup.
+
 ## [0.4.1-beta.51] - 2026-06-08
 
 ### Changed
@@ -18,8 +27,6 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 - `ContainerImage` source hashing now applies `.dockerignore` rules and hashes
   symlink metadata without following broken targets, avoiding pre-build failures
   for Docker contexts that Docker itself can handle.
-- `DatabaseInstance` deletion now waits for Scaleway RDB reads to report the
-  instance as gone before reporting successful deletion.
 - `DnsRecord` destroy/read now treats incomplete failed-create state as absent
   when required zone props were never persisted, avoiding cleanup planning
   crashes after partial failures.

@@ -21,6 +21,8 @@ export interface ScalewayMock {
   setFlexibleIpTags(id: string, tags: string[]): void;
   /** Drop a record so the next `read`/`get` behaves like a 404. */
   removeContainer(id: string): void;
+  /** Simulate RDB delete accepting while direct get disappears before list/project cleanup catches up. */
+  makeDatabaseDeleteStaleInList(reads: number): void;
   removeVpc(id: string): void;
   removePrivateNetwork(id: string): void;
   removeRoute(id: string): void;
@@ -117,6 +119,7 @@ export function installScalewayMock(): ScalewayMock {
   const privateNics = new Map<string, Record<string, unknown>>();
   let counter = 0;
   let asyncLifecycle = false;
+  let staleRdbListReads = 0;
   let domainDeployErrorsRemaining = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
   const forcedErrors: Array<{ fragment: string; status: number; message: string }> = [];
@@ -569,9 +572,20 @@ export function installScalewayMock(): ScalewayMock {
     if (kind === "instances" && !id && method === "GET") {
       const projectId = params.get("project_id") ?? undefined;
       const name = params.get("name") ?? undefined;
-      const matching = [...databaseInstances.values()].filter((instance) =>
-        (!projectId || instance.project_id === projectId) && (!name || instance.name === name)
-      );
+      const matching = [...databaseInstances.entries()].flatMap(([instanceId, instance]) => {
+        if (projectId && instance.project_id !== projectId) return [];
+        if (name && instance.name !== name) return [];
+        const staleReads = Number(instance.__staleListReads ?? 0);
+        if (staleReads > 0) {
+          databaseInstances.set(instanceId, { ...instance, __staleListReads: staleReads - 1 });
+          return [instance];
+        }
+        if (instance.__staleListReads === 0) {
+          databaseInstances.delete(instanceId);
+          return [];
+        }
+        return [instance];
+      });
       const page = pageOf(matching, params);
       return json({ instances: page.items, total_count: page.total_count });
     }
@@ -601,6 +615,7 @@ export function installScalewayMock(): ScalewayMock {
       const existing = databaseInstances.get(id);
       if (!existing) return json({ message: "database instance not found" }, 404);
       if (method === "GET") {
+        if (existing.__staleListReads !== undefined) return json({ message: "database instance not found" }, 404);
         if (asyncLifecycle && existing.status === "initializing") {
           const readyReads = Number(existing.__readyReads ?? 0);
           if (readyReads > 0) {
@@ -635,6 +650,11 @@ export function installScalewayMock(): ScalewayMock {
       if (method === "DELETE") {
         if (asyncLifecycle && existing.status === "initializing") {
           return json({ message: "resource is in a transient state", type: "transient_state" }, 409);
+        }
+        if (staleRdbListReads > 0) {
+          databaseInstances.set(id, { ...existing, status: "deleting", __staleListReads: staleRdbListReads });
+          staleRdbListReads = 0;
+          return noContent();
         }
         if (asyncLifecycle) {
           databaseInstances.set(id, { ...existing, status: "deleting", __deleteReads: 0 });
@@ -1315,6 +1335,9 @@ export function installScalewayMock(): ScalewayMock {
     },
     enableAsyncLifecycle: () => {
       asyncLifecycle = true;
+    },
+    makeDatabaseDeleteStaleInList: (reads) => {
+      staleRdbListReads = reads;
     },
     addFlexibleIp: (id) => flexibleIps.set(id, { id, zone: "fr-par-1", project: "proj-test", address: `203.0.113.${counter + 1}`, state: "attached", type: "routed_ipv4", tags: [] }),
     setFlexibleIpTags: (id, tags) => {
