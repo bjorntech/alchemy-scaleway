@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@finnvid/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.5.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes recovery from already-persisted Instance replacements with attached Flexible IPs. |
 | `0.5.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds Serverless Functions and fixes Instance replacement, Secret deletion, and smoke cleanup behavior. |
 | `0.4.4-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes retained managed-project recovery and custom-domain partial-create recovery. |
 | `0.4.3-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes custom-domain retry stabilization and same-registry Docker login concurrency. |
