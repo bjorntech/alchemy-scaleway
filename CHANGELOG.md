@@ -4,6 +4,8 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.5.0-beta.51] - 2026-06-08
+
 ### Added
 
 - Added initial Scaleway Serverless Functions resources: `FunctionNamespace`,
