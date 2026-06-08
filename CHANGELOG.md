@@ -16,6 +16,9 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 - `Secret` destroy now permanently deletes all secret versions before deleting the
   secret container, so removing `retain()` and destroying a stack deletes the
   recoverable secret material as far as Scaleway's API allows.
+- `Instance` replacements with attached managed `publicIps` now delete the old
+  server first and defensively detach reused Flexible IPs before replacement
+  create, avoiding Scaleway `precondition is not respected` failures (#53).
 
 ## [0.4.4-beta.51] - 2026-06-08
 
