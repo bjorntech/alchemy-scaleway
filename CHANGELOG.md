@@ -4,6 +4,8 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.6.1-beta.51] - 2026-06-09
+
 ### Fixed
 
 - `DnsZone` now discovers existing DNS zones by zone name across accessible
