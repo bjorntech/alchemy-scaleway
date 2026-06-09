@@ -23,6 +23,8 @@ export interface ScalewayMock {
   removeContainer(id: string): void;
   /** Simulate RDB delete accepting while direct get disappears before list/project cleanup catches up. */
   makeDatabaseDeleteStaleInList(reads: number): void;
+  /** Mark owned RDB instances in a project as deleting and stale in project listings. */
+  markProjectDatabasesDeleting(projectId: string, reads: number): void;
   removeVpc(id: string): void;
   removePrivateNetwork(id: string): void;
   removeRoute(id: string): void;
@@ -40,6 +42,9 @@ export interface ScalewayMock {
   failNextDomainDeploys(count: number): void;
   /** Seed a live custom domain for recovery tests. */
   seedDomain(input: { id: string; containerId: string; hostname: string; status?: string; errorMessage?: string }): void;
+  /** Seed live Function companions for recovery tests. */
+  seedFunctionDomain(input: { id: string; functionId: string; hostname: string; status?: string }): void;
+  seedFunctionCron(input: { id: string; functionId: string; schedule: string; args?: Record<string, unknown>; name?: string; status?: string }): void;
   /** Make custom-domain delete keep returning the deleted domain for a few reads. */
   makeDomainDeleteStale(reads: number): void;
   /** Make the next matching Containers request fail with a status + message. */
@@ -485,7 +490,19 @@ export function installScalewayMock(): ScalewayMock {
         functions.set(id, updated);
         return json(updated);
       }
-      if (method === "GET") return json(existing);
+      if (method === "GET") {
+        if (asyncLifecycle && existing.status === "deleting") {
+          const deleteReads = Number(existing.__deleteReads ?? 0);
+          if (deleteReads > 0) {
+            const updated = { ...existing, __deleteReads: deleteReads - 1 };
+            functions.set(id, updated);
+            return json(updated);
+          }
+          functions.delete(id);
+          return json({ message: "function not found" }, 404);
+        }
+        return json(existing);
+      }
       if (method === "PATCH") {
         const updated = { ...existing, ...input };
         if (Array.isArray(input.secret_environment_variables)) {
@@ -504,12 +521,21 @@ export function installScalewayMock(): ScalewayMock {
         return json(updated);
       }
       if (method === "DELETE") {
+        if (asyncLifecycle) {
+          functions.set(id, { ...existing, status: "deleting", __deleteReads: 1 });
+          return noContent();
+        }
         functions.delete(id);
         return noContent();
       }
     }
 
     if (kind === "crons") {
+      if (!id && method === "GET") {
+        const functionId = params.get("function_id");
+        const page = pageOf([...functionCrons.values()].filter((cron) => !functionId || cron.function_id === functionId), params);
+        return json({ crons: page.items, total_count: page.total_count });
+      }
       if (!id && method === "POST") {
         const record = { id: nextId("fncron"), status: "ready", ...input };
         functionCrons.set(record.id as string, record);
@@ -1536,6 +1562,13 @@ export function installScalewayMock(): ScalewayMock {
     makeDatabaseDeleteStaleInList: (reads) => {
       staleRdbListReads = reads;
     },
+    markProjectDatabasesDeleting: (projectId, reads) => {
+      for (const [id, instance] of databaseInstances) {
+        if (instance.project_id === projectId) {
+          databaseInstances.set(id, { ...instance, status: "deleting", __staleListReads: reads });
+        }
+      }
+    },
     addFlexibleIp: (id, options = {}) => flexibleIps.set(id, {
       id,
       zone: "fr-par-1",
@@ -1577,6 +1610,12 @@ export function installScalewayMock(): ScalewayMock {
         status,
         error_message: errorMessage,
       });
+    },
+    seedFunctionDomain: ({ id, functionId, hostname, status = "ready" }) => {
+      functionDomains.set(id, { id, function_id: functionId, hostname, status, url: `https://${hostname}` });
+    },
+    seedFunctionCron: ({ id, functionId, schedule, args, name, status = "ready" }) => {
+      functionCrons.set(id, { id, function_id: functionId, schedule, args, name, status });
     },
     makeDomainDeleteStale: (reads) => {
       staleDomainDeleteReads = reads;

@@ -566,6 +566,7 @@ export interface ScalewayClients {
     deployFunction(functionId: string): Effect.Effect<ScalewayFunctionRecord, ScalewayError>;
     getFunctionUploadUrl(functionId: string, contentLength: number): Effect.Effect<ScalewayUploadUrlRecord, ScalewayError>;
     createCron(input: Record<string, unknown>): Effect.Effect<ScalewayFunctionCronRecord, ScalewayError>;
+    listCrons(functionId: string): Effect.Effect<ScalewayFunctionCronRecord[], ScalewayError>;
     getCron(cronId: string): Effect.Effect<ScalewayFunctionCronRecord, ScalewayError>;
     updateCron(cronId: string, input: Record<string, unknown>): Effect.Effect<ScalewayFunctionCronRecord, ScalewayError>;
     deleteCron(cronId: string): Effect.Effect<void, ScalewayError>;
@@ -954,6 +955,10 @@ export const makeScalewayClients = Effect.gen(function* () {
         request("GET", `${functionsBase}/functions/${id}/upload-url${query({ content_length: contentLength })}`).pipe(Effect.map(decodeUploadUrl)),
       createCron: (input) =>
         request("POST", `${functionsBase}/crons`, input).pipe(Effect.map(decodeFunctionCron)),
+      listCrons: (functionId) =>
+        listAllPages<ScalewayFunctionCronRecord, "crons">("crons", (page, pageSize) =>
+          `${functionsBase}/crons${query({ function_id: functionId, page, page_size: pageSize })}`
+        ),
       getCron: (id) =>
         request("GET", `${functionsBase}/crons/${id}`).pipe(Effect.map(decodeFunctionCron)),
       updateCron: (id, input) =>

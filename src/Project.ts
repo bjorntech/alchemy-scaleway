@@ -44,10 +44,18 @@ export const ProjectProvider = () =>
           Effect.map((ips) => ips.some((ip) => (ip.tags ?? []).some((tag) => tag.startsWith("alchemy:logical-id=")))),
           Effect.catchIf(isNotFound, () => Effect.succeed(false)),
         );
-      const hasAlchemyOwnedDatabase = (projectId: string) =>
+      const alchemyOwnedDatabases = (projectId: string) =>
         clients.rdb.listInstances({ region: clients.region, projectId }).pipe(
-          Effect.map((instances) => instances.some((instance) => (instance.tags ?? []).some((tag) => tag.startsWith("alchemy:logical-id=")))),
-          Effect.catchIf(isNotFound, () => Effect.succeed(false)),
+          Effect.map((instances) => instances.filter((instance) => (instance.tags ?? []).some((tag) => tag.startsWith("alchemy:logical-id=")))),
+          Effect.catchIf(isNotFound, () => Effect.succeed([])),
+        );
+      const hasAlchemyOwnedDatabase = (projectId: string) =>
+        alchemyOwnedDatabases(projectId).pipe(
+          Effect.map((instances) => instances.some((instance) => instance.status?.toLowerCase() !== "deleting")),
+        );
+      const hasDeletingAlchemyOwnedDatabase = (projectId: string) =>
+        alchemyOwnedDatabases(projectId).pipe(
+          Effect.map((instances) => instances.some((instance) => instance.status?.toLowerCase() === "deleting")),
         );
       const hasAlchemyOwnedRetainedResource = (projectId: string) =>
         Effect.gen(function* () {
@@ -116,7 +124,11 @@ export const ProjectProvider = () =>
                 Effect.as("deleted" as const),
                 Effect.catchIf(isNotFound, () => Effect.succeed("deleted" as const)),
                 Effect.catchIf(isPreconditionError, () =>
-                  hasAlchemyOwnedRetainedResource(output.projectId).pipe(Effect.map((retained) => retained ? "retained" as const : "retry" as const))
+                  Effect.gen(function* () {
+                    if (yield* hasDeletingAlchemyOwnedDatabase(output.projectId)) return "retry" as const;
+                    const retained = yield* hasAlchemyOwnedRetainedResource(output.projectId);
+                    return retained ? "retained" as const : "retry" as const;
+                  })
                 ),
               );
             if (result === "deleted") {

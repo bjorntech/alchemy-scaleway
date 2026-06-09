@@ -56,7 +56,7 @@ Current resources:
 - `Trigger` - container trigger (v1 `/triggers`): cron, SQS, or NATS source.
 - `Domain` - container custom domain.
 - `FunctionNamespace` - Scaleway Serverless Functions namespace lifecycle.
-- `Function` - Scaleway Serverless Function metadata plus prebuilt ZIP upload/deploy lifecycle.
+- `Function` - Scaleway Serverless Function metadata plus bundled entrypoint or prebuilt ZIP upload/deploy lifecycle, with optional companion domains/cron triggers.
 - `FunctionCron` - Serverless Function cron lifecycle.
 - `FunctionDomain` - Serverless Function custom domain lifecycle.
 - `DnsZone` - Scaleway Domains and DNS zone.
@@ -104,7 +104,7 @@ The CRAP script supports `// @crap-ignore` only for wrapper/factory functions th
 - Keep readiness polling behavior internal to resource reconciliation.
 - Preserve clear update-vs-replace rules in each resource's `diff` implementation.
 - Do not introduce nested package layout or old `create/update/delete` provider methods.
-- Track the current Alchemy v2 limitation: `ResourceOptions` lack `alwaysUpdate`/read-on-noop. Same-props deploys cannot detect external deletion of `Container`-managed companion domains/triggers; revisit when Alchemy exposes an equivalent option.
+- Track the current Alchemy v2 limitation: `ResourceOptions` lack `alwaysUpdate`/read-on-noop. Same-props deploys cannot detect external deletion of `Container`-managed companion domains/triggers or `Function`-managed companion domains/crons; revisit when Alchemy exposes an equivalent option.
 
 ## Safety Notes
 

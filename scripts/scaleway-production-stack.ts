@@ -28,6 +28,7 @@ const phase = process.env.SCW_SMOKE_PHASE === "create"
 const expensiveNetwork = process.env.SCW_SMOKE_EXPENSIVE_NETWORK === "1";
 const testSecrets = process.env.SCW_SMOKE_SECRETS === "1";
 const functionZipPath = process.env.SCW_SMOKE_FUNCTION_ZIP ?? "scripts/smoke-function/function.zip";
+const functionMainPath = process.env.SCW_SMOKE_FUNCTION_MAIN;
 
 const tags = ["alchemy-smoke-test"];
 const updatedTags = ["alchemy-smoke-test", "updated"];
@@ -174,8 +175,8 @@ export default Alchemy.Stack(
       namespace: functionNamespace,
       name: `${prefix.slice(0, 25)}-fn`,
       runtime: "node20",
-      handler: "handler.handle",
-      source: { zipPath: functionZipPath },
+      handler: functionMainPath ? undefined : "handler.handle",
+      source: functionMainPath ? { main: functionMainPath } : { zipPath: functionZipPath },
       environmentVariables: { ALCHEMY_SMOKE_TEST: updated ? "updated" : "true" },
       secretEnvironmentVariables: updated
         ? { TOKEN: Redacted.make("smoke-function-secret-updated") }
@@ -191,13 +192,13 @@ export default Alchemy.Stack(
       httpOption: updated ? "redirected" : "enabled",
       tags: activeTags,
       privateNetwork,
-    });
-
-    const functionCron = yield* Scaleway.FunctionCron("FunctionCron", {
-      function: fn,
-      name: `${prefix.slice(0, 25)}-fn-cron`,
-      schedule: updated ? "*/15 * * * *" : "*/30 * * * *",
-      args: { phase },
+      crons: [
+        {
+          name: `${prefix.slice(0, 25)}-fn-cron`,
+          schedule: updated ? "*/15 * * * *" : "*/30 * * * *",
+          args: { phase },
+        },
+      ],
     });
 
     const functionDnsRecord = yield* Scaleway.DnsRecord("FunctionDns", {
@@ -363,8 +364,8 @@ echo "Alchemy Scaleway smoke VM setup ${replaced ? "replacement" : "initial"} co
       functionUrl: fn.url,
       functionStatus: fn.status,
       functionSourceHash: fn.sourceHash,
-      functionCronId: functionCron.cronId,
-      functionCronSchedule: functionCron.schedule,
+      functionCronId: fn.cronTriggers?.[0]?.cronId,
+      functionCronSchedule: fn.cronTriggers?.[0]?.schedule,
       functionDnsRecordType: functionDnsRecord.type,
       functionCustomDomainUrl: functionDomain?.url,
       imageRef: image.ref,

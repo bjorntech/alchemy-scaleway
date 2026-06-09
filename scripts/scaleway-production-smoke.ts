@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 
 const functionDir = "scripts/smoke-function";
-const functionZip = `${functionDir}/function.zip`;
+const functionMain = process.env.SCW_SMOKE_FUNCTION_MAIN ?? `${functionDir}/handler.js`;
 
 const required = (name: string) => {
   const value = process.env[name];
@@ -33,11 +33,6 @@ if (docker.status !== 0) {
   throw new Error("Docker is required for the production smoke test because it builds and pushes ContainerImage");
 }
 
-const zip = spawnSync("zip", ["-q", "-r", "function.zip", "handler.js"], { cwd: functionDir, encoding: "utf8" });
-if (zip.status !== 0) {
-  throw new Error(`zip is required to package the production smoke function: ${zip.stderr || zip.stdout}`);
-}
-
 function dnsSafeLabel(value: string) {
   const label = value.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
   return (label || "alchemy-smoke").slice(0, 63).replace(/-+$/g, "") || "alchemy-smoke";
@@ -58,7 +53,7 @@ function runAlchemy(command: "deploy" | "destroy", phase: "create" | "update" | 
         SCW_SMOKE_PREFIX: prefix,
         SCW_SMOKE_DNS_ZONE: dnsZone,
         SCW_SMOKE_DNS_LABEL: dnsLabel,
-        SCW_SMOKE_FUNCTION_ZIP: functionZip,
+        SCW_SMOKE_FUNCTION_MAIN: functionMain,
       },
     },
   );

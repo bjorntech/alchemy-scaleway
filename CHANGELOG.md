@@ -4,6 +4,22 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+### Added
+
+- `Function.source` now accepts `{ main }` to bundle a Node ESM entrypoint into a
+  deterministic ZIP before upload, giving Functions a Worker-style source path
+  while preserving prebuilt ZIP deploys.
+- `Function` can now manage custom `domains` and scheduled `crons` directly from
+  its props, while standalone `FunctionDomain` and `FunctionCron` remain
+  available for explicit control.
+- Production smoke coverage now deploys the Function through the bundled
+  `{ main }` source path and reconciles a Function-managed cron.
+
+### Fixed
+
+- `Function` destroy now waits until Scaleway stops returning the deleted Function,
+  avoiding project deletion races against asynchronous Function cleanup.
+
 ## [0.5.1-beta.51] - 2026-06-08
 
 ### Fixed
