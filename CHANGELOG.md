@@ -4,6 +4,15 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+### Fixed
+
+- `DnsZone` now discovers existing DNS zones by zone name across accessible
+  projects, so shared/default-project zones can be referenced even when app
+  resources live in a managed project. Referenced zones are retained even if a
+  stack later uses `destroy()`, while zones created by Alchemy remain deletable.
+- Added an isolated `smoke:scaleway:dns` live smoke test for shared DNS zones
+  that does not run the full production smoke stack.
+
 ## [0.6.0-beta.51] - 2026-06-09
 
 ### Added

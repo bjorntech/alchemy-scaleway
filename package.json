@@ -44,6 +44,7 @@
     "coverage": "bun test --coverage --coverage-reporter=lcov",
     "crap": "bun run scripts/crap-index.ts --max=6",
     "smoke:scaleway": "bun run scripts/scaleway-production-smoke.ts",
+    "smoke:scaleway:dns": "bun run scripts/scaleway-dns-smoke.ts",
     "smoke:scaleway:negative": "bun run scripts/scaleway-negative-flexible-ip-smoke.ts",
     "test": "bun test",
     "format": "oxfmt .",

@@ -82,6 +82,12 @@ The negative Flexible IP smoke test is separately opt-in. It intentionally deplo
 SCW_LIVE_NEGATIVE_TEST=1 op run --environment <1password-environment-id> -- bun run smoke:scaleway:negative
 ```
 
+The DNS smoke test is also separate and does not run the full production smoke stack. It creates a temporary app project, references an existing shared DNS zone from that app project, writes one TXT record into the zone's live project, destroys the stack, then verifies the shared zone was retained and the temporary record was removed:
+
+```sh
+SCW_LIVE_DNS_TEST=1 op run --environment <1password-environment-id> -- bun run smoke:scaleway:dns
+```
+
 It reads `SCW_SECRET_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, optional `SCW_DEFAULT_ZONE`, `SCW_API_URL`, `SCW_NEGATIVE_SMOKE_RUN_ID`, `SCW_NEGATIVE_SMOKE_STAGE`, `SCW_NEGATIVE_SMOKE_PREFIX`, and `SCW_NEGATIVE_SMOKE_REVERSE`.
 
 ## Usage
@@ -221,7 +227,7 @@ Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJE
 - `Function` - Scaleway Serverless Function lifecycle. It creates/updates function metadata, bundles a local entrypoint or uploads a prebuilt ZIP through Scaleway's upload URL, deploys the function, waits for readiness, stores a source hash so unchanged deploys skip upload/deploy, and can manage custom domains and cron triggers directly.
 - `FunctionCron` - Serverless Function cron lifecycle.
 - `FunctionDomain` - Serverless Function custom domain lifecycle.
-- `DnsZone` - Scaleway Domains and DNS zone lifecycle. Apex zones (`domain` without `subdomain`) reference existing Scaleway-registered or validated domains; child zones (`domain` plus `subdomain`) are created through the DNS zone API. Zones default to `SCW_DEFAULT_PROJECT_ID` and retain on stack removal.
+- `DnsZone` - Scaleway Domains and DNS zone handle. Existing apex or child zones are discovered by zone name across accessible projects and returned with their live `projectId`; absent child zones (`domain` plus `subdomain`) are created in the requested DNS project. Referenced existing zones are retained on delete, while zones created by Alchemy can be deleted if you opt into `destroy()`.
 - `DnsRecord` - Scaleway Domains and DNS record-set lifecycle. Records are scoped through their `DnsZone`, including its project, or through an explicit `project`; otherwise DNS operations use `SCW_DEFAULT_PROJECT_ID`. Records can use explicit values or infer a target from resources such as `Container`, `FlexibleIp`, `Instance`, `RegistryNamespace`, and `Bucket`. Initial creates refuse to replace an existing same-name/type record set unless `overwriteExisting: true` is set.
 - `RegistryNamespace` - Scaleway Container Registry namespace lifecycle with ready-to-use image prefix output.
 - `Secret` - Scaleway Secret Manager secret metadata and version lifecycle. Secret values are accepted as `Redacted<string>` and are never returned in outputs. Destroying a non-retained secret permanently deletes its versions before deleting the secret container.
@@ -262,7 +268,7 @@ High-value resources that can hold data or scarce addresses default to `retain()
 
 `DnsRecord` owns the complete record set for one zone/name/type. If the record set already exists outside Alchemy, initial creation fails by default to avoid replacing unmanaged DNS. Set `overwriteExisting: true` only when you intentionally want Alchemy to take over and replace that record set.
 
-DNS zones can live in a shared/default project while targets live in another project. Set `project` on the project-scoped app resource, and pass the shared `DnsZone` to `DnsRecord`; `Domain` remains scoped to the target container:
+DNS zones can live in a shared/default project while targets live in another project. `DnsZone.project` is the preferred DNS project for lookup or child-zone creation, not the target application project. If the zone already exists in another accessible project, `DnsZone` references that live zone and `DnsRecord` writes records using the zone's returned `projectId`; `Domain` remains scoped to the target container:
 
 For apex zones such as `example.com`, register, transfer, or validate the domain in Scaleway first, then use `DnsZone` as an existing-zone reference. To create a child zone such as `dev.example.com`, pass `{ domain: "example.com", subdomain: "dev" }`.
 
@@ -273,6 +279,21 @@ const api = yield* Scaleway.Container("Api", { namespace, image: "rg.fr-par.scw.
 
 yield* Scaleway.DnsRecord("ApiDns", { zone, name: "api", target: api });
 yield* Scaleway.Domain("ApiDomain", { container: api, hostname: "api.example.com" });
+```
+
+For existing child zones such as `sip.example.com`, pass the zone shape normally. If the zone already exists in your default/domain project, Alchemy references it and records are written there even if the rest of the stack uses a separate managed project:
+
+```ts
+const appProject = yield* Scaleway.Project("AppProject", { organizationId });
+const sipZone = yield* Scaleway.DnsZone("SipZone", { domain: "example.com", subdomain: "sip" });
+const publicIp = yield* Scaleway.FlexibleIp("SipIp", { project: appProject });
+
+yield* Scaleway.DnsRecord("SipWildcard", {
+  zone: sipZone,
+  name: "*",
+  target: publicIp,
+  overwriteExisting: true,
+});
 ```
 
 ```ts
