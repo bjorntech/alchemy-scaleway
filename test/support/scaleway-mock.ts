@@ -38,6 +38,7 @@ export interface ScalewayMock {
   seedBucket(name: string, region: string, tags?: Record<string, string>): void;
   /** Seed an existing DNS zone, such as an apex zone registered outside Alchemy. */
   seedDnsZone(dnsZone: string, projectId?: string): void;
+  removeDnsZone(dnsZone: string, projectId?: string): void;
   /** Make the next created custom domains enter Scaleway's deployment error state. */
   failNextDomainDeploys(count: number): void;
   /** Seed a live custom domain for recovery tests. */
@@ -349,6 +350,9 @@ export function installScalewayMock(): ScalewayMock {
       if (method === "POST") {
         if (typeof input.subdomain !== "string" || input.subdomain.length === 0) {
           return json({ message: "invalid argument: subdomain is required" }, 400);
+        }
+        if ([...dnsZones.values()].some((zone) => zoneNameOf(zone) === zoneNameOf(input))) {
+          return json({ message: "zone already exists" }, 409);
         }
         const record: Record<string, unknown> = {
           ns: ["ns0.dom.scw.cloud", "ns1.dom.scw.cloud"],
@@ -1598,6 +1602,9 @@ export function installScalewayMock(): ScalewayMock {
     seedDnsZone: (dnsZone, projectId = "proj-test") => {
       const record = zoneRecordOf(dnsZone, projectId);
       dnsZones.set(zoneKeyOf(record), record);
+    },
+    removeDnsZone: (dnsZone, projectId = "proj-test") => {
+      dnsZones.delete(`${projectId}:${dnsZone}`);
     },
     failNextDomainDeploys: (count) => {
       domainDeployErrorsRemaining = count;

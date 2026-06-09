@@ -3260,6 +3260,7 @@ describe("DnsZone", () => {
         Scaleway.DnsZone("Zone", { domain: "example.test", subdomain: "app" }),
       );
       expect(zone.dnsZone).toBe("app.example.test");
+      expect(zone.managed).toBe(true);
       expect(zone.nameServers).toContain("ns0.dom.scw.cloud");
 
       const provider = yield* Scaleway.DnsZone.Provider.pipe(Effect.provide(vpcLifecycleLayer));
@@ -3301,11 +3302,12 @@ describe("DnsZone", () => {
         Scaleway.DnsZone("ExistingApexZone", {
           domain: "existing.example.test",
           project: "proj-domain",
-        }).pipe(adoptResource()),
+        }),
       );
 
       expect(existing.dnsZone).toBe("existing.example.test");
       expect(existing.subdomain).toBeUndefined();
+      expect(existing.managed).toBe(false);
       expect(requests("POST", "/domain/v2beta1/dns-zones")).toHaveLength(0);
 
       yield* Effect.flip(
@@ -3316,6 +3318,103 @@ describe("DnsZone", () => {
           expect(String(error)).toContain("Register, transfer, or validate the domain in Scaleway first");
         }),
       );
+    }),
+  );
+
+  test.provider("references existing child zones across DNS and app projects", (stack) =>
+    Effect.gen(function* () {
+      mock.seedDnsZone("sip.example.test", "proj-test");
+
+      const out = yield* stack.deploy(
+        Effect.gen(function* () {
+          const project = yield* Scaleway.Project("AppProject", { organizationId: "org-test" });
+          const zone = yield* Scaleway.DnsZone("SipZone", {
+            domain: "example.test",
+            subdomain: "sip",
+            project,
+          });
+          const record = yield* Scaleway.DnsRecord("SipWildcard", {
+            zone,
+            project,
+            name: "*",
+            type: "A",
+            records: ["192.0.2.120"],
+            overwriteExisting: true,
+          });
+          return { project, zone, record };
+        }),
+      );
+
+      expect(out.zone.dnsZone).toBe("sip.example.test");
+      expect(out.zone.projectId).toBe("proj-test");
+      expect(out.zone.managed).toBe(false);
+      expect(out.record.projectId).toBe("proj-test");
+      expect(out.project.projectId).not.toBe("proj-test");
+      expect(requests("POST", "/domain/v2beta1/dns-zones")).toHaveLength(0);
+      expect(requests("PATCH", "/dns-zones/sip.example.test/records").at(-1)?.url)
+        .toContain("project_id=proj-test");
+    }),
+  );
+
+  test.provider("retains referenced DNS zones even with destroy removal policy", (stack) =>
+    Effect.gen(function* () {
+      mock.seedDnsZone("shared.example.test", "proj-test");
+
+      yield* stack.deploy(
+        Scaleway.DnsZone("SharedZone", { domain: "shared.example.test" }).pipe(destroy()),
+      );
+      yield* stack.destroy();
+
+      expect(requests("DELETE", "/domain/v2beta1/dns-zones/shared.example.test")).toHaveLength(0);
+    }),
+  );
+
+  test.provider("retains legacy DNS zone outputs without managed ownership", () =>
+    Effect.gen(function* () {
+      const provider = yield* Scaleway.DnsZone.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+
+      yield* provider.delete!({
+        id: "LegacyZone",
+        instanceId: "test",
+        olds: { domain: "legacy.example.test" },
+        output: {
+          dnsZone: "legacy.example.test",
+          domain: "legacy.example.test",
+          projectId: "proj-test",
+        },
+        session: { note: () => Effect.void },
+      } as any);
+
+      expect(requests("DELETE", "/domain/v2beta1/dns-zones/legacy.example.test")).toHaveLength(0);
+    }),
+  );
+
+  test.provider("does not transfer managed ownership to a same-name zone in another project", (stack) =>
+    Effect.gen(function* () {
+      const out = yield* stack.deploy(
+        Effect.gen(function* () {
+          const project = yield* Scaleway.Project("AppProject", { organizationId: "org-test" });
+          const zone = yield* Scaleway.DnsZone("OwnedZone", {
+            domain: "example.test",
+            subdomain: "owned",
+            project,
+          }).pipe(destroy());
+          return { project, zone };
+        }),
+      );
+      mock.removeDnsZone("owned.example.test", out.project.projectId);
+      mock.seedDnsZone("owned.example.test", "proj-test");
+
+      const provider = yield* Scaleway.DnsZone.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const read = yield* provider.read!({
+        id: "OwnedZone",
+        instanceId: "test",
+        olds: { domain: "example.test", subdomain: "owned", project: out.project.projectId },
+        output: out.zone,
+      });
+
+      expect(read?.projectId).toBe("proj-test");
+      expect(read?.managed).toBe(false);
     }),
   );
 });
