@@ -4,6 +4,8 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.6.0-beta.51] - 2026-06-09
+
 ### Added
 
 - `Function.source` now accepts `{ main }` to bundle a Node ESM entrypoint into a
