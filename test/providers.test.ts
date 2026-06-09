@@ -60,6 +60,24 @@ const retainMigrationLayer = Layer.mergeAll(
   ),
   Layer.orDie,
 );
+const projectLifecycleLayer = Layer.mergeAll(
+  Scaleway.ProjectProvider(),
+  Scaleway.DatabaseInstanceProvider(),
+).pipe(
+  Layer.provideMerge(
+    Layer.succeed(
+      Scaleway.ScalewayCredentials,
+      Scaleway.ScalewayCredentials.of({
+        secretKey: Redacted.make("test-secret"),
+        accessKey: "test-access",
+        region: "fr-par",
+        apiUrl: "https://api.scaleway.com",
+        projectId: "proj-test",
+      }),
+    ),
+  ),
+  Layer.orDie,
+);
 
 let mock: ScalewayMock;
 let imageCommands: Scaleway.ContainerImageCommand[];
@@ -80,6 +98,12 @@ afterEach(() => {
 const requests = (method: string, fragment: string) =>
   mock.calls.filter((c) => c.method === method && c.url.includes(fragment));
 
+const functionRequests = (method: string) =>
+  mock.calls.filter((call) => {
+    const url = new URL(call.url);
+    return call.method === method && /\/functions\/v1beta1\/regions\/[^/]+\/functions(?:\/[^/]+)?$/.test(url.pathname);
+  });
+
 const sha256 = (value: string) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
 const functionZip = (name: string, content: string) => {
@@ -87,6 +111,14 @@ const functionZip = (name: string, content: string) => {
   const zipPath = join(dir, name);
   writeFileSync(zipPath, content);
   return { dir, zipPath };
+};
+
+const functionEntry = (content = "export const handle = async () => ({ statusCode: 200, body: 'ok' });") => {
+  const dir = mkdtempSync(join(tmpdir(), "alchemy-scaleway-function-src-"));
+  const main = join(dir, "handler.ts");
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }));
+  writeFileSync(main, content);
+  return { dir, main };
 };
 
 const terminateActions = () =>
@@ -201,6 +233,37 @@ describe("Project", () => {
       expect(out.namespace.projectId).toBe(out.project.projectId);
       expect(out.namespace.projectId).not.toBe("proj-test");
     }),
+  );
+
+  test.provider("delete waits for asynchronously deleting owned project resources", (stack) =>
+    Effect.gen(function* () {
+      const out = yield* stack.deploy(
+        Effect.gen(function* () {
+          const project = yield* Scaleway.Project("AppProject", { organizationId: "org-test" });
+          const database = yield* Scaleway.DatabaseInstance("Database", {
+            project,
+            engine: "PostgreSQL-15",
+            nodeType: "db-dev-s",
+            userName: "app",
+            password: Redacted.make("S3cure-db-password!"),
+          }).pipe(destroy());
+          return { project, database };
+        }),
+      );
+      const provider = yield* Scaleway.Project.Provider.pipe(Effect.provide(projectLifecycleLayer));
+
+      mock.markProjectDatabasesDeleting(out.project.projectId, 0);
+      yield* provider.delete!({
+        id: "AppProject",
+        instanceId: "test",
+        olds: { organizationId: "org-test" },
+        output: out.project,
+        session: { note: () => Effect.void },
+      } as any);
+
+      expect(requests("DELETE", `/account/v3/projects/${out.project.projectId}`).length).toBeGreaterThan(1);
+    }),
+    { timeout: 15_000 },
   );
 
   configuredProject.test.provider("top-level provider project scopes new app resources", (stack) =>
@@ -1624,6 +1687,90 @@ describe("Function", () => {
     }),
   );
 
+  test.provider("waits until asynchronous function deletion disappears", (stack) =>
+    Effect.gen(function* () {
+      mock.enableAsyncLifecycle();
+      const { dir, zipPath } = functionZip("function.zip", "v1");
+      try {
+        const out = yield* stack.deploy(
+          Effect.gen(function* () {
+            const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+            const fn = yield* Scaleway.Function("Fn", {
+              namespace: ns,
+              runtime: "node20",
+              source: { zipPath },
+            });
+            return { ns, fn };
+          }),
+        );
+
+        yield* stack.destroy();
+
+        expect(requests("DELETE", `/functions/v1beta1/regions/fr-par/functions/${out.fn.functionId}`)).toHaveLength(1);
+        expect(requests("GET", `/functions/v1beta1/regions/fr-par/functions/${out.fn.functionId}`).length).toBeGreaterThan(1);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+    { timeout: 10_000 },
+  );
+
+  test.provider("bundles function main entry into a deployable zip", (stack) =>
+    Effect.gen(function* () {
+      const { dir, main } = functionEntry();
+      try {
+        const fn = yield* stack.deploy(
+          Effect.gen(function* () {
+            const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+            return yield* Scaleway.Function("Fn", {
+              namespace: ns,
+              runtime: "node20",
+              source: { main, build: { sourcemap: false } },
+            });
+          }),
+        );
+
+        const create = JSON.parse(functionRequests("POST")[0]?.body ?? "{}");
+        const uploadLength = Number(new URL(requests("GET", "/upload-url")[0]?.url ?? "").searchParams.get("content_length"));
+        expect(fn.sourceHash).toHaveLength(64);
+        expect(uploadLength).toBeGreaterThan(100);
+        expect(create.handler).toBe("index.handle");
+        expect(requests("PUT", "function-upload.local")).toHaveLength(1);
+        expect(requests("POST", "/deploy")).toHaveLength(1);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("redeploys bundled function when entry changes", (stack) =>
+    Effect.gen(function* () {
+      const { dir, main } = functionEntry("export const handle = async () => 'v1';");
+      const program = () =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+          return yield* Scaleway.Function("Fn", {
+            namespace: ns,
+            runtime: "node20",
+            source: { main, build: { sourcemap: false } },
+          });
+        });
+      try {
+        const first = yield* stack.deploy(program());
+        yield* stack.deploy(program());
+        writeFileSync(main, "export const handle = async () => 'v2';");
+        const third = yield* stack.deploy(program());
+
+        expect(third.functionId).toBe(first.functionId);
+        expect(third.sourceHash).not.toBe(first.sourceHash);
+        expect(requests("PUT", "function-upload.local")).toHaveLength(2);
+        expect(requests("POST", "/deploy")).toHaveLength(2);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
+
   test.provider("skips upload for unchanged zip and redeploys changed zip", (stack) =>
     Effect.gen(function* () {
       const { dir, zipPath } = functionZip("function.zip", "v1");
@@ -1682,6 +1829,35 @@ describe("Function", () => {
     }),
   );
 
+  test.provider("updates metadata with explicit source hash without rereading missing zip", (stack) =>
+    Effect.gen(function* () {
+      const { dir, zipPath } = functionZip("function.zip", "v1");
+      const program = (app: string) =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+          return yield* Scaleway.Function("Fn", {
+            namespace: ns,
+            runtime: "node20",
+            handler: "handler.handle",
+            source: { zipPath, hash: "known-source-hash" },
+            environmentVariables: { APP: app },
+          });
+        });
+      try {
+        const first = yield* stack.deploy(program("api"));
+        rmSync(zipPath, { force: true });
+        const second = yield* stack.deploy(program("worker"));
+
+        expect(second.functionId).toBe(first.functionId);
+        expect(second.sourceHash).toBe("known-source-hash");
+        expect(requests("PUT", "function-upload.local")).toHaveLength(1);
+        expect(requests("POST", "/deploy")).toHaveLength(2);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
+
   test.provider("sends removed secret keys on function update", (stack) =>
     Effect.gen(function* () {
       const { dir, zipPath } = functionZip("function.zip", "v1");
@@ -1729,6 +1905,101 @@ describe("Function", () => {
         expect(second.functionId).toBe(first.functionId);
         expect(second.privateNetworkId).toBe("pn-b");
         expect(requests("PATCH", "/functions/").at(-1)?.body).toContain("pn-b");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("reconciles managed function crons and domains", (stack) =>
+    Effect.gen(function* () {
+      const { dir, zipPath } = functionZip("function.zip", "v1");
+      const program = (crons: Scaleway.FunctionManagedCron[], domains: Scaleway.FunctionManagedDomain[]) =>
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+          return yield* Scaleway.Function("Fn", {
+            namespace: ns,
+            runtime: "node20",
+            handler: "handler.handle",
+            source: { zipPath },
+            crons,
+            domains,
+          });
+        });
+      try {
+        const first = yield* stack.deploy(program([
+          { schedule: "0 * * * *", args: { path: "/hourly" }, name: "hourly" },
+          "30 * * * *",
+        ], ["fn.example.com", { hostname: "api.example.com" }]));
+        const second = yield* stack.deploy(program([
+          { schedule: "15 * * * *", args: { path: "/quarter" }, name: "quarter" },
+        ], ["fn.example.com"]));
+        const third = yield* stack.deploy(program(["15 * * * *"], ["fn.example.com"]));
+
+        expect(first.cronTriggers).toHaveLength(2);
+        expect(first.domains).toHaveLength(2);
+        expect(second.cronTriggers).toHaveLength(1);
+        expect(second.cronTriggers?.[0]?.schedule).toBe("15 * * * *");
+        expect(second.domains).toHaveLength(1);
+        expect(third.cronTriggers).toEqual([
+          expect.objectContaining({ schedule: "15 * * * *" }),
+        ]);
+        expect(third.cronTriggers?.[0]?.args).toBeUndefined();
+        expect(third.cronTriggers?.[0]?.name).toBeUndefined();
+        expect(requests("POST", "/crons")).toHaveLength(3);
+        expect(requests("PATCH", "/crons/")).toHaveLength(1);
+        expect(requests("DELETE", "/crons/")).toHaveLength(2);
+        expect(requests("POST", "/domains")).toHaveLength(2);
+        expect(requests("DELETE", "/domains/")).toHaveLength(1);
+
+        yield* stack.destroy();
+        expect(functionRequests("DELETE")).toHaveLength(1);
+        expect(requests("DELETE", "/crons/")).toHaveLength(3);
+        expect(requests("DELETE", "/domains/")).toHaveLength(2);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("recovers managed function companions created before output persisted", (stack) =>
+    Effect.gen(function* () {
+      const { dir, zipPath } = functionZip("function.zip", "v1");
+      try {
+        const first = yield* stack.deploy(
+          Effect.gen(function* () {
+            const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+            return yield* Scaleway.Function("Fn", {
+              namespace: ns,
+              runtime: "node20",
+              handler: "handler.handle",
+              source: { zipPath },
+            });
+          }),
+        );
+        mock.seedFunctionDomain({ id: "fndom-recovered", functionId: first.functionId, hostname: "fn.example.com" });
+        mock.seedFunctionCron({ id: "fncron-recovered", functionId: first.functionId, schedule: "0 * * * *", args: { path: "/hourly" }, name: "hourly" });
+
+        const second = yield* stack.deploy(
+          Effect.gen(function* () {
+            const ns = yield* Scaleway.FunctionNamespace("FnNs", {});
+            return yield* Scaleway.Function("Fn", {
+              namespace: ns,
+              runtime: "node20",
+              handler: "handler.handle",
+              source: { zipPath },
+              crons: [{ schedule: "0 * * * *", args: { path: "/hourly" }, name: "hourly" }],
+              domains: ["fn.example.com"],
+            });
+          }),
+        );
+
+        expect(second.domains?.[0]?.domainId).toBe("fndom-recovered");
+        expect(second.cronTriggers?.[0]?.cronId).toBe("fncron-recovered");
+        expect(requests("GET", "/domains").length).toBeGreaterThan(0);
+        expect(requests("GET", "/crons").length).toBeGreaterThan(0);
+        expect(requests("POST", "/domains")).toHaveLength(0);
+        expect(requests("POST", "/crons")).toHaveLength(0);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
