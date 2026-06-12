@@ -4,10 +4,12 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.6.2-beta.51] - 2026-06-12
+
 ### Fixed
 
 - `ContainerImage` now retries transient Docker daemon 500 errors from
-  `docker login`, making parallel multi-image deploys more reliable.
+  `docker login`, making parallel multi-image deploys more reliable (#70).
 
 ## [0.6.1-beta.51] - 2026-06-09
 
