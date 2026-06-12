@@ -768,6 +768,60 @@ describe("ContainerImage", () => {
     }),
   );
 
+  test.provider("serializes Docker pushes for same-registry images", (stack) =>
+    Effect.gen(function* () {
+      const apiContext = mkdtempSync(join(tmpdir(), "alchemy-scaleway-api-image-"));
+      const webContext = mkdtempSync(join(tmpdir(), "alchemy-scaleway-web-image-"));
+      writeFileSync(join(apiContext, "Dockerfile"), "FROM scratch\n");
+      writeFileSync(join(webContext, "Dockerfile"), "FROM scratch\n");
+      let pushInFlight = false;
+      Scaleway.setContainerImageCommandRunner((command) => {
+        imageCommands.push(command);
+        if (command.args[0] !== "push") return Effect.void;
+        return Effect.tryPromise({
+          try: () => new Promise<void>((resolve, reject) => {
+            if (pushInFlight) {
+              reject(new Error("concurrent docker push"));
+              return;
+            }
+            pushInFlight = true;
+            setTimeout(() => {
+              pushInFlight = false;
+              resolve();
+            }, 10);
+          }),
+          catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+        });
+      });
+
+      try {
+        yield* stack.deploy(
+          Effect.all([
+            Scaleway.ContainerImage("ApiImage", {
+              registry: "rg.fr-par.scw.cloud/demo-registry",
+              context: apiContext,
+              repository: "api",
+              tag: "dev",
+            }),
+            Scaleway.ContainerImage("WebImage", {
+              registry: "rg.fr-par.scw.cloud/demo-registry",
+              context: webContext,
+              repository: "web",
+              tag: "dev",
+            }),
+          ]),
+        );
+
+        expect(imageCommands.filter((command) => command.args[0] === "login")).toHaveLength(1);
+        expect(imageCommands.filter((command) => command.args[0] === "build")).toHaveLength(2);
+        expect(imageCommands.filter((command) => command.args[0] === "push")).toHaveLength(4);
+      } finally {
+        rmSync(apiContext, { recursive: true, force: true });
+        rmSync(webContext, { recursive: true, force: true });
+      }
+    }),
+  );
+
   test.provider("retries transient Docker login daemon failures", (stack) =>
     Effect.gen(function* () {
       const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
