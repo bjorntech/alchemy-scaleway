@@ -4,6 +4,8 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.6.3-beta.51] - 2026-06-12
+
 ### Fixed
 
 - `ContainerImage` now queues Docker pushes per registry host and cleans up its
