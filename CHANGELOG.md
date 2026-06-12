@@ -4,6 +4,12 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+### Fixed
+
+- `ContainerImage` now queues Docker pushes per registry host and cleans up its
+  Docker login lock reliably, avoiding concurrent same-registry push/login
+  interactions after retrying transient Docker daemon auth failures (#70).
+
 ## [0.6.2-beta.51] - 2026-06-12
 
 ### Fixed

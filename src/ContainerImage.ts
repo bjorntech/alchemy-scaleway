@@ -88,6 +88,7 @@ let runContainerImageCommand = defaultRunContainerImageCommand;
 const dockerLoginLocks = new Map<string, Promise<void>>();
 const dockerLoggedIn = new Set<string>();
 const dockerLoginRetryDelays = [250, 1_000, 2_000];
+const dockerPushLocks = new Map<string, Promise<void>>();
 
 export const setContainerImageCommandRunner = (runner: ContainerImageCommandRunner) => {
   runContainerImageCommand = runner;
@@ -97,6 +98,7 @@ export const resetContainerImageCommandRunner = () => {
   runContainerImageCommand = defaultRunContainerImageCommand;
   dockerLoginLocks.clear();
   dockerLoggedIn.clear();
+  dockerPushLocks.clear();
 };
 
 function isTransientDockerLoginError(error: unknown) {
@@ -132,12 +134,24 @@ const runDockerLoginOnce = (key: string, command: ContainerImageCommand) =>
             dockerLoggedIn.add(key);
           });
         });
-      dockerLoginLocks.set(
-        key,
-        current.finally(() => {
-          if (dockerLoginLocks.get(key) === current) dockerLoginLocks.delete(key);
-        }),
-      );
+      const tracked = current.finally(() => {
+        if (dockerLoginLocks.get(key) === tracked) dockerLoginLocks.delete(key);
+      });
+      dockerLoginLocks.set(key, tracked);
+      return current;
+    },
+    catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+  });
+
+const runDockerPushQueued = (key: string, command: ContainerImageCommand) =>
+  Effect.tryPromise({
+    try: () => {
+      const previous = dockerPushLocks.get(key) ?? Promise.resolve();
+      const current = previous.catch(() => undefined).then(() => Effect.runPromise(runContainerImageCommand(command)));
+      const tracked = current.finally(() => {
+        if (dockerPushLocks.get(key) === tracked) dockerPushLocks.delete(key);
+      });
+      dockerPushLocks.set(key, tracked);
       return current;
     },
     catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
@@ -372,8 +386,8 @@ export const ContainerImageProvider = () =>
           yield* session.note(`Building Scaleway container image ${ref}`);
           yield* runContainerImageCommand({ command: "docker", args: dockerBuildArgs, cwd });
           yield* session.note(`Pushing Scaleway container image ${ref}`);
-          yield* runContainerImageCommand({ command: "docker", args: ["push", ref], cwd });
-          yield* runContainerImageCommand({ command: "docker", args: ["push", stableRef], cwd });
+          yield* runDockerPushQueued(registryHost(registry), { command: "docker", args: ["push", ref], cwd });
+          yield* runDockerPushQueued(registryHost(registry), { command: "docker", args: ["push", stableRef], cwd });
 
           return { ref, stableRef, registry, repository, tag, digest };
         }),
