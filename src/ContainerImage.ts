@@ -87,6 +87,7 @@ const defaultRunContainerImageCommand: ContainerImageCommandRunner = ({ command,
 let runContainerImageCommand = defaultRunContainerImageCommand;
 const dockerLoginLocks = new Map<string, Promise<void>>();
 const dockerLoggedIn = new Set<string>();
+const dockerLoginRetryDelays = [250, 1_000, 2_000];
 
 export const setContainerImageCommandRunner = (runner: ContainerImageCommandRunner) => {
   runContainerImageCommand = runner;
@@ -98,6 +99,27 @@ export const resetContainerImageCommandRunner = () => {
   dockerLoggedIn.clear();
 };
 
+function isTransientDockerLoginError(error: unknown) {
+  const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  if (message.includes("500 internal server error")) return true;
+  return message.includes("request returned 500") && message.includes("/auth");
+}
+
+async function runDockerLoginWithRetry(command: ContainerImageCommand) {
+  let lastError: unknown;
+  for (const delay of [0, ...dockerLoginRetryDelays]) {
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      await Effect.runPromise(runContainerImageCommand(command));
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isTransientDockerLoginError(error)) throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 const runDockerLoginOnce = (key: string, command: ContainerImageCommand) =>
   Effect.tryPromise({
     try: () => {
@@ -106,7 +128,7 @@ const runDockerLoginOnce = (key: string, command: ContainerImageCommand) =>
         .catch(() => undefined)
         .then(() => {
           if (dockerLoggedIn.has(key)) return undefined;
-          return Effect.runPromise(runContainerImageCommand(command)).then(() => {
+          return runDockerLoginWithRetry(command).then(() => {
             dockerLoggedIn.add(key);
           });
         });

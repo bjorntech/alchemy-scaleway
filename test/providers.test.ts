@@ -768,6 +768,44 @@ describe("ContainerImage", () => {
     }),
   );
 
+  test.provider("retries transient Docker login daemon failures", (stack) =>
+    Effect.gen(function* () {
+      const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      writeFileSync(join(context, "Dockerfile"), "FROM scratch\n");
+      let loginAttempts = 0;
+      Scaleway.setContainerImageCommandRunner((command) => {
+        imageCommands.push(command);
+        if (command.args[0] !== "login") return Effect.void;
+        loginAttempts += 1;
+        if (loginAttempts === 1) {
+          return Effect.fail(
+            new Error(
+              "docker login rg.fr-par.scw.cloud -u nologin --password-stdin failed: request returned 500 Internal Server Error for API route and version http://%2FUsers%2Ftobbe%2F.docker%2Frun%2Fdocker.sock/v1.54/auth",
+            ),
+          );
+        }
+        return Effect.void;
+      });
+
+      try {
+        yield* stack.deploy(
+          Scaleway.ContainerImage("ApiImage", {
+            registry: "rg.fr-par.scw.cloud/demo-registry",
+            context,
+            repository: "api",
+            tag: "dev",
+          }),
+        );
+
+        expect(imageCommands.filter((command) => command.args[0] === "login")).toHaveLength(2);
+        expect(imageCommands.filter((command) => command.args[0] === "build")).toHaveLength(1);
+        expect(imageCommands.filter((command) => command.args[0] === "push")).toHaveLength(2);
+      } finally {
+        rmSync(context, { recursive: true, force: true });
+      }
+    }),
+  );
+
   test.provider("does not force Scaleway login for external registries without auth", (stack) =>
     Effect.gen(function* () {
       const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
