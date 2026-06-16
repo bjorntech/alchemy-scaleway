@@ -87,7 +87,7 @@ const defaultRunContainerImageCommand: ContainerImageCommandRunner = ({ command,
 let runContainerImageCommand = defaultRunContainerImageCommand;
 const dockerLoginLocks = new Map<string, Promise<void>>();
 const dockerLoggedIn = new Set<string>();
-const dockerRegistryRetryDelays = [250, 1_000, 2_000];
+const dockerLoginRetryDelays = [250, 1_000, 2_000];
 const dockerPushLocks = new Map<string, Promise<void>>();
 
 export const setContainerImageCommandRunner = (runner: ContainerImageCommandRunner) => {
@@ -101,38 +101,22 @@ export const resetContainerImageCommandRunner = () => {
   dockerPushLocks.clear();
 };
 
-function isTransientDockerRegistryError(error: unknown) {
+function isTransientDockerLoginError(error: unknown) {
   const message = String(error instanceof Error ? error.message : error).toLowerCase();
-  if (message === "eof") return true;
-  return [
-    "500 internal server error",
-    "502 bad gateway",
-    "client.timeout exceeded while awaiting headers",
-    "request canceled",
-    "request cancelled",
-    "connection reset",
-    "connection refused",
-    "econnreset",
-    "econnrefused",
-    "etimedout",
-    "i/o timeout",
-    "tls handshake timeout",
-    "unexpected eof",
-    " eof",
-    ": eof",
-  ].some((needle) => message.includes(needle));
+  if (message.includes("500 internal server error")) return true;
+  return message.includes("request returned 500") && message.includes("/auth");
 }
 
-async function runDockerRegistryCommandWithRetry(command: ContainerImageCommand) {
+async function runDockerLoginWithRetry(command: ContainerImageCommand) {
   let lastError: unknown;
-  for (const delay of [0, ...dockerRegistryRetryDelays]) {
+  for (const delay of [0, ...dockerLoginRetryDelays]) {
     if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
     try {
       await Effect.runPromise(runContainerImageCommand(command));
       return;
     } catch (error) {
       lastError = error;
-      if (!isTransientDockerRegistryError(error)) throw error;
+      if (!isTransientDockerLoginError(error)) throw error;
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
@@ -146,7 +130,7 @@ const runDockerLoginOnce = (key: string, command: ContainerImageCommand) =>
         .catch(() => undefined)
         .then(() => {
           if (dockerLoggedIn.has(key)) return undefined;
-          return runDockerRegistryCommandWithRetry(command).then(() => {
+          return runDockerLoginWithRetry(command).then(() => {
             dockerLoggedIn.add(key);
           });
         });
@@ -163,7 +147,7 @@ const runDockerPushQueued = (key: string, command: ContainerImageCommand) =>
   Effect.tryPromise({
     try: () => {
       const previous = dockerPushLocks.get(key) ?? Promise.resolve();
-      const current = previous.catch(() => undefined).then(() => runDockerRegistryCommandWithRetry(command));
+      const current = previous.catch(() => undefined).then(() => Effect.runPromise(runContainerImageCommand(command)));
       const tracked = current.finally(() => {
         if (dockerPushLocks.get(key) === tracked) dockerPushLocks.delete(key);
       });
