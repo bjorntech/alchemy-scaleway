@@ -860,6 +860,42 @@ describe("ContainerImage", () => {
     }),
   );
 
+  test.provider("retries transient Docker push registry failures", (stack) =>
+    Effect.gen(function* () {
+      const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      writeFileSync(join(context, "Dockerfile"), "FROM scratch\n");
+      let pushAttempts = 0;
+      Scaleway.setContainerImageCommandRunner((command) => {
+        imageCommands.push(command);
+        if (command.args[0] !== "push") return Effect.void;
+        pushAttempts += 1;
+        if (pushAttempts === 1) {
+          return Effect.fail(new Error("unexpected status from HEAD request to rg.fr-par.scw.cloud/demo-registry/api: 502 Bad Gateway"));
+        }
+        return Effect.void;
+      });
+
+      try {
+        const image = yield* stack.deploy(
+          Scaleway.ContainerImage("ApiImage", {
+            registry: "rg.fr-par.scw.cloud/demo-registry",
+            context,
+            repository: "api",
+            tag: "dev",
+          }),
+        );
+
+        const pushes = imageCommands.filter((command) => command.args[0] === "push");
+        expect(pushes).toHaveLength(3);
+        expect(pushes[0]?.args).toEqual(["push", image.ref]);
+        expect(pushes[1]?.args).toEqual(["push", image.ref]);
+        expect(pushes[2]?.args).toEqual(["push", image.stableRef]);
+      } finally {
+        rmSync(context, { recursive: true, force: true });
+      }
+    }),
+  );
+
   test.provider("does not force Scaleway login for external registries without auth", (stack) =>
     Effect.gen(function* () {
       const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));

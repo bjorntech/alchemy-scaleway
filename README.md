@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@finnvid/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.6.4-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Retries transient `ContainerImage` registry failures during Docker login and push. |
 | `0.6.3-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Serializes same-registry `ContainerImage` pushes and cleans up Docker login locks reliably. |
 | `0.6.2-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Retries transient Docker login failures for more reliable parallel `ContainerImage` deploys. |
 | `0.6.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes shared DNS zone references across projects and adds isolated DNS smoke coverage. |

@@ -4,6 +4,14 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.6.4-beta.51] - 2026-06-16
+
+### Fixed
+
+- `ContainerImage` now retries transient Docker registry failures for both
+  `docker login` and `docker push`, including 5xx, timeout, connection, and EOF
+  failures (#75).
+
 ## [0.6.3-beta.51] - 2026-06-12
 
 ### Fixed
