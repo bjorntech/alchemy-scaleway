@@ -57,7 +57,7 @@
   },
   "devDependencies": {
     "@effect/platform-bun": "4.0.0-beta.74",
-    "@effect/platform-node": "4.0.0-beta.74",
+    "@effect/platform-node": "4.0.0-beta.84",
     "@types/bun": "latest",
     "alchemy": "2.0.0-beta.51",
     "effect": "4.0.0-beta.74",
