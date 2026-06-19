@@ -4,6 +4,24 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ## Unreleased
 
+## [0.7.0-beta.51] - 2026-06-19
+
+### Added
+
+- `ContainerImageMirror` copies an existing remote image (such as a private
+  `ghcr.io` image) into a Scaleway Container Registry namespace using a built-in
+  pure-TypeScript Docker/OCI Registry v2 client — **no external binary** (no
+  skopeo/crane) and no Docker daemon. It preserves multi-arch manifest lists,
+  resolves the source digest, pushes a content-derived `ref` plus a requested-tag
+  `stableRef`, and exposes `ref`/`stableRef`/`digest` for use with
+  `Container.image`. This satisfies Scaleway's "registry must be Scaleway or
+  public" constraint without making the source image public or rebuilding it at
+  deploy time (#78).
+- `Container` now accepts an optional `imageDigest` prop (and exposes it as an
+  attribute). Wiring `imageDigest: mirror.digest` (or `ContainerImage.digest`)
+  forces a redeploy when a moving tag such as `latest` points at new content,
+  even when the `image` string is unchanged (#78).
+
 ## [0.6.4-beta.51] - 2026-06-16
 
 ### Fixed

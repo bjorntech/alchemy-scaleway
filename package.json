@@ -1,6 +1,6 @@
 {
   "name": "@finnvid/alchemy-scaleway",
-  "version": "0.6.4-beta.51",
+  "version": "0.7.0-beta.51",
   "description": "Scaleway providers for Alchemy v2",
   "keywords": [
     "alchemy",
@@ -45,6 +45,7 @@
     "crap": "bun run scripts/crap-index.ts --max=6",
     "smoke:scaleway": "bun run scripts/scaleway-production-smoke.ts",
     "smoke:scaleway:dns": "bun run scripts/scaleway-dns-smoke.ts",
+    "smoke:scaleway:registry-copy": "bun run scripts/scaleway-registry-copy-smoke.ts",
     "smoke:scaleway:negative": "bun run scripts/scaleway-negative-flexible-ip-smoke.ts",
     "test": "bun test",
     "format": "oxfmt .",

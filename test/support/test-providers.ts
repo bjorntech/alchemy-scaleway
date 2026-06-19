@@ -7,6 +7,7 @@ import * as Provider from "alchemy/Provider";
 import { Bucket, BucketProvider } from "../../src/Bucket.ts";
 import { Container, ContainerProvider } from "../../src/Container.ts";
 import { ContainerImage, ContainerImageProvider } from "../../src/ContainerImage.ts";
+import { ContainerImageMirror, ContainerImageMirrorProvider } from "../../src/ContainerImageMirror.ts";
 import { ScalewayCredentials } from "../../src/Credentials.ts";
 import { DatabaseInstance, DatabaseInstanceProvider } from "../../src/DatabaseInstance.ts";
 import { Domain, DomainProvider } from "../../src/Domain.ts";
@@ -52,6 +53,7 @@ export const testProviders = (options: { project?: ProjectRef } = {}) =>
       Project,
       Container,
       ContainerImage,
+      ContainerImageMirror,
       Trigger,
       Domain,
       FunctionNamespace,
@@ -81,6 +83,7 @@ export const testProviders = (options: { project?: ProjectRef } = {}) =>
         ProjectProvider(),
         ContainerProvider(),
         ContainerImageProvider(),
+        ContainerImageMirrorProvider(),
         TriggerProvider(),
         DomainProvider(),
         FunctionNamespaceProvider(),
