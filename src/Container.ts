@@ -64,6 +64,12 @@ export interface ContainerProps {
   namespace: NamedNamespace;
   name?: string;
   image: ContainerImageRef;
+  /**
+   * Resolved image digest used to force a redeploy when a moving tag (e.g. `latest`)
+   * points at new content. Wire this to `ContainerImageMirror.digest` or
+   * `ContainerImage.digest` to redeploy on content changes without changing `image`.
+   */
+  imageDigest?: string;
   environmentVariables?: Record<string, string>;
   secretEnvironmentVariables?: Record<string, string | Redacted.Redacted<string>>;
   minScale?: number;
@@ -92,6 +98,7 @@ export type Container = Resource<
     namespaceId: string;
     name: string;
     image?: string;
+    imageDigest?: string;
     region: string;
     projectId?: string;
     url?: string;
@@ -498,6 +505,7 @@ export const ContainerProvider = () =>
           if (
             output.name !== name ||
             output.image !== (yield* imageRef(news.image)) ||
+            output.imageDigest !== news.imageDigest ||
             !containerPropsEqual(olds, news) ||
             !companionPropsEqual(olds, news) ||
             !companionsPresent(output, news)
@@ -534,6 +542,7 @@ export const ContainerProvider = () =>
           );
           return omitUndefined({
             ...container,
+            imageDigest: output.imageDigest,
             domains: domains.length > 0 ? domains : undefined,
             cronTriggers: cronTriggers.length > 0 ? cronTriggers : undefined,
           }) as Container["Attributes"];
@@ -543,14 +552,19 @@ export const ContainerProvider = () =>
           if (output?.containerId) {
             const ready = yield* Effect.gen(function* () {
               const input = yield* inputFor(id, news, true);
-              if (olds && containerPropsEqual(olds, news) && output.image === input.image)
+              if (
+                olds &&
+                containerPropsEqual(olds, news) &&
+                output.image === input.image &&
+                output.imageDigest === news.imageDigest
+              )
                 return toAttributes(yield* clients.containers.getContainer(output.containerId));
               yield* retryTransient(clients.containers.updateContainer(output.containerId, input), session);
               yield* session.note(`Updated Scaleway container ${output.containerId}`);
               return yield* waitForReady(output.containerId, session);
             });
             return yield* provisionCompanions(
-              { ...ready, domains: output.domains, cronTriggers: output.cronTriggers },
+              { ...ready, imageDigest: news.imageDigest, domains: output.domains, cronTriggers: output.cronTriggers },
               olds,
               news,
               session,
@@ -560,7 +574,7 @@ export const ContainerProvider = () =>
           const created = yield* retryTransient(clients.containers.createContainer(input), session);
           yield* session.note(`Created Scaleway container ${created.id}`);
           const ready = yield* waitForReady(created.id, session);
-          return yield* provisionCompanions(ready, undefined, news, session);
+          return yield* provisionCompanions({ ...ready, imageDigest: news.imageDigest }, undefined, news, session);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {
           yield* Effect.all(

@@ -33,6 +33,22 @@ export {
   type ContainerImageRegistryRef,
 } from "./ContainerImage.ts";
 export {
+  ContainerImageMirror,
+  type ContainerImageMirrorEngine,
+  ContainerImageMirrorProvider,
+  resetContainerImageMirrorEngine,
+  setContainerImageMirrorEngine,
+  type ContainerImageMirrorProps,
+} from "./ContainerImageMirror.ts";
+export {
+  copyImage,
+  type ImageCopyRequest,
+  type ImageCopyResult,
+  parseImageReference,
+  type RegistryAuth,
+  resolveSourceDigest,
+} from "./RegistryClient.ts";
+export {
   createScalewayCredentials,
   fromAuthProvider,
   ScalewayCredentials,

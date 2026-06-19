@@ -6,6 +6,7 @@ import { ScalewayAuth } from "./AuthProvider.ts";
 import { Bucket, BucketProvider } from "./Bucket.ts";
 import { Container, ContainerProvider } from "./Container.ts";
 import { ContainerImage, ContainerImageProvider } from "./ContainerImage.ts";
+import { ContainerImageMirror, ContainerImageMirrorProvider } from "./ContainerImageMirror.ts";
 import * as Credentials from "./Credentials.ts";
 import { DatabaseInstance, DatabaseInstanceProvider } from "./DatabaseInstance.ts";
 import { Domain, DomainProvider } from "./Domain.ts";
@@ -47,6 +48,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
       Project,
       Container,
       ContainerImage,
+      ContainerImageMirror,
       Trigger,
       Domain,
       FunctionNamespace,
@@ -76,6 +78,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
         ProjectProvider(),
         ContainerProvider(),
         ContainerImageProvider(),
+        ContainerImageMirrorProvider(),
         TriggerProvider(),
         DomainProvider(),
         FunctionNamespaceProvider(),

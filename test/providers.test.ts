@@ -81,17 +81,36 @@ const projectLifecycleLayer = Layer.mergeAll(
 
 let mock: ScalewayMock;
 let imageCommands: Scaleway.ContainerImageCommand[];
+let mirrorCopies: Scaleway.ImageCopyRequest[];
+let mirrorDigest: string;
+let mirrorPlatforms: number;
+let mirrorCopyImpl: ((request: Scaleway.ImageCopyRequest) => void) | undefined;
+
 beforeEach(() => {
   mock = installScalewayMock();
   imageCommands = [];
+  mirrorCopies = [];
+  mirrorPlatforms = 1;
+  mirrorCopyImpl = undefined;
+  mirrorDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
   Scaleway.setContainerImageCommandRunner((command) =>
     Effect.sync(() => {
       imageCommands.push(command);
     }),
   );
+  Scaleway.setContainerImageMirrorEngine({
+    resolveSourceDigest: () => Effect.sync(() => mirrorDigest),
+    copy: (request) =>
+      Effect.sync(() => {
+        mirrorCopies.push(request);
+        mirrorCopyImpl?.(request);
+        return { digest: mirrorDigest, platforms: mirrorPlatforms };
+      }),
+  });
 });
 afterEach(() => {
   Scaleway.resetContainerImageCommandRunner();
+  Scaleway.resetContainerImageMirrorEngine();
   mock.restore();
 });
 
@@ -917,6 +936,182 @@ describe("ContainerImage", () => {
       } finally {
         rmSync(context, { recursive: true, force: true });
       }
+     }),
+  );
+});
+
+describe("ContainerImageMirror", () => {
+  test.provider("mirrors a public source into a registry namespace", (stack) =>
+    Effect.gen(function* () {
+      mirrorPlatforms = 2;
+      const mirrored = yield* stack.deploy(
+        Effect.gen(function* () {
+          const registry = yield* Scaleway.RegistryNamespace("Registry", { name: "demo-registry" });
+          return yield* Scaleway.ContainerImageMirror("ApiImage", {
+            registry,
+            source: "ghcr.io/acme/api:1.4.2",
+            repository: "api",
+          });
+        }),
+      );
+
+      const shortDigest = mirrorDigest.replace(/^sha256:/, "").slice(0, 12);
+      expect(mirrored.ref).toBe(`rg.fr-par.scw.cloud/demo-registry/api:1.4.2-${shortDigest}`);
+      expect(mirrored.stableRef).toBe("rg.fr-par.scw.cloud/demo-registry/api:1.4.2");
+      expect(mirrored.repository).toBe("api");
+      expect(mirrored.tag).toBe(`1.4.2-${shortDigest}`);
+      expect(mirrored.digest).toBe(mirrorDigest);
+      expect(mirrored.source).toBe("ghcr.io/acme/api:1.4.2");
+
+      // One copy call, pushing both the content tag and the stable tag, all platforms.
+      expect(mirrorCopies).toHaveLength(1);
+      const copy = mirrorCopies[0]!;
+      expect(copy.source).toBe("ghcr.io/acme/api:1.4.2");
+      expect(copy.destination).toBe("rg.fr-par.scw.cloud/demo-registry/api");
+      expect(copy.destTags).toEqual([`1.4.2-${shortDigest}`, "1.4.2"]);
+      expect(copy.allPlatforms).toBe(true);
+      // Scaleway destination authenticates with nologin:SCW_SECRET_KEY.
+      expect(copy.destAuth).toEqual({ username: "nologin", password: "test-secret" });
+      expect(copy.sourceAuth).toBeUndefined();
+    }),
+  );
+
+  test.provider("resolves pull credentials for private sources", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Scaleway.ContainerImageMirror("ApiImage", {
+          registry: "rg.fr-par.scw.cloud/demo-registry",
+          source: "ghcr.io/acme/api:1.4.2",
+          repository: "api",
+          sourceAuth: { username: "octocat", password: Redacted.make("ghcr-token") },
+        }),
+      );
+
+      const copy = mirrorCopies[0]!;
+      expect(copy.sourceAuth).toEqual({ username: "octocat", password: "ghcr-token" });
+      expect(copy.destAuth).toEqual({ username: "nologin", password: "test-secret" });
+    }),
+  );
+
+  test.provider("uses explicit destination auth for non-Scaleway registries", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Scaleway.ContainerImageMirror("ApiImage", {
+          registry: "ghcr.io/acme",
+          source: "docker.io/library/nginx:1.27",
+          repository: "nginx",
+          auth: { username: "octocat", password: Redacted.make("ghcr-token") },
+        }),
+      );
+
+      const copy = mirrorCopies[0]!;
+      expect(copy.destination).toBe("ghcr.io/acme/nginx");
+      expect(copy.destAuth).toEqual({ username: "octocat", password: "ghcr-token" });
+    }),
+  );
+
+  test.provider("defaults repository and tag from the source reference", (stack) =>
+    Effect.gen(function* () {
+      const mirrored = yield* stack.deploy(
+        Scaleway.ContainerImageMirror("ApiImage", {
+          registry: "rg.fr-par.scw.cloud/demo-registry",
+          source: "ghcr.io/acme/api:2.0.0",
+        }),
+      );
+
+      expect(mirrored.repository).toBe("api");
+      expect(mirrored.stableRef).toBe("rg.fr-par.scw.cloud/demo-registry/api:2.0.0");
+      expect(mirrorCopies[0]?.destTags.at(-1)).toBe("2.0.0");
+    }),
+  );
+
+  test.provider("forwards allPlatforms=false to the copy engine", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Scaleway.ContainerImageMirror("ApiImage", {
+          registry: "rg.fr-par.scw.cloud/demo-registry",
+          source: "ghcr.io/acme/api:1.4.2",
+          repository: "api",
+          allPlatforms: false,
+        }),
+      );
+
+      expect(mirrorCopies[0]?.allPlatforms).toBe(false);
+    }),
+  );
+
+  test.provider("re-mirrors only when the source digest changes", (stack) =>
+    Effect.gen(function* () {
+      const program = Scaleway.ContainerImageMirror("ApiImage", {
+        registry: "rg.fr-par.scw.cloud/demo-registry",
+        source: "ghcr.io/acme/api:edge",
+        repository: "api",
+      });
+
+      const first = yield* stack.deploy(program);
+      mirrorCopies = [];
+      const unchanged = yield* stack.deploy(program);
+      expect(unchanged.ref).toBe(first.ref);
+      expect(mirrorCopies).toHaveLength(0);
+
+      mirrorDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
+      const updated = yield* stack.deploy(program);
+      expect(updated.ref).not.toBe(first.ref);
+      expect(updated.stableRef).toBe(first.stableRef);
+      expect(updated.digest).toBe(mirrorDigest);
+      expect(mirrorCopies).toHaveLength(1);
+    }),
+  );
+
+  test.provider("feeds mirrored ref and digest into a container deploy", (stack) =>
+    Effect.gen(function* () {
+      const program = Effect.gen(function* () {
+        const registry = yield* Scaleway.RegistryNamespace("Registry", { name: "app-registry" });
+        const namespace = yield* Scaleway.Namespace("Ns", { name: "app-ns" });
+        const image = yield* Scaleway.ContainerImageMirror("ApiImage", {
+          registry,
+          source: "ghcr.io/acme/api:edge",
+          repository: "api",
+        });
+        const container = yield* Scaleway.Container("Api", {
+          namespace,
+          image: image.stableRef,
+          imageDigest: image.digest,
+          port: 3000,
+        });
+        return { image, container };
+      });
+
+      const first = yield* stack.deploy(program);
+      expect(first.container.image).toBe(first.image.stableRef);
+      expect(first.container.imageDigest).toBe(mirrorDigest);
+      const previousPatchCount = containerPatches().length;
+
+      mirrorDigest = "sha256:3333333333333333333333333333333333333333333333333333333333333333";
+      const updated = yield* stack.deploy(program);
+      expect(updated.container.imageDigest).toBe(mirrorDigest);
+      expect(updated.container.image).toBe(updated.image.stableRef);
+      expect(containerPatches().length).toBeGreaterThan(previousPatchCount);
+    }),
+  );
+
+  test.provider("propagates copy engine failures", (stack) =>
+    Effect.gen(function* () {
+      mirrorCopyImpl = () => {
+        throw new Error("put manifest mirrored failed: 400 manifest invalid");
+      };
+
+      const result = yield* Effect.exit(
+        stack.deploy(
+          Scaleway.ContainerImageMirror("ApiImage", {
+            registry: "rg.fr-par.scw.cloud/demo-registry",
+            source: "ghcr.io/acme/api:1.4.2",
+            repository: "api",
+          }),
+        ),
+      );
+
+      expect(result._tag).toBe("Failure");
     }),
   );
 });
