@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.7.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Moves the package to `@bjorntech/alchemy-scaleway` and requires smoke-test DNS zones from environment variables. |
 | `0.7.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds `ContainerImageMirror` (pure-TypeScript registry copy, no external binary) and `Container.imageDigest` redeploy tracking. |
 | `0.6.4-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Retries transient `ContainerImage` registry failures during Docker login and push. |
 | `0.6.3-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Serializes same-registry `ContainerImage` pushes and cleans up Docker login locks reliably. |

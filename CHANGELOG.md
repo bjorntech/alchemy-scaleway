@@ -4,6 +4,8 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.1-beta.51] - 2026-06-21
+
 ### Changed
 
 - The npm package scope and repository metadata now use `@bjorntech/alchemy-scaleway`.
