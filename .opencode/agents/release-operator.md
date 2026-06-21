@@ -10,6 +10,8 @@ permission:
     "bun run coverage": allow
     "bun run crap": allow
     "npm view*": allow
+    "npm dist-tag ls*": allow
+    "npm dist-tag add*": ask
     "git status*": allow
     "git diff*": allow
     "git log*": allow
@@ -38,7 +40,8 @@ Rules:
 - Commit as `chore: release <version>`.
 - Prefer the repo's GitHub trusted-publishing workflow over local npm publish.
 - Watch the workflow and verify npm `version` plus `dist-tags` after success.
+- Set npm `latest` to the released version after publish and verify both `latest` and `next` point to it.
 - Create a GitHub Release tagged `v<version>` from the release commit after npm verification; mark beta versions as prereleases.
 - Verify the GitHub Release exists and targets the release commit.
 
-Return only a concise final report with released version, commit, workflow URL, GitHub Release URL, npm tag, and final git state.
+Return only a concise final report with released version, commit, workflow URL, GitHub Release URL, npm dist-tags, and final git state.
