@@ -8,7 +8,7 @@ import * as Scaleway from "../src/index.ts";
 const region = process.env.SCW_DEFAULT_REGION || "fr-par";
 const zone = process.env.SCW_DEFAULT_ZONE || `${region}-1`;
 const prefix = process.env.SCW_SMOKE_PREFIX ?? "alchemy-smoke";
-const dnsZone = process.env.SCW_SMOKE_DNS_ZONE ?? "alchemy-smoke.finnvid.org";
+const dnsZone = required("SCW_SMOKE_DNS_ZONE");
 const dnsDomain = process.env.SCW_SMOKE_DNS_DOMAIN ?? dnsZone.split(".").slice(-2).join(".");
 const dnsZoneSubdomain = dnsZone.endsWith(`.${dnsDomain}`) ? dnsZone.slice(0, -dnsDomain.length - 1) : undefined;
 const dnsLabel = process.env.SCW_SMOKE_DNS_LABEL ?? prefix;
@@ -29,6 +29,12 @@ const expensiveNetwork = process.env.SCW_SMOKE_EXPENSIVE_NETWORK === "1";
 const testSecrets = process.env.SCW_SMOKE_SECRETS === "1";
 const functionZipPath = process.env.SCW_SMOKE_FUNCTION_ZIP ?? "scripts/smoke-function/function.zip";
 const functionMainPath = process.env.SCW_SMOKE_FUNCTION_MAIN;
+
+function required(name: string) {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is required`);
+  return value;
+}
 
 const tags = ["alchemy-smoke-test"];
 const updatedTags = ["alchemy-smoke-test", "updated"];

@@ -1,5 +1,5 @@
 ---
-description: Executes this repo's release workflow: version/changelog/doc validation, gates, release commit, GitHub trusted publishing dispatch, and npm verification. Use when the user asks to release or publish.
+description: Executes this repo's release workflow: version/changelog/doc validation, gates, release commit, GitHub trusted publishing dispatch, GitHub Release creation, and npm verification. Use when the user asks to release or publish.
 mode: subagent
 permission:
   edit: ask
@@ -19,6 +19,8 @@ permission:
     "gh workflow run release.yml*": ask
     "gh run watch*": allow
     "gh run view*": allow
+    "gh release create*": ask
+    "gh release view*": allow
   skill: allow
 ---
 
@@ -36,5 +38,7 @@ Rules:
 - Commit as `chore: release <version>`.
 - Prefer the repo's GitHub trusted-publishing workflow over local npm publish.
 - Watch the workflow and verify npm `version` plus `dist-tags` after success.
+- Create a GitHub Release tagged `v<version>` from the release commit after npm verification; mark beta versions as prereleases.
+- Verify the GitHub Release exists and targets the release commit.
 
-Return only a concise final report with released version, commit, workflow URL, npm tag, and final git state.
+Return only a concise final report with released version, commit, workflow URL, GitHub Release URL, npm tag, and final git state.

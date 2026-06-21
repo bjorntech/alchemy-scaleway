@@ -21,7 +21,7 @@ const apiUrl = process.env.SCW_API_URL ?? "https://api.scaleway.com";
 const suffix = process.env.SCW_DNS_SMOKE_RUN_ID ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const stage = process.env.SCW_DNS_SMOKE_STAGE ?? `dns-smoke-${suffix}`;
 const prefix = process.env.SCW_DNS_SMOKE_PREFIX ?? `alchemy-dns-smoke-${suffix}`;
-const dnsZone = process.env.SCW_DNS_SMOKE_ZONE ?? process.env.SCW_SMOKE_DNS_ZONE ?? "sip.finnvid.org";
+const dnsZone = process.env.SCW_DNS_SMOKE_ZONE ?? required("SCW_SMOKE_DNS_ZONE");
 const recordName = process.env.SCW_DNS_SMOKE_RECORD ?? `_alchemy-${dnsSafeLabel(prefix)}`;
 const recordValue = process.env.SCW_DNS_SMOKE_VALUE ?? `alchemy-scaleway-dns-smoke=${prefix}`;
 const stackFile = "scripts/scaleway-dns-smoke-stack.ts";

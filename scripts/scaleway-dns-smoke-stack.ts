@@ -5,11 +5,17 @@ import * as Scaleway from "../src/index.ts";
 
 const prefix = process.env.SCW_DNS_SMOKE_PREFIX ?? "alchemy-dns-smoke";
 const organizationId = process.env.SCW_ORGANIZATION_ID;
-const dnsZone = process.env.SCW_DNS_SMOKE_ZONE ?? process.env.SCW_SMOKE_DNS_ZONE ?? "sip.finnvid.org";
+const dnsZone = process.env.SCW_DNS_SMOKE_ZONE ?? required("SCW_SMOKE_DNS_ZONE");
 const dnsDomain = process.env.SCW_DNS_SMOKE_DOMAIN ?? process.env.SCW_SMOKE_DNS_DOMAIN ?? dnsZone.split(".").slice(-2).join(".");
 const dnsZoneSubdomain = dnsZone.endsWith(`.${dnsDomain}`) ? dnsZone.slice(0, -dnsDomain.length - 1) : undefined;
 const recordName = process.env.SCW_DNS_SMOKE_RECORD ?? `_alchemy-${prefix}`;
 const recordValue = process.env.SCW_DNS_SMOKE_VALUE ?? `alchemy-scaleway-dns-smoke=${prefix}`;
+
+function required(name: string) {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is required`);
+  return value;
+}
 
 export default Alchemy.Stack(
   "alchemy-scaleway-dns-smoke",

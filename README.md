@@ -1,7 +1,7 @@
 # alchemy-scaleway
 
-[![CI](https://github.com/finnvid/alchemy-scaleway/actions/workflows/ci.yml/badge.svg)](https://github.com/finnvid/alchemy-scaleway/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/%40finnvid%2Falchemy-scaleway/next?style=flat-square)](https://www.npmjs.com/package/@finnvid/alchemy-scaleway)
+[![CI](https://github.com/bjorntech/alchemy-scaleway/actions/workflows/ci.yml/badge.svg)](https://github.com/bjorntech/alchemy-scaleway/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/%40bjorntech%2Falchemy-scaleway/next?style=flat-square)](https://www.npmjs.com/package/@bjorntech/alchemy-scaleway)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](./LICENSE)
 
 Scaleway providers for [Alchemy v2](https://v2.alchemy.run/).
@@ -12,7 +12,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 ## Compatibility
 
-| `@finnvid/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
+| `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
 | `0.7.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds `ContainerImageMirror` (pure-TypeScript registry copy, no external binary) and `Container.imageDigest` redeploy tracking. |
 | `0.6.4-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Retries transient `ContainerImage` registry failures during Docker login and push. |
@@ -39,12 +39,12 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 ## Install
 
 ```sh
-bun add alchemy@2.0.0-beta.51 effect@4.0.0-beta.74 @effect/vitest@4.0.0-beta.74 @finnvid/alchemy-scaleway@next
+bun add alchemy@2.0.0-beta.51 effect@4.0.0-beta.74 @effect/vitest@4.0.0-beta.74 @bjorntech/alchemy-scaleway@next
 ```
 
 `@effect/vitest@4.0.0-beta.74` keeps Alchemy beta.51's floating Effect helper dependency on the same Effect beta line as the runtime.
 
-`@finnvid/alchemy-scaleway` ships raw TypeScript and uses `.ts` import suffixes internally. Your `tsconfig.json` needs `"moduleResolution": "Bundler"` and `"allowImportingTsExtensions": true`.
+`@bjorntech/alchemy-scaleway` ships raw TypeScript and uses `.ts` import suffixes internally. Your `tsconfig.json` needs `"moduleResolution": "Bundler"` and `"allowImportingTsExtensions": true`.
 
 `alchemy@2.0.0-beta.51` is pinned with `effect@4.0.0-beta.74`. Effect beta.76 changed `Schema.Defect` from a schema value to a function; Alchemy has fixed that on `main`, but the fix is not published to npm yet. Bump both dependencies together when the next Alchemy v2 beta is published.
 
@@ -77,7 +77,7 @@ SCW_LIVE_TEST=1 op run --environment <1password-environment-id> -- bun run smoke
 `op run --environment` requires the 1Password Environment ID, not the environment name.
 This flag requires the beta 1Password CLI version that supports Environments.
 
-The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_ORGANIZATION_ID`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, optional `SCW_DEFAULT_ZONE`, and `SCW_API_URL` from the environment, and requires a working local Docker CLI. It creates and deletes a managed Scaleway project, then verifies new project-scoped resources are created in that project while DNS/domain resources stay explicitly scoped to `SCW_DEFAULT_PROJECT_ID`. It also creates Containers, builds and pushes a `ContainerImage` through Registry, bundles and deploys a Serverless Function from `SCW_SMOKE_FUNCTION_MAIN`, reconciles a Function-managed cron, creates a custom Function domain after its DNS record exists, creates a custom container domain under `alchemy-smoke.finnvid.org`, DNS records, a child DNS zone, Managed Database for PostgreSQL/MySQL, Object Storage, VPC, VPC route, security group, flexible IP, Instance, and private NIC resources. VPC connectors are billed as VPC Peering and are skipped by default; set `SCW_SMOKE_EXPENSIVE_NETWORK=1` only when explicitly testing that charged path. Secret Manager coverage is skipped by default because deleted secrets remain scheduled for deletion and can temporarily block project deletion; set `SCW_SMOKE_SECRETS=1` only when explicitly testing that path. Set `SCW_SMOKE_DNS_ZONE` and `SCW_SMOKE_DNS_LABEL` to override the smoke-test DNS hostname; set `SCW_SMOKE_DNS_DOMAIN` when the registered Scaleway domain is not the last two labels of `SCW_SMOKE_DNS_ZONE`.
+The test reads `SCW_SECRET_KEY`, `SCW_ACCESS_KEY`, `SCW_ORGANIZATION_ID`, `SCW_DEFAULT_PROJECT_ID`, `SCW_SMOKE_DNS_ZONE`, `SCW_DEFAULT_REGION`, optional `SCW_DEFAULT_ZONE`, and `SCW_API_URL` from the environment, and requires a working local Docker CLI. It creates and deletes a managed Scaleway project, then verifies new project-scoped resources are created in that project while DNS/domain resources stay explicitly scoped to `SCW_DEFAULT_PROJECT_ID`. It also creates Containers, builds and pushes a `ContainerImage` through Registry, bundles and deploys a Serverless Function from `SCW_SMOKE_FUNCTION_MAIN`, reconciles a Function-managed cron, creates a custom Function domain after its DNS record exists, creates a custom container domain under `SCW_SMOKE_DNS_ZONE`, DNS records, a child DNS zone, Managed Database for PostgreSQL/MySQL, Object Storage, VPC, VPC route, security group, flexible IP, Instance, and private NIC resources. VPC connectors are billed as VPC Peering and are skipped by default; set `SCW_SMOKE_EXPENSIVE_NETWORK=1` only when explicitly testing that charged path. Secret Manager coverage is skipped by default because deleted secrets remain scheduled for deletion and can temporarily block project deletion; set `SCW_SMOKE_SECRETS=1` only when explicitly testing that path. Set `SCW_SMOKE_DNS_LABEL` to override the smoke-test DNS label; set `SCW_SMOKE_DNS_DOMAIN` when the registered Scaleway domain is not the last two labels of `SCW_SMOKE_DNS_ZONE`.
 
 By default each smoke run uses a random Alchemy stage and resource prefix. If a run is interrupted, rerun with the same `SCW_SMOKE_RUN_ID`, or set both `SCW_SMOKE_STAGE` and `SCW_SMOKE_PREFIX`, so Alchemy can reuse the same local state and destroy or reconcile the same resources.
 
@@ -93,7 +93,7 @@ The DNS smoke test is also separate and does not run the full production smoke s
 SCW_LIVE_DNS_TEST=1 op run --environment <1password-environment-id> -- bun run smoke:scaleway:dns
 ```
 
-It reads `SCW_SECRET_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, optional `SCW_DEFAULT_ZONE`, `SCW_API_URL`, `SCW_NEGATIVE_SMOKE_RUN_ID`, `SCW_NEGATIVE_SMOKE_STAGE`, `SCW_NEGATIVE_SMOKE_PREFIX`, and `SCW_NEGATIVE_SMOKE_REVERSE`.
+It reads `SCW_SECRET_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, `SCW_SMOKE_DNS_ZONE`, optional `SCW_DNS_SMOKE_ZONE`, `SCW_DEFAULT_ZONE`, `SCW_API_URL`, `SCW_NEGATIVE_SMOKE_RUN_ID`, `SCW_NEGATIVE_SMOKE_STAGE`, `SCW_NEGATIVE_SMOKE_PREFIX`, and `SCW_NEGATIVE_SMOKE_REVERSE`.
 
 ## Usage
 
@@ -101,7 +101,7 @@ It reads `SCW_SECRET_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`, optio
 import * as Alchemy from "alchemy";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
-import * as Scaleway from "@finnvid/alchemy-scaleway";
+import * as Scaleway from "@bjorntech/alchemy-scaleway";
 
 export default Alchemy.Stack(
   "scaleway-demo",

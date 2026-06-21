@@ -17,11 +17,11 @@ required("SCW_SECRET_KEY");
 required("SCW_ACCESS_KEY");
 required("SCW_ORGANIZATION_ID");
 required("SCW_DEFAULT_PROJECT_ID");
+const dnsZone = required("SCW_SMOKE_DNS_ZONE");
 
 const suffix = process.env.SCW_SMOKE_RUN_ID ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const stage = process.env.SCW_SMOKE_STAGE ?? `smoke-${suffix}`;
 const prefix = process.env.SCW_SMOKE_PREFIX ?? `alchemy-smoke-${suffix}`;
-const dnsZone = process.env.SCW_SMOKE_DNS_ZONE ?? "alchemy-smoke.finnvid.org";
 const dnsLabel = process.env.SCW_SMOKE_DNS_LABEL ?? dnsSafeLabel(prefix);
 const smokeUrl = `https://${dnsLabel}.${dnsZone}`;
 const stackFile = "scripts/scaleway-production-stack.ts";

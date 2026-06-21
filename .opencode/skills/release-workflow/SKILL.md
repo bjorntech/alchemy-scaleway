@@ -1,6 +1,6 @@
 ---
 name: release-workflow
-description: Use when releasing or publishing @finnvid/alchemy-scaleway; covers version bumps, changelog promotion, compatibility docs, gates, trusted publishing workflow, and npm verification.
+description: Use when releasing or publishing @bjorntech/alchemy-scaleway; covers version bumps, changelog promotion, compatibility docs, gates, GitHub trusted publishing, GitHub Releases, and npm verification.
 license: MIT
 compatibility: opencode
 metadata:
@@ -29,7 +29,7 @@ Use this skill when the user asks to release or publish this package.
 
 ## Pre-Publish Checks
 
-- Confirm the target version is not already published: `npm view "@finnvid/alchemy-scaleway@<version>" version`.
+- Confirm the target version is not already published: `npm view "@bjorntech/alchemy-scaleway@<version>" version`.
 - Run all gates in order: `bun run check`, `bun test`, `bun run coverage`, `bun run crap`.
 - Run `git diff --check`.
 - Inspect `git status --short` and `git diff` before committing.
@@ -42,13 +42,21 @@ Use this skill when the user asks to release or publish this package.
 - Publish through GitHub trusted publishing using `gh workflow run release.yml --ref main`.
 - Watch the workflow with `gh run watch <run-id> --exit-status`.
 
+## GitHub Release
+
+- After npm publish is verified, create a GitHub Release tagged `v<version>` from the release commit.
+- Use the promoted changelog entry as the release notes.
+- Mark beta/prerelease versions with `--prerelease`.
+- Verify the release exists with `gh release view "v<version>"`.
+
 ## Verification
 
-- Verify npm after workflow success: `npm view "@finnvid/alchemy-scaleway@<version>" version dist-tags`.
+- Verify npm after workflow success: `npm view "@bjorntech/alchemy-scaleway@<version>" version dist-tags`.
 - For beta versions, confirm the `next` dist-tag points to the released version.
+- Verify GitHub Release metadata: tag `v<version>`, target release commit, and prerelease state for beta versions.
 - Confirm final local state with `git status --short --branch`.
 
 ## Final Report
 
-- Report the released version, release commit, workflow URL, npm dist-tag, and final git state.
+- Report the released version, release commit, workflow URL, GitHub Release URL, npm dist-tag, and final git state.
 - Mention if release publishing skipped because the exact version already existed.

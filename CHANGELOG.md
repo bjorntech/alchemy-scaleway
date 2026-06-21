@@ -1,8 +1,14 @@
 # Changelog
 
-All notable changes to `@finnvid/alchemy-scaleway` are documented here. The package follows the alchemy beta line — see [README › Compatibility](./README.md#compatibility).
+All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The package follows the alchemy beta line — see [README › Compatibility](./README.md#compatibility).
 
 ## Unreleased
+
+### Changed
+
+- The npm package scope and repository metadata now use `@bjorntech/alchemy-scaleway`.
+- Live smoke tests now require DNS zones from environment variables instead of
+  using checked-in domain defaults.
 
 ## [0.7.0-beta.51] - 2026-06-19
 
@@ -235,8 +241,8 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
   `DnsRecord` can manage explicit record values or infer records from existing
   resources such as `Container`, `FlexibleIp`, `Instance`, `RegistryNamespace`,
   and `Bucket`.
-- Extended the production smoke test to create a DNS record under
-  `alchemy-smoke.finnvid.org`, attach it as a container custom domain, and fetch
+- Extended the production smoke test to create a DNS record under the configured
+  smoke DNS zone, attach it as a container custom domain, and fetch
   the live URL.
 - Added an opt-in live negative smoke test for `FlexibleIp` reverse-DNS create
   failures. It verifies failed initial reverse updates do not leave tagged IPs
@@ -364,7 +370,7 @@ All notable changes to `@finnvid/alchemy-scaleway` are documented here. The pack
 
 ### Changed
 
-- The npm package is now scoped as `@finnvid/alchemy-scaleway`, with package
+- The npm package is now scoped, with package
   metadata and release workflow support for public npm org publishing.
 - `publishConfig` and the release workflow now publish the scoped npm package with
   public access.

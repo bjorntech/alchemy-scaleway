@@ -1,5 +1,5 @@
 {
-  "name": "@finnvid/alchemy-scaleway",
+  "name": "@bjorntech/alchemy-scaleway",
   "version": "0.7.0-beta.51",
   "description": "Scaleway providers for Alchemy v2",
   "keywords": [
@@ -11,14 +11,14 @@
     "scaleway",
     "typescript"
   ],
-  "homepage": "https://github.com/finnvid/alchemy-scaleway#readme",
+  "homepage": "https://github.com/bjorntech/alchemy-scaleway#readme",
   "bugs": {
-    "url": "https://github.com/finnvid/alchemy-scaleway/issues"
+    "url": "https://github.com/bjorntech/alchemy-scaleway/issues"
   },
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/finnvid/alchemy-scaleway.git"
+    "url": "git+https://github.com/bjorntech/alchemy-scaleway.git"
   },
   "files": [
     "src",
