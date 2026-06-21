@@ -38,10 +38,11 @@ Use this skill when the user asks to release or publish this package.
 
 - Commit release metadata as `chore: release <version>`.
 - Prefer PR flow for release commits unless the user explicitly asks for direct release or has already approved direct push.
+- Merge the release commit to `main` before publishing. The trusted-publishing workflow should normally run from `main`.
 - If pushing directly to `main`, note any branch-rule bypass reported by GitHub.
 - Publish through GitHub trusted publishing using `gh workflow run release.yml --ref main`.
 - Watch the workflow with `gh run watch <run-id> --exit-status`.
-- Ensure npm `latest` points to the released version after publish: `npm dist-tag add "@bjorntech/alchemy-scaleway@<version>" latest`.
+- The workflow publishes with npm `latest`. For beta/prerelease versions, also ensure `next` points to the released version: `npm dist-tag add "@bjorntech/alchemy-scaleway@<version>" next`.
 
 ## GitHub Release
 
@@ -53,7 +54,8 @@ Use this skill when the user asks to release or publish this package.
 ## Verification
 
 - Verify npm after workflow success: `npm view "@bjorntech/alchemy-scaleway@<version>" version dist-tags`.
-- Confirm both `latest` and `next` dist-tags point to the released version.
+- Confirm `latest` points to the released version.
+- For beta/prerelease versions, also confirm `next` points to the released version.
 - Verify GitHub Release metadata: tag `v<version>`, target release commit, and prerelease state for beta versions.
 - Confirm final local state with `git status --short --branch`.
 
