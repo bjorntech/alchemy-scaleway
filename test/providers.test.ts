@@ -28,6 +28,7 @@ const vpcLifecycleLayer = Layer.mergeAll(
   Scaleway.DnsZoneProvider(),
   Scaleway.DnsRecordProvider(),
 ).pipe(
+  Layer.provide(Scaleway.ScalewayClientsLive),
   Layer.provideMerge(
     Layer.succeed(
       Scaleway.ScalewayCredentials,
@@ -46,6 +47,7 @@ const retainMigrationLayer = Layer.mergeAll(
   Scaleway.BucketProvider(),
   Scaleway.DatabaseInstanceProvider(),
 ).pipe(
+  Layer.provide(Scaleway.ScalewayClientsLive),
   Layer.provideMerge(
     Layer.succeed(
       Scaleway.ScalewayCredentials,
@@ -64,6 +66,7 @@ const projectLifecycleLayer = Layer.mergeAll(
   Scaleway.ProjectProvider(),
   Scaleway.DatabaseInstanceProvider(),
 ).pipe(
+  Layer.provide(Scaleway.ScalewayClientsLive),
   Layer.provideMerge(
     Layer.succeed(
       Scaleway.ScalewayCredentials,

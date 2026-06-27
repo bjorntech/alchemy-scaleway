@@ -215,6 +215,7 @@ export const TriggerProvider = () =>
 
       return Trigger.Provider.of({
         stables: ["triggerId", "containerId", "sourceType"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
           const resolvedContainerId = yield* containerId(news.container);

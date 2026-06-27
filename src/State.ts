@@ -5,7 +5,7 @@ import { encodeState, reviveState } from "alchemy/State/StateEncoding";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { ScalewayError } from "./Errors.ts";
-import { makeScalewayClients, type ScalewayClients } from "./Clients.ts";
+import { makeScalewayClients, type ScalewayClientsShape } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
 
 export interface ObjectStorageStateProps {
@@ -37,7 +37,7 @@ export const makeObjectStorageState = ({ bucket, region, prefix }: ObjectStorage
 
 const makeObjectStorageStateWithClients = (
   { bucket, region, prefix }: ObjectStorageStateProps,
-  clients: ScalewayClients,
+  clients: ScalewayClientsShape,
 ) =>
   Effect.gen(function* () {
     const bucketRegion = region ?? clients.region;

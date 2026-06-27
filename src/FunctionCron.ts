@@ -61,6 +61,7 @@ export const FunctionCronProvider = () =>
 
       return FunctionCron.Provider.of({
         stables: ["cronId", "functionId"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
           if ((yield* functionId(news.function)) !== output.functionId) return { action: "replace" } as const;

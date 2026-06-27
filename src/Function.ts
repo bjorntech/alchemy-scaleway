@@ -498,7 +498,8 @@ export const FunctionProvider = () =>
         });
 
       return Function.Provider.of({
-        stables: ["functionId", "namespaceId", "region"],
+        stables: ["functionId", "namespaceId", "region", "url", "domainName"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
           if ((yield* namespaceId(news.namespace)) !== output.namespaceId) return { action: "replace" } as const;

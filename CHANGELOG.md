@@ -4,6 +4,36 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.2-beta.59] - 2026-06-27
+
+### Changed
+
+- Updated compatibility target to `alchemy@2.0.0-beta.59` and Effect `>=4.0.0-beta.84`.
+- Migrated the provider to the beta.59 client service shape: an injectable
+  `ScalewayClients` Context service plus `ScalewayClientsLive` layer, provided
+  once in `Scaleway.providers()`, instead of leaking credential/client
+  requirements through resource lifecycle effects.
+- Marked durable, in-place-stable outputs as `stables` so downstream consumers
+  resolve them during an upstream update: container/function service URLs
+  (`url`, `publicEndpoint`, `domainName`) and registry endpoints
+  (`endpoint`, `imagePrefix`). `ContainerImage`/`ContainerImageMirror` expose
+  their image refs/digests as stables with dynamic update-time `diff.stables`.
+
+### Fixed
+
+- `Container` and `Function` custom domains (`Domain`, `FunctionDomain`) now wait
+  for their parent's reconcile to finish before creating the domain. Under
+  beta.59, a whole-resource reference to an updating parent is materialized to
+  its stable attributes, which dropped the scheduling edge and let the domain be
+  created while the parent was mid-update — Scaleway then rejects the parent's
+  config change with `domain ... is in blocking state: pending`. The domain
+  resources now anchor on the parent's non-stable `status` output, preserving a
+  real Alchemy upstream edge. `Container` exposes a `status` attribute for this.
+- `Instance` updates now power the server on before waiting for flexible/public
+  IP attachment to converge, instead of waiting on a stopped server forever.
+- `DnsRecord` and `Domain` tolerate stable-materialized parent references whose
+  optional address fields are present-but-undefined.
+
 ## [0.7.1-beta.51] - 2026-06-21
 
 ### Changed

@@ -104,6 +104,7 @@ export type Container = Resource<
     url?: string;
     publicEndpoint?: string;
     privacy?: string;
+    status?: string;
     domains?: DomainResource["Attributes"][];
     cronTriggers?: TriggerResource["Attributes"][];
   },
@@ -184,6 +185,8 @@ function containerConfigEqual(olds: ContainerProps, news: ContainerProps) {
 }
 
 const imageRef = (image: ContainerImageRef) => resolveRef(image);
+const diffImageRef = (image: ContainerImageRef) =>
+  image === undefined ? Effect.succeed(undefined) : imageRef(image);
 
 function scalingEqual(olds: ContainerProps, news: ContainerProps) {
   return (
@@ -299,6 +302,7 @@ export const ContainerProvider = () =>
           url: containerUrl(record),
           publicEndpoint: record.public_endpoint,
           privacy: record.privacy,
+          status: record.status,
         }) as Container["Attributes"];
       const toDomainAttributes = (record: ScalewayDomainRecord): DomainResource["Attributes"] =>
         omitUndefined({
@@ -496,15 +500,18 @@ export const ContainerProvider = () =>
         });
 
       return Container.Provider.of({
-        stables: ["containerId", "namespaceId", "region", "projectId"],
+        stables: ["containerId", "namespaceId", "region", "projectId", "url", "publicEndpoint"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
           const resolvedNamespaceId = yield* namespaceId(news.namespace);
           if (resolvedNamespaceId !== output.namespaceId) return { action: "replace" } as const;
           const name = yield* nameOf(id, news.name);
+          const resolvedImage = yield* diffImageRef(news.image);
           if (
             output.name !== name ||
-            output.image !== (yield* imageRef(news.image)) ||
+            resolvedImage === undefined ||
+            output.image !== resolvedImage ||
             output.imageDigest !== news.imageDigest ||
             !containerPropsEqual(olds, news) ||
             !companionPropsEqual(olds, news) ||

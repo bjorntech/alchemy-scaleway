@@ -109,10 +109,11 @@ const resolveStringArray = (ref: unknown): Effect.Effect<string[] | undefined> =
 const targetData = (target: DnsRecordTarget): Effect.Effect<string> =>
   Effect.gen(function* () {
     if (typeof target === "string") return hostnameOnly(target);
-    if ("address" in target) return yield* resolveRef(target.address);
-    if ("domainName" in target) return hostnameOnly(yield* resolveRef(target.domainName));
-    if ("publicEndpoint" in target) return hostnameOnly(yield* resolveRef(target.publicEndpoint));
-    if ("endpoint" in target) return hostnameOnly(yield* resolveRef(target.endpoint));
+    if ("address" in target && target.address !== undefined) return yield* resolveRef(target.address);
+    if ("domainName" in target && target.domainName !== undefined) return hostnameOnly(yield* resolveRef(target.domainName));
+    if ("publicEndpoint" in target && target.publicEndpoint !== undefined) return hostnameOnly(yield* resolveRef(target.publicEndpoint));
+    if ("url" in target && target.url !== undefined) return hostnameOnly(yield* resolveRef(target.url));
+    if ("endpoint" in target && target.endpoint !== undefined) return hostnameOnly(yield* resolveRef(target.endpoint));
     if ("publicIpAddresses" in target) {
       const addresses = yield* resolveStringArray(target.publicIpAddresses);
       if (addresses?.[0]) return addresses[0];
@@ -181,6 +182,7 @@ export const DnsRecordProvider = () =>
 
       return DnsRecord.Provider.of({
         stables: ["dnsZone", "projectId", "name", "type"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ news, output }) {
           if (!isResolved(news) || !output) return undefined;
           const zone = yield* zoneIdentity(news);

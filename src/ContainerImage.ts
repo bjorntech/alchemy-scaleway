@@ -349,7 +349,8 @@ export const ContainerImageProvider = () =>
       const repositoryName = (id: string, repository?: string) => physicalName(id, repository, { maxLength: 63 });
 
       return ContainerImage.Provider.of({
-        stables: [],
+        stables: ["ref", "stableRef", "registry", "repository", "tag", "digest"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           const registry = yield* registryPrefix(news.registry);
@@ -357,8 +358,12 @@ export const ContainerImageProvider = () =>
           const requestedTag = news.tag ?? "latest";
           const digest = yield* sourceHash(news);
           const tag = contentTag(requestedTag, digest);
-          if (output.ref !== imageRef(registry, repository, tag) || output.digest !== digest) {
-            return { action: "update" } as const;
+          const nextRef = imageRef(registry, repository, tag);
+          if (output.ref !== nextRef || output.digest !== digest) {
+            return {
+              action: "update",
+              stables: ["stableRef", "registry", "repository"],
+            } as const;
           }
           return { action: "noop" } as const;
         }),

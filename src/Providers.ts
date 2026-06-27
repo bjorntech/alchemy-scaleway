@@ -4,6 +4,7 @@ import { ProfileLive } from "alchemy/Auth/Profile";
 import * as Provider from "alchemy/Provider";
 import { ScalewayAuth } from "./AuthProvider.ts";
 import { Bucket, BucketProvider } from "./Bucket.ts";
+import { ScalewayClientsLive } from "./Clients.ts";
 import { Container, ContainerProvider } from "./Container.ts";
 import { ContainerImage, ContainerImageProvider } from "./ContainerImage.ts";
 import { ContainerImageMirror, ContainerImageMirrorProvider } from "./ContainerImageMirror.ts";
@@ -102,6 +103,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
         PrivateNicProvider(),
       ),
     ),
+    Layer.provide(ScalewayClientsLive),
     Layer.provideMerge(Credentials.fromAuthProvider()),
     Layer.provideMerge(
       Layer.succeed(

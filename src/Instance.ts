@@ -4,7 +4,7 @@ import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import { createHash } from "node:crypto";
-import { makeScalewayClients, type ScalewayInstanceRecord, type ScalewayInstanceVolumeRecord } from "./Clients.ts";
+import { makeScalewayClients, type ScalewayClientsShape, type ScalewayInstanceRecord, type ScalewayInstanceVolumeRecord } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
 import { omitUndefined, physicalName, projectId, projectInput, resolveRef, withManagedProjectDefault, type ProjectRef } from "./Internal.ts";
 import type { FlexibleIp } from "./FlexibleIp.ts";
@@ -133,14 +133,10 @@ const publicIpAttachmentOf = (publicIp: InstancePublicIpRef) =>
   typeof publicIp === "string" || !("serverId" in publicIp) || publicIp.serverId === undefined
     ? Effect.succeed(undefined)
     : resolveRef(publicIp.serverId).pipe(Effect.map((serverId) => serverId || undefined));
-const livePublicIpAttachment = (zone: string, publicIp: string) =>
-  makeScalewayClients.pipe(
-    Effect.flatMap((clients) =>
-      clients.instance.getFlexibleIp({ zone, ip: publicIp }).pipe(
-        Effect.map((record) => record.server?.id),
-        Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
-      )
-    ),
+const livePublicIpAttachment = (clients: ScalewayClientsShape, zone: string, publicIp: string) =>
+  clients.instance.getFlexibleIp({ zone, ip: publicIp }).pipe(
+    Effect.map((record) => record.server?.id),
+    Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
   );
 const securityGroupIdOf = (securityGroup: InstanceSecurityGroupRef) => {
   return resolveRef(typeof securityGroup === "string" ? securityGroup : securityGroup.securityGroupId);
@@ -248,6 +244,7 @@ export const InstanceProvider = () =>
 
       return Instance.Provider.of({
         stables: ["serverId", "zone", "projectId"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone)) return replaceAction(news, output);
@@ -296,7 +293,7 @@ export const InstanceProvider = () =>
           if (!output?.serverId && publicIps !== undefined) {
             for (const [index, publicIp] of publicIps.entries()) {
               const attachedServerId = news.publicIps ? yield* publicIpAttachmentOf(news.publicIps[index]) : undefined;
-              const liveAttachedServerId = attachedServerId ?? (yield* livePublicIpAttachment(zone, publicIp));
+              const liveAttachedServerId = attachedServerId ?? (yield* livePublicIpAttachment(clients, zone, publicIp));
               if (liveAttachedServerId) {
                 yield* clients.instance.updateFlexibleIp({ zone, ip: publicIp, server: null }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
                 yield* session.note(`detached public IP ${publicIp} from previous instance ${liveAttachedServerId}`);
@@ -340,7 +337,8 @@ export const InstanceProvider = () =>
             yield* clients.instance.instanceAction({ zone, serverId: record.id, action: "poweroff" }).pipe(Effect.catchIf(isPreconditionError, () => Effect.void));
             record = yield* waitForState(zone, record.id, "stopped", session);
           }
-          if (output?.serverId && publicIps !== undefined) {
+          const waitForIps = output?.serverId && publicIps !== undefined;
+          if (waitForIps) {
             const currentPublicIps = managedPublicIpIdsFromRecord(record);
             for (const publicIp of currentPublicIps.filter((publicIp) => !publicIps.includes(publicIp))) {
               yield* clients.instance.updateFlexibleIp({ zone, ip: publicIp, server: null });
@@ -348,11 +346,13 @@ export const InstanceProvider = () =>
             for (const publicIp of publicIps.filter((publicIp) => !currentPublicIps.includes(publicIp))) {
               yield* clients.instance.updateFlexibleIp({ zone, ip: publicIp, server: record.id });
             }
-            record = yield* waitForPublicIps(zone, record.id, publicIps, session);
           }
           if (desiredState === "running" && record.state !== "running") {
             yield* clients.instance.instanceAction({ zone, serverId: record.id, action: "poweron" });
             record = yield* waitForState(zone, record.id, "running", session);
+          }
+          if (waitForIps) {
+            record = yield* waitForPublicIps(zone, record.id, publicIps, session);
           }
           yield* session.note(`${output?.serverId ? "Updated" : "Created"} Scaleway instance ${record.id}`);
           return toAttributes(record, news.volumes, news.image, initHash);

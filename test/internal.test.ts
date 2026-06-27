@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import { createScalewayCredentials, ScalewayCredentials } from "../src/Credentials.ts";
-import { projectId } from "../src/Internal.ts";
+import { parentReadiness, projectId } from "../src/Internal.ts";
 
 const credentialsLayer = Layer.succeed(
   ScalewayCredentials,
@@ -40,6 +40,25 @@ describe("projectId", () => {
   test("falls back to credentials project id", async () => {
     const result = await Effect.runPromise(projectId().pipe(Effect.provide(credentialsLayer)));
     expect(result).toBe("from-credentials");
+  });
+});
+
+describe("parentReadiness", () => {
+  test("returns the parent's status output for a resource reference", () => {
+    const statusOutput = { kind: "Output" };
+    const resourceRef = { Type: "Scaleway.Function", status: statusOutput };
+    // A non-stable attribute reference keeps a real Alchemy upstream edge so a
+    // child custom domain waits for the parent's reconcile instead of running
+    // concurrently against the parent's stable identity alone.
+    expect(parentReadiness(resourceRef)).toBe(statusOutput);
+  });
+
+  test("returns undefined for a raw id string reference", () => {
+    expect(parentReadiness("fn-1234")).toBeUndefined();
+  });
+
+  test("returns undefined for null", () => {
+    expect(parentReadiness(null)).toBeUndefined();
   });
 });
 

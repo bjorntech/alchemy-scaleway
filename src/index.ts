@@ -41,6 +41,12 @@ export {
   type ContainerImageMirrorProps,
 } from "./ContainerImageMirror.ts";
 export {
+  buildScalewayClients,
+  ScalewayClients,
+  ScalewayClientsLive,
+  type ScalewayClientsShape,
+} from "./Clients.ts";
+export {
   copyImage,
   type ImageCopyRequest,
   type ImageCopyResult,

@@ -1,6 +1,6 @@
 ---
 name: effect-schema
-description: Use when working with effect/Schema, tagged errors, decode/encode boundaries, or Effect beta compatibility such as Schema.Defect vs Schema.Defect().
+description: Use when working with effect/Schema, tagged errors, decode/encode boundaries, or Effect beta compatibility.
 license: MIT
 compatibility: opencode
 metadata:
@@ -14,7 +14,7 @@ Use this skill for `effect/Schema` modeling, tagged errors, and beta compatibili
 
 ## Current Compatibility Note
 
-`alchemy@2.0.0-beta.51` uses `Schema.Defect` as a schema value. Effect beta.76 changed it to `Schema.Defect()`. This repo pins `effect@4.0.0-beta.74` until Alchemy publishes the upstream fix from PR #542.
+This repo tests with `alchemy@2.0.0-beta.59` and `effect@4.0.0-beta.84`, while accepting stable Effect 4 through the peer dependency range.
 
 ## Rules
 

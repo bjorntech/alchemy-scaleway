@@ -42,11 +42,15 @@ const resourceState = (logicalId: string, attr: Record<string, unknown>): Resour
 
 const makeState = (prefix?: string) =>
   Scaleway.makeObjectStorageState({ bucket: "alchemy-state", region: "fr-par", prefix }).pipe(
+    Effect.provide(Scaleway.ScalewayClientsLive),
     Effect.provide(credentialsLayer),
   );
 
 const makeDefaultState = () =>
-  Scaleway.makeObjectStorageState({ region: "fr-par" }).pipe(Effect.provide(credentialsLayer));
+  Scaleway.makeObjectStorageState({ region: "fr-par" }).pipe(
+    Effect.provide(Scaleway.ScalewayClientsLive),
+    Effect.provide(credentialsLayer),
+  );
 
 describe("Scaleway Object Storage state", () => {
   test("defaults bucket from project id and creates it when missing", async () => {

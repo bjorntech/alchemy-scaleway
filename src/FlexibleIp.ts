@@ -71,6 +71,7 @@ export const FlexibleIpProvider = () =>
 
       return FlexibleIp.Provider.of({
         stables: ["ipId", "address", "zone", "projectId"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone) || output.type !== (news.type ?? "routed_ipv4")) return { action: "replace" } as const;

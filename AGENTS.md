@@ -16,11 +16,9 @@ The package should keep a flat Alchemy v2 provider layout and avoid nested provi
 
 ## Dependency Policy
 
-- Use `alchemy@2.0.0-beta.51` until a newer Alchemy v2 beta is published to npm.
-- Use `effect@4.0.0-beta.74` with `alchemy@2.0.0-beta.51`.
-- Do not bump to `effect@4.0.0-beta.78` with `alchemy@2.0.0-beta.51`: Alchemy beta.51 still uses `Schema.Defect` as a schema value, while Effect beta.76+ changed it to `Schema.Defect()`.
-- Upstream PR alchemy-run/alchemy-effect#542 fixes the Effect beta.78 breakage on `main`, but that fix is not published to npm yet.
-- When a newer Alchemy v2 beta is published, bump `alchemy`, `effect`, `package.json` version, README compatibility table, and `CHANGELOG.md` together.
+- Use `alchemy@2.0.0-beta.59` until a newer Alchemy v2 beta is published to npm.
+- Test with `effect@4.0.0-beta.84` and accept `effect >=4.0.0-beta.84 || >=4.0.0` as the peer range.
+- When a newer Alchemy v2 beta is published, bump `alchemy`, `effect`, `@effect/platform-*`, `package.json` version, README compatibility table, and `CHANGELOG.md` together.
 
 ## Architecture Rules
 

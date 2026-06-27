@@ -97,6 +97,7 @@ export const VpcAclProvider = () =>
 
       return VpcAcl.Provider.of({
         stables: ["vpcId", "ipVersion"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ news, olds, output }) {
           if (!isResolved(news)) return undefined;
           const desiredVpcId = yield* vpcIdOf(news.vpc);

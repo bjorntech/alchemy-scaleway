@@ -1,7 +1,9 @@
 import { AwsClient } from "aws4fetch";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
-import { ScalewayCredentials } from "./Credentials.ts";
+import { ScalewayCredentials, type ScalewayCredentialsService } from "./Credentials.ts";
 import { isNotFound, ScalewayError, scalewayError } from "./Errors.ts";
 import { omitUndefined } from "./Internal.ts";
 
@@ -490,7 +492,7 @@ export interface ScalewayInstanceRecord {
   allowed_actions?: string[];
 }
 
-export interface ScalewayClients {
+export interface ScalewayClientsShape {
   region: string;
   projectId?: string;
   account: {
@@ -812,8 +814,22 @@ export interface ScalewayClients {
   };
 }
 
-export const makeScalewayClients = Effect.gen(function* () {
-  const credentials = yield* ScalewayCredentials;
+export class ScalewayClients extends Context.Service<ScalewayClients, ScalewayClientsShape>()(
+  "Scaleway.Clients",
+) {}
+
+export const makeScalewayClients = ScalewayClients;
+
+export const ScalewayClientsLive = Layer.effect(
+  ScalewayClients,
+  Effect.gen(function* () {
+    const credentials = yield* ScalewayCredentials;
+    return buildScalewayClients(credentials);
+  }),
+);
+
+// @crap-ignore: client factory wraps many endpoint closures scored separately.
+export function buildScalewayClients(credentials: ScalewayCredentialsService): ScalewayClientsShape {
   const { apiUrl, region, projectId } = credentials;
   const secretKey = Redacted.value(credentials.secretKey);
   const base = `/containers/v1/regions/${region}`;
@@ -1221,8 +1237,8 @@ export const makeScalewayClients = Effect.gen(function* () {
     block: {
       deleteVolume: ({ zone, volumeId }) => request<void>("DELETE", `/block/v1alpha1/zones/${zone}/volumes/${volumeId}`),
     },
-  } satisfies ScalewayClients;
-});
+  } satisfies ScalewayClientsShape;
+}
 
 // @crap-ignore: factory contains many small request closures; score them separately.
 function makeObjectStorageClient(

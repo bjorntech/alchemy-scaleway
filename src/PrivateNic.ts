@@ -65,6 +65,7 @@ export const PrivateNicProvider = () =>
 
       return PrivateNic.Provider.of({
         stables: ["privateNicId", "zone", "serverId"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           const privateNetworkId = yield* privateNetworkIdOf(news.privateNetwork);

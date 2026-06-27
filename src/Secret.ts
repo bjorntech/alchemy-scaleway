@@ -161,6 +161,7 @@ export const SecretProvider = () =>
 
       return Secret.Provider.of({
         stables: ["secretId", "projectId", "region"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
           const resolvedProjectId = yield* projectId(projectInput(news), output.projectId);
