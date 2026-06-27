@@ -73,6 +73,7 @@ export const ProjectProvider = () =>
 
       return Project.Provider.of({
         stables: ["projectId", "organizationId"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
           const name = yield* nameOf(id, news.name);

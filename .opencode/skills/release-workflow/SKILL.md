@@ -14,14 +14,14 @@ Use this skill when the user asks to release or publish this package.
 
 ## Versioning
 
-- Keep the Alchemy beta suffix aligned with the pinned dependency line, for example `0.4.0-beta.51` with `alchemy@2.0.0-beta.51`.
+- Keep the Alchemy beta suffix aligned with the pinned dependency line, for example `0.7.2-beta.59` with `alchemy@2.0.0-beta.59`.
 - For new resources or meaningful user-facing behavior, prefer a minor beta bump.
 - For fixes only, prefer a patch beta bump.
 - Do not bump `alchemy`, `effect`, or package version independently. If dependency pins change, update `package.json`, `README.md` compatibility table, and `CHANGELOG.md` together.
 
 ## Release Metadata
 
-- Promote `CHANGELOG.md` `Unreleased` notes into `## [x.y.z-beta.51] - YYYY-MM-DD`.
+- Promote `CHANGELOG.md` `Unreleased` notes into `## [x.y.z-beta.N] - YYYY-MM-DD`.
 - Keep an empty `## Unreleased` heading at the top.
 - Add the new package version to the top of the `README.md` compatibility table.
 - Update `package.json` `version`.

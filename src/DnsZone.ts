@@ -93,6 +93,7 @@ export const DnsZoneProvider = () =>
 
       return DnsZone.Provider.of({
         stables: ["dnsZone", "domain", "subdomain", "projectId"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ news, output }) {
           if (!isResolved(news) || !output) return undefined;
           const desiredName = dnsZoneName(news.domain, news.subdomain);

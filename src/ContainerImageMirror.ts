@@ -151,19 +151,25 @@ export const ContainerImageMirrorProvider = () =>
         });
 
       return ContainerImageMirror.Provider.of({
-        stables: [],
+        stables: ["ref", "stableRef", "registry", "repository", "tag", "source", "digest"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           const { registry, repository, requestedTag } = yield* resolved(id, news);
           const digest = yield* engine.resolveSourceDigest(news.source, resolveAuth(news.sourceAuth));
           const tag = contentTag(requestedTag, digest);
+          const nextRef = imageRef(registry, repository, tag);
+          const nextStableRef = imageRef(registry, repository, requestedTag);
           if (
-            output.ref !== imageRef(registry, repository, tag) ||
-            output.stableRef !== imageRef(registry, repository, requestedTag) ||
+            output.ref !== nextRef ||
+            output.stableRef !== nextStableRef ||
             output.digest !== digest ||
             output.source !== news.source
           ) {
-            return { action: "update" } as const;
+            const stables = ["registry", "repository"];
+            if (output.stableRef === nextStableRef) stables.push("stableRef");
+            if (output.source === news.source) stables.push("source");
+            return { action: "update", stables } as const;
           }
           return { action: "noop" } as const;
         }),

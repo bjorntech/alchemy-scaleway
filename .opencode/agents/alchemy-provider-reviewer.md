@@ -25,7 +25,7 @@ Focus on:
 - Correct `stables`, `diff`, replace-vs-update behavior, idempotent delete, and recovery reads.
 - Whether any drift-recovery expectation incorrectly assumes `alwaysUpdate`/read-on-noop support; this Alchemy beta does not expose that option.
 - Adoption and ownership safety, especially where Scaleway lacks tags.
-- Dependency compatibility with `alchemy@2.0.0-beta.51` and `effect@4.0.0-beta.74`.
+- Dependency compatibility with `alchemy@2.0.0-beta.59` and `effect@4.0.0-beta.84`.
 - Documentation updates in `README.md`, `ARCHITECTURE.md`, `CHANGELOG.md`, and `AGENTS.md`.
 - Required gates: `bun run check`, `bun test`, `bun run coverage`, `bun run crap`.
 

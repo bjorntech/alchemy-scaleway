@@ -92,6 +92,18 @@ export const namespaceId = (namespace: NamedNamespace) => {
   return resolveRef(typeof namespace === "string" ? namespace : namespace.namespaceId);
 };
 
+// Scheduling-only anchor for child resources whose cloud API serializes against
+// the parent's own update (e.g. Scaleway rejects a function/container config
+// change while one of its domains is mid-create). Returning the parent's
+// non-stable `status` output keeps a real Alchemy upstream edge: because
+// `status` is not in the parent's `stables`, the planner cannot materialize the
+// whole-resource reference into plain stable values, so the child waits for the
+// parent's reconcile to finish instead of running concurrently against the
+// parent's stable identity alone. A string ref (raw id) has no resource to wait
+// on and yields `undefined`.
+export const parentReadiness = (ref: unknown): unknown =>
+  ref !== null && typeof ref === "object" ? (ref as { status?: unknown }).status : undefined;
+
 const defaultProjectId = () =>
   Effect.gen(function* () {
     const credentials = yield* ScalewayCredentials;

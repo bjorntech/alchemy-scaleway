@@ -8,6 +8,7 @@ import { Bucket, BucketProvider } from "../../src/Bucket.ts";
 import { Container, ContainerProvider } from "../../src/Container.ts";
 import { ContainerImage, ContainerImageProvider } from "../../src/ContainerImage.ts";
 import { ContainerImageMirror, ContainerImageMirrorProvider } from "../../src/ContainerImageMirror.ts";
+import { ScalewayClientsLive } from "../../src/Clients.ts";
 import { ScalewayCredentials } from "../../src/Credentials.ts";
 import { DatabaseInstance, DatabaseInstanceProvider } from "../../src/DatabaseInstance.ts";
 import { Domain, DomainProvider } from "../../src/Domain.ts";
@@ -107,6 +108,7 @@ export const testProviders = (options: { project?: ProjectRef } = {}) =>
         PrivateNicProvider(),
       ),
     ),
+    Layer.provide(ScalewayClientsLive),
     Layer.provideMerge(credentialsLayer),
     Layer.provideMerge(
       Layer.succeed(

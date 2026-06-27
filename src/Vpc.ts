@@ -61,6 +61,7 @@ export const VpcProvider = () =>
 
       return Vpc.Provider.of({
         stables: ["vpcId", "projectId", "region"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           if ((yield* projectId(projectInput(news), output.projectId)) !== output.projectId) {

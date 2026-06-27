@@ -23,7 +23,7 @@ Fetch docs before making claims about APIs that changed across Effect 4 betas.
 
 ## Repo Constraints
 
-- This repo currently pins `alchemy@2.0.0-beta.51` with `effect@4.0.0-beta.74`.
+- This repo currently tests `alchemy@2.0.0-beta.59` with `effect@4.0.0-beta.84`.
 - Do not bump to Effect beta.78 until a newer Alchemy beta containing upstream PR #542 is published.
 - Keep provider implementation code inside Alchemy v2 lifecycle methods.
 - Do not call `Effect.runPromise` in library/provider internals.

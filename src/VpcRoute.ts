@@ -92,6 +92,7 @@ export const VpcRouteProvider = () =>
 
       return VpcRoute.Provider.of({
         stables: ["routeId", "region", "vpcId"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           const vpcId = yield* vpcIdOf(news.vpc);

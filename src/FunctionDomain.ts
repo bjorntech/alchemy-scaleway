@@ -4,7 +4,7 @@ import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients, type ScalewayFunctionDomainRecord } from "./Clients.ts";
 import { isNotFound, ScalewayError } from "./Errors.ts";
-import { omitUndefined, resolveRef } from "./Internal.ts";
+import { omitUndefined, parentReadiness, resolveRef } from "./Internal.ts";
 import type { Function as ScalewayFunction } from "./Function.ts";
 import type { Providers } from "./Providers.ts";
 
@@ -13,6 +13,14 @@ export type FunctionRef = string | ScalewayFunction;
 export interface FunctionDomainProps {
   function: FunctionRef;
   hostname: string;
+  /**
+   * Scheduling-only anchor that forces a real Alchemy upstream edge to the
+   * referenced function's reconcile. Defaulted from the function's non-stable
+   * `status` output so a custom domain is never created while the function is
+   * mid-update (Scaleway rejects function config changes while a domain is
+   * pending). Not used by the provider lifecycle.
+   */
+  functionReadiness?: unknown;
 }
 
 export type FunctionDomain = Resource<
@@ -23,7 +31,16 @@ export type FunctionDomain = Resource<
   Providers
 >;
 
-export const FunctionDomain = Resource<FunctionDomain>("Scaleway.FunctionDomain");
+const FunctionDomainResource = Resource<FunctionDomain>("Scaleway.FunctionDomain");
+
+export const FunctionDomain = Object.assign(
+  (id: string, props: FunctionDomainProps) =>
+    FunctionDomainResource(id, {
+      ...props,
+      functionReadiness: props.functionReadiness ?? parentReadiness(props.function),
+    }),
+  FunctionDomainResource,
+) as typeof FunctionDomainResource;
 
 function functionId(func: FunctionRef) {
   return resolveRef(typeof func === "string" ? func : func.functionId);
@@ -69,6 +86,7 @@ export const FunctionDomainProvider = () =>
 
       return FunctionDomain.Provider.of({
         stables: ["domainId", "functionId", "hostname"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ news, output }) {
           if (!isResolved(news) || !output) return undefined;
           if ((yield* functionId(news.function)) !== output.functionId || news.hostname !== output.hostname) return { action: "replace" } as const;

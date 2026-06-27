@@ -121,6 +121,7 @@ export const SecurityGroupProvider = () =>
 
       return SecurityGroup.Provider.of({
         stables: ["securityGroupId", "zone", "projectId"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone)) return { action: "replace" } as const;

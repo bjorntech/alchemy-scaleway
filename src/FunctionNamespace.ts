@@ -85,6 +85,7 @@ export const FunctionNamespaceProvider = () =>
 
       return FunctionNamespace.Provider.of({
         stables: ["namespaceId", "projectId", "region"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
           const name = yield* nameOf(id, news.name);

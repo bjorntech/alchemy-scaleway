@@ -90,6 +90,7 @@ export const PrivateNetworkProvider = () =>
 
       return PrivateNetwork.Provider.of({
         stables: ["privateNetworkId", "projectId", "region", "vpcId"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           if ((yield* projectId(projectInput(news), output.projectId)) !== output.projectId) return { action: "replace" } as const;

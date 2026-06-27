@@ -50,6 +50,7 @@ export const BucketProvider = () =>
 
       return Bucket.Provider.of({
         stables: ["bucketName", "region", "endpoint"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
           const name = yield* nameOf(id, news.name);

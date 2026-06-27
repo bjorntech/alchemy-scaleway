@@ -5,7 +5,7 @@ import { isResolved } from "alchemy/Diff";
 import * as Effect from "effect/Effect";
 import { makeScalewayClients, type ScalewayDomainRecord } from "./Clients.ts";
 import { isNotFound, ScalewayError } from "./Errors.ts";
-import { omitUndefined, resolveRef } from "./Internal.ts";
+import { omitUndefined, parentReadiness, resolveRef } from "./Internal.ts";
 import type { Container } from "./Container.ts";
 import type { Providers } from "./Providers.ts";
 
@@ -15,6 +15,13 @@ export interface DomainProps {
   container: DomainContainerRef;
   hostname: string;
   waitForCname?: boolean;
+  /**
+   * Scheduling-only anchor that forces a real Alchemy upstream edge to the
+   * referenced container's reconcile. Defaulted from the container's non-stable
+   * `status` output so a custom domain is never created while the container is
+   * mid-update. Not used by the provider lifecycle.
+   */
+  containerReadiness?: unknown;
 }
 
 export type Domain = Resource<
@@ -25,14 +32,24 @@ export type Domain = Resource<
   Providers
 >;
 
-export const Domain = Resource<Domain>("Scaleway.Domain");
+const DomainResource = Resource<Domain>("Scaleway.Domain");
+
+export const Domain = Object.assign(
+  (id: string, props: DomainProps) =>
+    DomainResource(id, {
+      ...props,
+      containerReadiness: props.containerReadiness ?? parentReadiness(props.container),
+    }),
+  DomainResource,
+) as typeof DomainResource;
 
 const containerId = (container: DomainContainerRef) => {
   return resolveRef(typeof container === "string" ? container : container.containerId);
 };
 
 const containerEndpoint = (container: DomainContainerRef) => {
-  return typeof container === "string" ? Effect.succeed(undefined) : resolveRef(container.publicEndpoint);
+  if (typeof container === "string") return Effect.succeed(undefined);
+  return container.publicEndpoint === undefined ? Effect.succeed(undefined) : resolveRef(container.publicEndpoint);
 };
 
 const withoutScheme = (value: string) => value.replace(/^https?:\/\//, "").replace(/\/$/, "");
@@ -160,6 +177,7 @@ export const DomainProvider = () =>
 
       return Domain.Provider.of({
         stables: ["domainId", "containerId", "hostname"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ news, output }) {
           if (!isResolved(news) || !output) return undefined;
           const resolvedContainerId = yield* containerId(news.container);

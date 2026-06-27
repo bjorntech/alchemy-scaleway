@@ -83,7 +83,8 @@ export const RegistryNamespaceProvider = () =>
         });
 
       return RegistryNamespace.Provider.of({
-        stables: ["registryNamespaceId", "projectId", "region"],
+        stables: ["registryNamespaceId", "projectId", "region", "endpoint", "imagePrefix"],
+        list: () => Effect.succeed([]),
         diff: Effect.fnUntraced(function* ({ id, news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
           const resolvedProjectId = yield* projectId(projectInput(news), output.projectId);
