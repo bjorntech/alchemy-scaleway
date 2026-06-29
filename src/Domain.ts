@@ -49,14 +49,18 @@ const containerId = (container: DomainContainerRef) => {
 
 const containerEndpoint = (container: DomainContainerRef) => {
   if (typeof container === "string") return Effect.succeed(undefined);
-  return container.publicEndpoint === undefined ? Effect.succeed(undefined) : resolveRef(container.publicEndpoint);
+  return container.publicEndpoint === undefined
+    ? Effect.succeed(undefined)
+    : resolveRef(container.publicEndpoint);
 };
 
-const withoutScheme = (value: string) => value.replace(/^https?:\/\//, "").replace(/\/$/, "");
-const absoluteHostname = (value: string) => {
+export const withoutScheme = (value: string) =>
+  value.replace(/^https?:\/\//, "").replace(/\/$/, "");
+export const absoluteHostname = (value: string) => {
   const hostname = withoutScheme(value);
   return hostname.endsWith(".") ? hostname : `${hostname}.`;
 };
+export const publicDnsResolvers = ["1.1.1.1", "8.8.8.8"] as const;
 const maxDomainDeployRetries = 10;
 
 const isTransientState = (error: unknown) =>
@@ -74,57 +78,121 @@ const isResourceAlreadyExists = (error: unknown) =>
   error.statusCode === 409 &&
   error.message.toLowerCase().includes("resource already exists");
 
-const retryTransient = <A>(effect: Effect.Effect<A, ScalewayError>, session: { note(message: string): Effect.Effect<void> }): Effect.Effect<A, ScalewayError> =>
+const retryTransient = <A>(
+  effect: Effect.Effect<A, ScalewayError>,
+  session: { note(message: string): Effect.Effect<void> },
+): Effect.Effect<A, ScalewayError> =>
   effect.pipe(
     Effect.catch((error) =>
       isTransientState(error)
-        ? session.note("waiting domain operation status=transient").pipe(Effect.flatMap(() => Effect.sleep("5 seconds")), Effect.flatMap(() => retryTransient(effect, session)))
+        ? session.note("waiting domain operation status=transient").pipe(
+            Effect.flatMap(() => Effect.sleep("5 seconds")),
+            Effect.flatMap(() => retryTransient(effect, session)),
+          )
         : Effect.fail(error),
     ),
   );
 
-function lookupCnames(hostname: string) {
-  return Effect.tryPromise(() => resolveCnames(hostname));
+export interface CnameLookupResult {
+  server: string;
+  cnames: string[];
 }
 
-async function resolveCnames(hostname: string) {
-  const results = await Promise.allSettled(
-    ["1.1.1.1", "8.8.8.8", "ns0.dom.scw.cloud", "ns1.dom.scw.cloud"].map(async (server) => {
+/**
+ * Resolver seam. The default implementation queries each public recursive
+ * resolver independently; tests substitute a deterministic fake so the
+ * public-DNS readiness semantics can be verified without real network I/O.
+ */
+export type CnameResolver = (
+  hostname: string,
+  servers: readonly string[],
+) => Promise<CnameLookupResult[]>;
+
+async function resolveCnames(
+  hostname: string,
+  servers: readonly string[],
+): Promise<CnameLookupResult[]> {
+  const results = await Promise.all(
+    servers.map(async (server) => {
       const resolver = new Resolver();
       resolver.setServers([server]);
-      return resolver.resolveCname(hostname);
+      try {
+        return { server, cnames: await resolver.resolveCname(hostname) };
+      } catch {
+        return { server, cnames: [] };
+      }
     }),
   );
-  return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  return results;
 }
 
-function hasCname(cnames: string[], expected: string) {
+let cnameResolver: CnameResolver = resolveCnames;
+
+export const setCnameResolver = (next: CnameResolver) => {
+  cnameResolver = next;
+};
+
+export const resetCnameResolver = () => {
+  cnameResolver = resolveCnames;
+};
+
+function lookupCnames(hostname: string) {
+  return Effect.tryPromise(() => cnameResolver(hostname, publicDnsResolvers));
+}
+
+export function hasCname(cnames: string[], expected: string) {
   return cnames.map((record) => absoluteHostname(record).toLowerCase()).includes(expected);
 }
 
-function cnameMatches(hostname: string, expected: string) {
+export function cnameMatches(hostname: string, expected: string) {
   return lookupCnames(hostname).pipe(
-    Effect.catch(() => Effect.succeed([] as string[])),
-    Effect.map((cnames) => hasCname(cnames, expected)),
+    Effect.catch(() => Effect.succeed([] as CnameLookupResult[])),
+    Effect.map(
+      (lookups) =>
+        lookups.length > 0 && lookups.every((lookup) => hasCname(lookup.cnames, expected)),
+    ),
   );
 }
 
-function retryCname(hostname: string, expected: string, session: { note(message: string): Effect.Effect<void> }): Effect.Effect<void, Error> {
+function retryCname(
+  hostname: string,
+  expected: string,
+  session: { note(message: string): Effect.Effect<void> },
+): Effect.Effect<void, Error> {
   return session.note(`waiting DNS CNAME hostname=${hostname} target=${expected}`).pipe(
     Effect.flatMap(() => Effect.sleep("5 seconds")),
     Effect.flatMap(() => waitForCnameMatch(hostname, expected, session)),
   );
 }
 
-function waitForCnameMatch(hostname: string, expected: string, session: { note(message: string): Effect.Effect<void> }): Effect.Effect<void, Error> {
+function waitForCnameMatch(
+  hostname: string,
+  expected: string,
+  session: { note(message: string): Effect.Effect<void> },
+): Effect.Effect<void, Error> {
   return cnameMatches(hostname, expected).pipe(
-    Effect.flatMap((matches) => matches ? Effect.void : retryCname(hostname, expected, session)),
+    Effect.flatMap((matches) => (matches ? Effect.void : retryCname(hostname, expected, session))),
   );
 }
 
-function waitForCname(hostname: string, target: string, session: { note(message: string): Effect.Effect<void> }) {
+export function waitForCname(
+  hostname: string,
+  target: string,
+  session: { note(message: string): Effect.Effect<void> },
+) {
   const expected = absoluteHostname(target).toLowerCase();
   return waitForCnameMatch(hostname, expected, session);
+}
+
+function waitForPublicCnameIfAvailable(
+  hostname: string,
+  target: string | undefined,
+  session: { note(message: string): Effect.Effect<void> },
+) {
+  if (!target) return Effect.void;
+  return session
+    .note(`Waiting for public DNS ${hostname} to point at ${withoutScheme(target)}`)
+    .pipe(Effect.flatMap(() => waitForCname(hostname, target, session)));
 }
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
@@ -151,14 +219,19 @@ export const DomainProvider = () =>
             const status = record.status?.toLowerCase();
             if (!status || status === "ready") return toAttributes(record);
             if (status === "error")
-              return yield* Effect.fail(new Error(
-                record.error_message ?? `Scaleway domain ${domainIdValue} entered error state`,
-              ));
+              return yield* Effect.fail(
+                new Error(
+                  record.error_message ?? `Scaleway domain ${domainIdValue} entered error state`,
+                ),
+              );
             yield* session.note(`waiting domain ready status=${record.status ?? "unknown"}`);
             yield* Effect.sleep("3 seconds");
           }
         });
-      const waitForDeleted = (domainIdValue: string, session: { note(message: string): Effect.Effect<void> }) =>
+      const waitForDeleted = (
+        domainIdValue: string,
+        session: { note(message: string): Effect.Effect<void> },
+      ) =>
         Effect.gen(function* () {
           while (true) {
             const existing = yield* clients.containers
@@ -200,44 +273,78 @@ export const DomainProvider = () =>
             hostname: news.hostname,
           };
           const target = yield* containerEndpoint(news.container);
-          if (news.waitForCname && target) {
-            yield* session.note(`Waiting for DNS ${news.hostname} to point at ${withoutScheme(target)}`);
-            yield* waitForCname(news.hostname, target, session);
-          }
-          const createReadyDomain = (retriesRemaining = maxDomainDeployRetries): Effect.Effect<Domain["Attributes"], unknown> =>
+          const createReadyDomain = (
+            retriesRemaining = maxDomainDeployRetries,
+          ): Effect.Effect<Domain["Attributes"], unknown> =>
             Effect.gen(function* () {
-              const created = yield* retryTransient(clients.containers.createDomain(input), session);
+              if (news.waitForCname)
+                yield* waitForPublicCnameIfAvailable(news.hostname, target, session);
+              const created = yield* retryTransient(
+                clients.containers.createDomain(input),
+                session,
+              );
               yield* session.note(`Created Scaleway domain ${created.id}`);
               return yield* waitForReady(created.id, session).pipe(
                 Effect.catchIf(isRetriableDomainDeployError, () =>
                   Effect.gen(function* () {
                     if (retriesRemaining <= 0) {
-                      return yield* Effect.fail(new Error(`Scaleway domain ${created.id} kept failing deployment after retries`));
+                      return yield* Effect.fail(
+                        new Error(
+                          `Scaleway domain ${created.id} kept failing deployment after retries`,
+                        ),
+                      );
                     }
-                    yield* session.note(`Retrying Scaleway domain ${created.id} after transient deployment error`);
-                    yield* clients.containers.deleteDomain(created.id).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+                    yield* session.note(
+                      `Retrying Scaleway domain ${created.id} after transient deployment error`,
+                    );
+                    yield* clients.containers
+                      .deleteDomain(created.id)
+                      .pipe(Effect.catchIf(isNotFound, () => Effect.void));
                     yield* waitForDeleted(created.id, session);
+                    if (news.waitForCname)
+                      yield* waitForPublicCnameIfAvailable(news.hostname, target, session);
                     return yield* createReadyDomain(retriesRemaining - 1);
                   }),
                 ),
               );
             });
-          const recoverExistingDomain = (retriesRemaining = maxDomainDeployRetries): Effect.Effect<Domain["Attributes"], unknown> =>
+          const recoverExistingDomain = (
+            retriesRemaining = maxDomainDeployRetries,
+          ): Effect.Effect<Domain["Attributes"], unknown> =>
             Effect.gen(function* () {
               const existingDomains = yield* domainsForHostname(news.hostname);
-              const conflict = existingDomains.find((domain) => domain.container_id !== resolvedContainerId);
+              const conflict = existingDomains.find(
+                (domain) => domain.container_id !== resolvedContainerId,
+              );
               if (conflict) {
-                return yield* Effect.fail(new Error(`Scaleway domain ${news.hostname} already exists for container ${conflict.container_id}`));
+                return yield* Effect.fail(
+                  new Error(
+                    `Scaleway domain ${news.hostname} already exists for container ${conflict.container_id}`,
+                  ),
+                );
               }
-              const existing = existingDomains.find((domain) => domain.container_id === resolvedContainerId);
+              const existing = existingDomains.find(
+                (domain) => domain.container_id === resolvedContainerId,
+              );
               if (!existing) return yield* createReadyDomain(retriesRemaining);
               const status = existing.status?.toLowerCase();
               if (!status || status === "ready") return toAttributes(existing);
               if (status === "error" && isRetriableDomainDeployError(existing.error_message)) {
-                if (retriesRemaining <= 0) return yield* Effect.fail(new Error(`Scaleway domain ${existing.id} kept failing deployment after retries`));
-                yield* session.note(`Retrying Scaleway domain ${existing.id} after transient deployment error`);
-                yield* clients.containers.deleteDomain(existing.id).pipe(Effect.catchIf(isNotFound, () => Effect.void));
+                if (retriesRemaining <= 0)
+                  return yield* Effect.fail(
+                    new Error(
+                      `Scaleway domain ${existing.id} kept failing deployment after retries`,
+                    ),
+                  );
+                yield* session.note(
+                  `Retrying Scaleway domain ${existing.id} after transient deployment error`,
+                );
+                yield* clients.containers
+                  .deleteDomain(existing.id)
+                  .pipe(Effect.catchIf(isNotFound, () => Effect.void));
                 yield* waitForDeleted(existing.id, session);
+                if (news.waitForCname)
+                  yield* waitForPublicCnameIfAvailable(news.hostname, target, session);
                 return yield* createReadyDomain(retriesRemaining - 1);
               }
               return yield* waitForReady(existing.id, session);
@@ -247,10 +354,8 @@ export const DomainProvider = () =>
             Effect.catchIf(isResourceAlreadyExists, () => recoverExistingDomain()),
             Effect.catchIf(isTransientState, () =>
               Effect.gen(function* () {
-                if (target) {
-                  yield* session.note(`Waiting for DNS ${news.hostname} to point at ${withoutScheme(target)}`);
-                  yield* waitForCname(news.hostname, target, session);
-                }
+                if (news.waitForCname)
+                  yield* waitForPublicCnameIfAvailable(news.hostname, target, session);
                 return yield* createReadyDomain();
               }),
             ),
