@@ -4,6 +4,21 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.4-beta.59] - 2026-06-29
+
+### Fixed
+
+- `Container` no longer treats the presence of a `public_endpoint` as readiness.
+  Scaleway populates the endpoint early during deployment, so the old check
+  returned as soon as a URL existed and let companions (custom domains, cron
+  triggers) be created against a container that was still `deploying` — which
+  Scaleway then rejects. A container must now reach `status: "ready"` before
+  companions proceed.
+- `Container` deployments that enter `error`/`failed` now fail fast as
+  `Scaleway.ContainerDeployFailed` (including the Scaleway `error_message`)
+  instead of polling indefinitely, and a persisted container left in an error
+  state is redeployed on the next reconcile rather than treated as settled.
+
 ## [0.7.3-beta.59] - 2026-06-29
 
 ### Fixed
