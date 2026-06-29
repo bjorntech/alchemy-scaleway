@@ -24,6 +24,7 @@ export interface ScalewayContainerRecord {
   project_id?: string;
   region?: string;
   status?: string;
+  error_message?: string;
   public_endpoint?: string;
   image?: string;
   min_scale?: number;

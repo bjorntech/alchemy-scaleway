@@ -169,6 +169,12 @@ const containerPatches = () =>
     );
   });
 
+const containerGets = () =>
+  mock.calls.filter((c) => {
+    const url = new URL(c.url);
+    return c.method === "GET" && /\/containers\/v1\/regions\/[^/]+\/containers\/[^/]+$/.test(url.pathname);
+  });
+
 describe("Project", () => {
   test.provider("creates then updates project in place", (stack) =>
     Effect.gen(function* () {
@@ -1598,6 +1604,27 @@ describe("Container", () => {
       expect(requests("POST", "/domains")).toHaveLength(1);
       expect(requests("POST", "/triggers")).toHaveLength(1);
       expect(requests("POST", "/triggers").at(0)?.body).toContain("/jobs/hourly");
+    }),
+  );
+
+  test.provider("waits for ready status even when a public endpoint already exists", (stack) =>
+    Effect.gen(function* () {
+      mock.makeNextContainerDeploysSlow(1);
+
+      const created = yield* stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          return yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+            domains: ["api.example.com"],
+          });
+        }),
+      );
+
+      expect(created.status).toBe("ready");
+      expect(containerGets()).toHaveLength(2);
+      expect(requests("POST", "/domains")).toHaveLength(1);
     }),
   );
 

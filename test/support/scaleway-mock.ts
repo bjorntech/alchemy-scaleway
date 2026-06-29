@@ -41,6 +41,8 @@ export interface ScalewayMock {
   removeDnsZone(dnsZone: string, projectId?: string): void;
   /** Make the next created custom domains enter Scaleway's deployment error state. */
   failNextDomainDeploys(count: number): void;
+  /** Make the next created containers expose an endpoint before they become ready. */
+  makeNextContainerDeploysSlow(reads: number): void;
   /** Seed a live custom domain for recovery tests. */
   seedDomain(input: { id: string; containerId: string; hostname: string; status?: string; errorMessage?: string }): void;
   /** Seed live Function companions for recovery tests. */
@@ -136,6 +138,7 @@ export function installScalewayMock(): ScalewayMock {
   let asyncLifecycle = false;
   let staleRdbListReads = 0;
   let domainDeployErrorsRemaining = 0;
+  let slowContainerReadyReads = 0;
   let staleDomainDeleteReads = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
   const forcedErrors: Array<{ fragment: string; status: number; message: string }> = [];
@@ -174,7 +177,7 @@ export function installScalewayMock(): ScalewayMock {
         const record: Record<string, unknown> = {
           id: nextId("ctr"),
           region: "fr-par",
-          status: "ready",
+          status: slowContainerReadyReads > 0 ? "deploying" : "ready",
           public_endpoint: `https://${nextId("ep")}.functions.fnc.fr-par.scw.cloud`,
           project_id: "proj-test",
           ...input,
@@ -184,7 +187,18 @@ export function installScalewayMock(): ScalewayMock {
       }
       const existing = containers.get(id);
       if (!existing) return json({ message: "container not found" }, 404);
-      if (method === "GET") return json(existing);
+      if (method === "GET") {
+        if (existing.status === "deploying") {
+          if (slowContainerReadyReads > 0) {
+            slowContainerReadyReads--;
+            return json(existing);
+          }
+          const ready = { ...existing, status: "ready" };
+          containers.set(id, ready);
+          return json(ready);
+        }
+        return json(existing);
+      }
       if (method === "PATCH") {
         const updated = { ...existing, ...input, status: "ready" };
         containers.set(id, updated);
@@ -1608,6 +1622,9 @@ export function installScalewayMock(): ScalewayMock {
     },
     failNextDomainDeploys: (count) => {
       domainDeployErrorsRemaining = count;
+    },
+    makeNextContainerDeploysSlow: (reads) => {
+      slowContainerReadyReads = reads;
     },
     seedDomain: ({ id, containerId, hostname, status = "ready", errorMessage }) => {
       domains.set(id, {
