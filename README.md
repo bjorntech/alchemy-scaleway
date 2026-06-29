@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.7.3-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Waits for public DNS (`1.1.1.1`/`8.8.8.8`) CNAME propagation before creating Scaleway Serverless custom domains. |
 | `0.7.2-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Updates compatibility to Alchemy beta.59 and Effect beta.84. |
 | `0.7.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Moves the package to `@bjorntech/alchemy-scaleway` and requires smoke-test DNS zones from environment variables. |
 | `0.7.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds `ContainerImageMirror` (pure-TypeScript registry copy, no external binary) and `Container.imageDigest` redeploy tracking. |
