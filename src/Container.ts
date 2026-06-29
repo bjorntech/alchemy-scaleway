@@ -117,6 +117,7 @@ export const Container = Resource<Container>("Scaleway.Container");
 class ContainerDeployFailed extends Data.TaggedError("Scaleway.ContainerDeployFailed")<{
   containerId: string;
   status: string;
+  errorMessage?: string;
 }> {}
 
 const secretsEqual = (
@@ -237,6 +238,17 @@ const isTransientState = (error: unknown) =>
     .toLowerCase()
     .includes("transient state");
 
+const containerStatus = (record: ScalewayContainerRecord | Container["Attributes"]) =>
+  record.status?.toLowerCase();
+
+const isContainerReady = (record: ScalewayContainerRecord | Container["Attributes"]) =>
+  containerStatus(record) === "ready";
+
+const isContainerError = (record: ScalewayContainerRecord | Container["Attributes"]) => {
+  const status = containerStatus(record);
+  return status === "error" || status === "failed";
+};
+
 const retryTransient = <A>(effect: Effect.Effect<A, ScalewayError>, session: { note(message: string): Effect.Effect<void> }): Effect.Effect<A, ScalewayError> =>
   effect.pipe(
     Effect.catch((error) =>
@@ -329,14 +341,14 @@ export const ContainerProvider = () =>
         Effect.gen(function* () {
           while (true) {
             const record = yield* clients.containers.getContainer(containerIdValue);
-            const status = record.status?.toLowerCase();
-            if (status === "error" || status === "failed") {
+            if (isContainerError(record)) {
               return yield* new ContainerDeployFailed({
                 containerId: containerIdValue,
                 status: record.status ?? "unknown",
+                errorMessage: record.error_message ?? undefined,
               });
             }
-            if (containerUrl(record) || status === "ready") return toAttributes(record);
+            if (isContainerReady(record)) return toAttributes(record);
             yield* session.note(`waiting container ready status=${record.status ?? "unknown"}`);
             yield* Effect.sleep("2 seconds");
           }
@@ -509,6 +521,7 @@ export const ContainerProvider = () =>
           const name = yield* nameOf(id, news.name);
           const resolvedImage = yield* diffImageRef(news.image);
           if (
+            isContainerError(output) ||
             output.name !== name ||
             resolvedImage === undefined ||
             output.image !== resolvedImage ||
@@ -563,7 +576,8 @@ export const ContainerProvider = () =>
                 olds &&
                 containerPropsEqual(olds, news) &&
                 output.image === input.image &&
-                output.imageDigest === news.imageDigest
+                output.imageDigest === news.imageDigest &&
+                isContainerReady(output)
               )
                 return toAttributes(yield* clients.containers.getContainer(output.containerId));
               yield* retryTransient(clients.containers.updateContainer(output.containerId, input), session);
