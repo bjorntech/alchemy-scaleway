@@ -4,6 +4,22 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.3-beta.59] - 2026-06-29
+
+### Fixed
+
+- `Domain` custom-domain creation now waits for the CNAME to be visible through
+  public recursive resolvers (`1.1.1.1`, `8.8.8.8`) and requires every public
+  resolver to agree before creating or recreating the Scaleway Serverless custom
+  domain. Previously readiness also queried Scaleway authoritative nameservers
+  (`ns0`/`ns1.dom.scw.cloud`) and treated the record as ready if any resolver
+  returned the target. Scaleway's custom-domain validation behaves like an
+  external validator that needs the hostname to resolve through public DNS, so
+  the authoritative-only match let the domain be created before public
+  propagation completed, causing repeated transient deployment errors. The
+  provider also re-checks public DNS before each retry after a transient domain
+  deployment error.
+
 ## [0.7.2-beta.59] - 2026-06-27
 
 ### Changed
