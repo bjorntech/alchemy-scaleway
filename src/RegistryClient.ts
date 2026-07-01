@@ -34,6 +34,10 @@ export interface ImageCopyRequest {
   allPlatforms: boolean;
   /** Single platform to copy when `allPlatforms` is false. Defaults to linux/amd64. */
   platform?: { os: string; architecture: string };
+  /** Abort signal scoped to this copy operation. */
+  signal?: AbortSignal;
+  /** Receives coarse progress messages for long-running mirror operations. */
+  onProgress?: (message: string) => void | Promise<void>;
 }
 
 export interface ImageCopyResult {
@@ -81,10 +85,32 @@ const isTransient = (error: unknown) => {
   ].some((needle) => message.includes(needle));
 };
 
-const withRetry = async <A>(operation: () => Promise<A>): Promise<A> => {
+const abortableDelay = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error("Registry operation aborted"));
+      return;
+    }
+    const done = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    };
+    const timeout = setTimeout(done, ms);
+    const abort = () => {
+      clearTimeout(timeout);
+      reject(signal?.reason ?? new Error("Registry operation aborted"));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+
+const reportProgress = (request: Pick<ImageCopyRequest, "onProgress">, message: string) =>
+  Promise.resolve(request.onProgress?.(message));
+
+const withRetry = async <A>(operation: () => Promise<A>, signal?: AbortSignal): Promise<A> => {
   let lastError: unknown;
   for (const delay of [0, ...RETRY_DELAYS]) {
-    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    if (delay > 0) await abortableDelay(delay, signal);
     try {
       return await operation();
     } catch (error) {
@@ -158,7 +184,7 @@ class RegistryClient {
     readonly auth?: RegistryAuth,
   ) {}
 
-  private async getToken(challenge: Challenge, scope: string): Promise<string> {
+  private async getToken(challenge: Challenge, scope: string, signal?: AbortSignal): Promise<string> {
     const url = new URL(challenge.realm);
     if (challenge.service) url.searchParams.set("service", challenge.service);
     if (scope) url.searchParams.set("scope", scope);
@@ -166,7 +192,7 @@ class RegistryClient {
     if (this.auth) {
       headers.Authorization = `Basic ${Buffer.from(`${this.auth.username}:${this.auth.password}`).toString("base64")}`;
     }
-    const res = await fetch(url, { headers });
+    const res = await fetch(url, { headers, signal });
     if (!res.ok) throw new Error(`token request to ${url.host} failed: ${res.status}`);
     const body = (await res.json()) as { token?: string; access_token?: string };
     const token = body.token ?? body.access_token;
@@ -197,7 +223,7 @@ class RegistryClient {
     if (!challenge) {
       return fetch(url, withAuth()); // no usable challenge; surface the original failure
     }
-    const token = await this.getToken(challenge, challenge.scope ?? scope);
+    const token = await this.getToken(challenge, challenge.scope ?? scope, init.signal as AbortSignal | undefined);
     this.tokens.set(scope, token);
     return fetch(url, withAuth(token));
   }
@@ -223,10 +249,11 @@ interface IndexEntry extends Descriptor {
   platform?: { os?: string; architecture?: string };
 }
 
-const getManifest = (client: RegistryClient, repo: string, reference: string): Promise<FetchedManifest> =>
+const getManifest = (client: RegistryClient, repo: string, reference: string, signal?: AbortSignal): Promise<FetchedManifest> =>
   withRetry(async () => {
     const res = await client.request("GET", `/v2/${repo}/manifests/${reference}`, pullScope(repo), {
       headers: { Accept: MANIFEST_ACCEPT },
+      signal,
     });
     if (!res.ok) throw new Error(`get manifest ${repo}:${reference} failed: ${res.status} ${await res.text()}`);
     const raw = new Uint8Array(await res.arrayBuffer());
@@ -234,30 +261,30 @@ const getManifest = (client: RegistryClient, repo: string, reference: string): P
     const mediaType = res.headers.get("content-type")?.split(";")[0] ?? parsed.mediaType;
     const digest = res.headers.get("docker-content-digest") ?? sha256(raw);
     return { digest, mediaType, raw, parsed };
-  });
+  }, signal);
 
-const blobExists = (client: RegistryClient, repo: string, digest: string): Promise<boolean> =>
+const blobExists = (client: RegistryClient, repo: string, digest: string, signal?: AbortSignal): Promise<boolean> =>
   withRetry(async () => {
-    const res = await client.request("HEAD", `/v2/${repo}/blobs/${digest}`, pushScope(repo));
+    const res = await client.request("HEAD", `/v2/${repo}/blobs/${digest}`, pushScope(repo), { signal });
     await res.arrayBuffer().catch(() => undefined);
     if (res.status === 200) return true;
     if (res.status === 404) return false;
     throw new Error(`head blob ${digest} failed: ${res.status}`);
-  });
+  }, signal);
 
-const pullBlob = (client: RegistryClient, repo: string, descriptor: Descriptor): Promise<Uint8Array> =>
+const pullBlob = (client: RegistryClient, repo: string, descriptor: Descriptor, signal?: AbortSignal): Promise<Uint8Array> =>
   withRetry(async () => {
-    const res = await client.request("GET", `/v2/${repo}/blobs/${descriptor.digest}`, pullScope(repo));
+    const res = await client.request("GET", `/v2/${repo}/blobs/${descriptor.digest}`, pullScope(repo), { signal });
     if (!res.ok) throw new Error(`get blob ${descriptor.digest} failed: ${res.status}`);
     const data = new Uint8Array(await res.arrayBuffer());
     if (sha256(data) !== descriptor.digest) throw new Error(`source blob digest mismatch for ${descriptor.digest}`);
     return data;
-  });
+  }, signal);
 
-const pushBlob = (client: RegistryClient, repo: string, descriptor: Descriptor, data: Uint8Array): Promise<void> =>
+const pushBlob = (client: RegistryClient, repo: string, descriptor: Descriptor, data: Uint8Array, signal?: AbortSignal): Promise<void> =>
   withRetry(async () => {
-    if (await blobExists(client, repo, descriptor.digest)) return;
-    const start = await client.request("POST", `/v2/${repo}/blobs/uploads/`, pushScope(repo));
+    if (await blobExists(client, repo, descriptor.digest, signal)) return;
+    const start = await client.request("POST", `/v2/${repo}/blobs/uploads/`, pushScope(repo), { signal });
     if (start.status !== 202) throw new Error(`start upload for ${repo} failed: ${start.status} ${await start.text()}`);
     const location = start.headers.get("location");
     await start.arrayBuffer().catch(() => undefined);
@@ -271,11 +298,12 @@ const pushBlob = (client: RegistryClient, repo: string, descriptor: Descriptor, 
       {
         headers: { "Content-Type": "application/octet-stream", "Content-Length": String(data.byteLength) },
         body: data as unknown as BodyInit,
+        signal,
       },
     );
     if (put.status !== 201) throw new Error(`finalize upload for ${descriptor.digest} failed: ${put.status} ${await put.text()}`);
     await put.arrayBuffer().catch(() => undefined);
-  });
+  }, signal);
 
 const putManifest = (
   client: RegistryClient,
@@ -283,17 +311,19 @@ const putManifest = (
   reference: string,
   mediaType: string,
   raw: Uint8Array,
+  signal?: AbortSignal,
 ): Promise<string> =>
   withRetry(async () => {
     const res = await client.request("PUT", `/v2/${repo}/manifests/${reference}`, pushScope(repo), {
       headers: { "Content-Type": mediaType, "Content-Length": String(raw.byteLength) },
       body: raw as unknown as BodyInit,
+      signal,
     });
     if (res.status !== 201) throw new Error(`put manifest ${reference} failed: ${res.status} ${await res.text()}`);
     const digest = res.headers.get("docker-content-digest") ?? sha256(raw);
     await res.arrayBuffer().catch(() => undefined);
     return digest;
-  });
+  }, signal);
 
 // Copies a manifest and everything it references, pushing each manifest under
 // its own digest so parent indexes resolve. Returns the copied manifest.
@@ -304,11 +334,15 @@ async function copyManifestTree(
   destRepo: string,
   reference: string,
   counter: { images: number },
+  signal?: AbortSignal,
+  onProgress?: ImageCopyRequest["onProgress"],
 ): Promise<FetchedManifest> {
-  const manifest = await getManifest(src, srcRepo, reference);
+  await reportProgress({ onProgress }, `Fetching manifest ${reference}`);
+  const manifest = await getManifest(src, srcRepo, reference, signal);
   if (INDEX_TYPES.has(manifest.mediaType)) {
+    await reportProgress({ onProgress }, `Copying ${manifest.parsed.manifests?.length ?? 0} platform manifest(s) from index ${manifest.digest}`);
     for (const child of manifest.parsed.manifests ?? []) {
-      await copyManifestTree(src, srcRepo, dest, destRepo, child.digest, counter);
+      await copyManifestTree(src, srcRepo, dest, destRepo, child.digest, counter, signal, onProgress);
     }
   } else {
     counter.images += 1;
@@ -316,19 +350,21 @@ async function copyManifestTree(
       (descriptor): descriptor is Descriptor => Boolean(descriptor),
     );
     for (const descriptor of blobs) {
-      const data = await pullBlob(src, srcRepo, descriptor);
-      await pushBlob(dest, destRepo, descriptor, data);
+      await reportProgress({ onProgress }, `Copying blob ${descriptor.digest}${descriptor.size ? ` (${descriptor.size} bytes)` : ""}`);
+      const data = await pullBlob(src, srcRepo, descriptor, signal);
+      await pushBlob(dest, destRepo, descriptor, data, signal);
     }
   }
-  await putManifest(dest, destRepo, manifest.digest, manifest.mediaType, manifest.raw);
+  await reportProgress({ onProgress }, `Pushing manifest ${manifest.digest}`);
+  await putManifest(dest, destRepo, manifest.digest, manifest.mediaType, manifest.raw, signal);
   return manifest;
 }
 
 /** Resolves the source top-level manifest digest without copying. */
-export const resolveSourceDigest = (source: string, auth?: RegistryAuth): Promise<string> => {
+export const resolveSourceDigest = (source: string, auth?: RegistryAuth, signal?: AbortSignal): Promise<string> => {
   const parsed = parseImageReference(source);
   const client = new RegistryClient(parsed.apiHost, auth);
-  return getManifest(client, parsed.repository, parsed.reference).then((manifest) => manifest.digest);
+  return getManifest(client, parsed.repository, parsed.reference, signal).then((manifest) => manifest.digest);
 };
 
 /** Copies an image (single- or multi-arch) from a source registry into the destination. */
@@ -340,7 +376,8 @@ export async function copyImage(request: ImageCopyRequest): Promise<ImageCopyRes
   const counter = { images: 0 };
   const platform = request.platform ?? { os: "linux", architecture: "amd64" };
 
-  const top = await getManifest(src, sourceRef.repository, sourceRef.reference);
+  await reportProgress(request, `Resolving source manifest ${request.source}`);
+  const top = await getManifest(src, sourceRef.repository, sourceRef.reference, request.signal);
 
   let pushTarget = top;
   if (INDEX_TYPES.has(top.mediaType) && !request.allPlatforms) {
@@ -348,13 +385,15 @@ export async function copyImage(request: ImageCopyRequest): Promise<ImageCopyRes
       (entry) => entry.platform?.os === platform.os && entry.platform?.architecture === platform.architecture,
     );
     if (!child) throw new Error(`source has no ${platform.os}/${platform.architecture} manifest`);
-    pushTarget = await copyManifestTree(src, sourceRef.repository, dest, destRef.repository, child.digest, counter);
+    await reportProgress(request, `Selected ${platform.os}/${platform.architecture} manifest ${child.digest}`);
+    pushTarget = await copyManifestTree(src, sourceRef.repository, dest, destRef.repository, child.digest, counter, request.signal, request.onProgress);
   } else {
-    await copyManifestTree(src, sourceRef.repository, dest, destRef.repository, sourceRef.reference, counter);
+    await copyManifestTree(src, sourceRef.repository, dest, destRef.repository, sourceRef.reference, counter, request.signal, request.onProgress);
   }
 
   for (const tag of request.destTags) {
-    await putManifest(dest, destRef.repository, tag, pushTarget.mediaType, pushTarget.raw);
+    await reportProgress(request, `Tagging mirrored image ${request.destination}:${tag}`);
+    await putManifest(dest, destRef.repository, tag, pushTarget.mediaType, pushTarget.raw, request.signal);
   }
   return { digest: pushTarget.digest, platforms: counter.images };
 }

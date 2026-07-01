@@ -4,6 +4,14 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.5-beta.59] - 2026-07-01
+
+### Changed
+
+- `ContainerImageMirror` now emits progress notes while resolving and copying
+  registry manifests/blobs, and accepts a per-mirror `timeout` budget that is
+  applied independently to digest resolution and copy operations.
+
 ## [0.7.4-beta.59] - 2026-06-29
 
 ### Fixed

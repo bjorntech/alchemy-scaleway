@@ -213,6 +213,27 @@ describe("copyImage", () => {
     expect(dest.manifests.has(seeded.digest)).toBe(true);
   });
 
+  test("reports coarse progress while copying", async () => {
+    const src = track(startRegistry());
+    const dest = track(startRegistry());
+    seedImage(src, "app/api", "1.0", "v1");
+    const progress: string[] = [];
+
+    await copyImage({
+      source: `${src.host}/app/api:1.0`,
+      destination: `${dest.host}/mirror/api`,
+      destTags: ["1.0"],
+      allPlatforms: true,
+      onProgress: (message) => {
+        progress.push(message);
+      },
+    });
+
+    expect(progress.some((message) => message.startsWith("Resolving source manifest"))).toBe(true);
+    expect(progress.some((message) => message.startsWith("Copying blob sha256:"))).toBe(true);
+    expect(progress.some((message) => message === `Tagging mirrored image ${dest.host}/mirror/api:1.0`)).toBe(true);
+  });
+
   test("preserves a multi-arch index and copies every child", async () => {
     const src = track(startRegistry());
     const dest = track(startRegistry());
@@ -324,6 +345,24 @@ describe("copyImage", () => {
     await expect(
       copyImage({ source: `${src.host}/app/api:missing`, destination: `${dest.host}/mirror/api`, destTags: ["x"], allPlatforms: true }),
     ).rejects.toThrow(/get manifest .* failed: 404/);
+  });
+
+  test("honors an aborted copy signal", async () => {
+    const src = track(startRegistry());
+    const dest = track(startRegistry());
+    seedImage(src, "app/api", "1.0", "v1");
+    const controller = new AbortController();
+    controller.abort(new Error("mirror timed out"));
+
+    await expect(
+      copyImage({
+        source: `${src.host}/app/api:1.0`,
+        destination: `${dest.host}/mirror/api`,
+        destTags: ["x"],
+        allPlatforms: true,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(/mirror timed out|aborted/i);
   });
 });
 

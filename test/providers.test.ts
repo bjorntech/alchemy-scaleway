@@ -1049,6 +1049,21 @@ describe("ContainerImageMirror", () => {
     }),
   );
 
+  test.provider("accepts a per-mirror timeout", (stack) =>
+    Effect.gen(function* () {
+      yield* stack.deploy(
+        Scaleway.ContainerImageMirror("ApiImage", {
+          registry: "rg.fr-par.scw.cloud/demo-registry",
+          source: "ghcr.io/acme/api:1.4.2",
+          repository: "api",
+          timeout: "5s",
+        }),
+      );
+
+      expect(mirrorCopies).toHaveLength(1);
+    }),
+  );
+
   test.provider("re-mirrors only when the source digest changes", (stack) =>
     Effect.gen(function* () {
       const program = Scaleway.ContainerImageMirror("ApiImage", {
