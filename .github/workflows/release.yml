@@ -58,7 +58,8 @@ jobs:
           npm publish "${TARBALL}" --access public --tag "${TAG}"
           if [[ "${VERSION}" == *-* ]]; then
             echo "Adding prerelease dist-tag: next -> ${PKG_NAME}@${VERSION}"
-            npm dist-tag add "${PKG_NAME}@${VERSION}" next
+            npm dist-tag add "${PKG_NAME}@${VERSION}" next || \
+              echo "::warning::npm trusted publishing allowed publish but not dist-tag mutation; update the next tag manually or configure an npm automation token"
           fi
           rm -f *.tgz
           echo "--- Published ${PKG_NAME}@${VERSION} ---"
