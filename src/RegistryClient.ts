@@ -275,6 +275,18 @@ const manifestExists = (client: RegistryClient, repo: string, digest: string, si
     throw new Error(`head manifest ${digest} failed: ${res.status}`);
   }, signal);
 
+const manifestDigest = (client: RegistryClient, repo: string, reference: string, signal?: AbortSignal): Promise<string | undefined> =>
+  withRetry(async () => {
+    const res = await client.request("HEAD", `/v2/${repo}/manifests/${reference}`, pushScope(repo), {
+      headers: { Accept: MANIFEST_ACCEPT },
+      signal,
+    });
+    await res.arrayBuffer().catch(() => undefined);
+    if (res.status === 404) return undefined;
+    if (res.status !== 200) throw new Error(`head manifest ${reference} failed: ${res.status}`);
+    return res.headers.get("docker-content-digest") ?? undefined;
+  }, signal);
+
 const blobExists = (client: RegistryClient, repo: string, digest: string, signal?: AbortSignal): Promise<boolean> =>
   withRetry(async () => {
     const res = await client.request("HEAD", `/v2/${repo}/blobs/${digest}`, pushScope(repo), { signal });
@@ -336,6 +348,19 @@ const putManifest = (
     await res.arrayBuffer().catch(() => undefined);
     return digest;
   }, signal);
+
+const putManifestIfNeeded = async (
+  client: RegistryClient,
+  repo: string,
+  reference: string,
+  manifest: FetchedManifest,
+  signal?: AbortSignal,
+) => {
+  const currentDigest = await manifestDigest(client, repo, reference, signal);
+  if (currentDigest === manifest.digest) return false;
+  await putManifest(client, repo, reference, manifest.mediaType, manifest.raw, signal);
+  return true;
+};
 
 // Copies a manifest and everything it references, pushing each manifest under
 // its own digest so parent indexes resolve. Returns the copied manifest.
@@ -410,7 +435,8 @@ export async function copyImage(request: ImageCopyRequest): Promise<ImageCopyRes
 
   for (const tag of request.destTags) {
     await reportProgress(request, `Tagging mirrored image ${request.destination}:${tag}`);
-    await putManifest(dest, destRef.repository, tag, pushTarget.mediaType, pushTarget.raw, request.signal);
+    const changed = await putManifestIfNeeded(dest, destRef.repository, tag, pushTarget, request.signal);
+    if (!changed) await reportProgress(request, `Tag ${request.destination}:${tag} already points at ${pushTarget.digest}`);
   }
   return { digest: pushTarget.digest, platforms: counter.images };
 }

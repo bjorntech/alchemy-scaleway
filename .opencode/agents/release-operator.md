@@ -10,8 +10,6 @@ permission:
     "bun run coverage": allow
     "bun run crap": allow
     "npm view*": allow
-    "npm dist-tag ls*": allow
-    "npm dist-tag add*": ask
     "git status*": allow
     "git diff*": allow
     "git log*": allow
@@ -41,7 +39,7 @@ Rules:
 - Prefer PR flow and merge the release commit to `main` before publishing unless the user explicitly approves direct publishing from another ref.
 - Prefer the repo's GitHub trusted-publishing workflow over local npm publish.
 - Watch the workflow and verify npm `version` plus `dist-tags` after success.
-- Verify npm `latest` points to the released version. For beta/prerelease versions, set and verify `next` points to the released version too.
+- Verify npm `latest` points to the released version. This repo does not maintain a separate `next` dist-tag.
 - Create a GitHub Release tagged `v<version>` from the release commit after npm verification; mark beta versions as prereleases.
 - Verify the GitHub Release exists and targets the release commit.
 

@@ -4,6 +4,15 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.7-beta.59] - 2026-07-01
+
+### Fixed
+
+- `ContainerImageMirror` now skips retagging destination tags that already point
+  at the desired digest. This avoids hanging on redundant Scaleway Registry tag
+  `PUT` requests during retries after an interrupted deploy already copied and
+  tagged the image.
+
 ## [0.7.6-beta.59] - 2026-07-01
 
 ### Fixed

@@ -1,7 +1,7 @@
 # alchemy-scaleway
 
 [![CI](https://github.com/bjorntech/alchemy-scaleway/actions/workflows/ci.yml/badge.svg)](https://github.com/bjorntech/alchemy-scaleway/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/%40bjorntech%2Falchemy-scaleway/next?style=flat-square)](https://www.npmjs.com/package/@bjorntech/alchemy-scaleway)
+[![npm](https://img.shields.io/npm/v/%40bjorntech%2Falchemy-scaleway/latest?style=flat-square)](https://www.npmjs.com/package/@bjorntech/alchemy-scaleway)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](./LICENSE)
 
 Scaleway providers for [Alchemy v2](https://v2.alchemy.run/).
@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.7.7-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Skips redundant mirror tag updates when the destination tag already points at the desired digest. |
 | `0.7.6-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Improves container deploy failure diagnostics and skips redundant mirror copies after interrupted deploy retries. |
 | `0.7.5-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | `ContainerImageMirror` emits registry-copy progress notes and accepts per-operation timeout budgets. |
 | `0.7.4-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Containers must reach `status: ready` (not just expose an endpoint) before companions deploy; failed deploys surface as `ContainerDeployFailed`. |
@@ -45,7 +46,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 ## Install
 
 ```sh
-bun add alchemy@2.0.0-beta.59 effect @bjorntech/alchemy-scaleway@next
+bun add alchemy@2.0.0-beta.59 effect @bjorntech/alchemy-scaleway
 ```
 
 `@bjorntech/alchemy-scaleway` ships raw TypeScript and uses `.ts` import suffixes internally. Your `tsconfig.json` needs `"moduleResolution": "Bundler"` and `"allowImportingTsExtensions": true`.

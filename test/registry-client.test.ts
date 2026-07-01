@@ -19,6 +19,7 @@ interface MockRegistry {
   blobs: Map<string, Uint8Array>;
   manifests: Map<string, ManifestEntry>;
   uploads: number;
+  manifestPuts: number;
   stop(): void;
 }
 
@@ -28,7 +29,7 @@ function startRegistry(options: { requireAuth?: boolean; basic?: string; failUpl
   const requireAuth = options.requireAuth ?? true;
   const blobs = new Map<string, Uint8Array>();
   const manifests = new Map<string, ManifestEntry>();
-  const state = { uploads: 0 };
+  const state = { uploads: 0, manifestPuts: 0 };
   let remainingFailures = options.failUploadsTimes ?? 0;
 
   const server = Bun.serve({
@@ -81,6 +82,7 @@ function startRegistry(options: { requireAuth?: boolean; basic?: string; failUpl
       if ((match = p.match(/^\/v2\/(.+)\/manifests\/(.+)$/))) {
         const reference = decodeURIComponent(match[2]);
         if (req.method === "PUT") {
+          state.manifestPuts += 1;
           const raw = new Uint8Array(await req.arrayBuffer());
           const digest = sha256(raw);
           const parsed = JSON.parse(new TextDecoder().decode(raw));
@@ -117,6 +119,9 @@ function startRegistry(options: { requireAuth?: boolean; basic?: string; failUpl
     manifests,
     get uploads() {
       return state.uploads;
+    },
+    get manifestPuts() {
+      return state.manifestPuts;
     },
     stop: () => server.stop(true),
   };
@@ -323,6 +328,28 @@ describe("copyImage", () => {
 
     expect(dest.uploads).toBe(uploadsAfterFirst);
     expect(dest.manifests.has("b")).toBe(true);
+  });
+
+  test("skips retagging when the destination tag already points at the digest", async () => {
+    const src = track(startRegistry());
+    const dest = track(startRegistry());
+    seedImage(src, "app/api", "1.0", "v1");
+
+    await copyImage({ source: `${src.host}/app/api:1.0`, destination: `${dest.host}/mirror/api`, destTags: ["a"], allPlatforms: true });
+    const manifestPutsAfterFirst = dest.manifestPuts;
+    const progress: string[] = [];
+    await copyImage({
+      source: `${src.host}/app/api:1.0`,
+      destination: `${dest.host}/mirror/api`,
+      destTags: ["a"],
+      allPlatforms: true,
+      onProgress: (message) => {
+        progress.push(message);
+      },
+    });
+
+    expect(dest.manifestPuts).toBe(manifestPutsAfterFirst);
+    expect(progress.some((message) => message.includes("already points at"))).toBe(true);
   });
 
   test("sends Basic credentials to the source token endpoint", async () => {
