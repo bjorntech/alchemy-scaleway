@@ -46,19 +46,15 @@ jobs:
           echo "--- Publishing ${PKG_NAME}@${VERSION} ---"
 
           if npm view "${PKG_NAME}@${VERSION}" version >/dev/null 2>&1; then
-            echo "${PKG_NAME}@${VERSION} already published, skipping publish"
-          else
-            TAG="latest"
-
-            bun pm pack --destination .
-            TARBALL=$(ls *.tgz 2>/dev/null | head -1)
-            echo "Publishing tarball: ${TARBALL} with tag ${TAG}"
-            npm publish "${TARBALL}" --access public --tag "${TAG}"
-            rm -f *.tgz
-            echo "--- Published ${PKG_NAME}@${VERSION} ---"
+            echo "${PKG_NAME}@${VERSION} already published, skipping"
+            exit 0
           fi
 
-          if [[ "${VERSION}" == *-* ]]; then
-            echo "Setting npm next dist-tag to ${PKG_NAME}@${VERSION}"
-            npm dist-tag add "${PKG_NAME}@${VERSION}" next
-          fi
+          TAG="latest"
+
+          bun pm pack --destination .
+          TARBALL=$(ls *.tgz 2>/dev/null | head -1)
+          echo "Publishing tarball: ${TARBALL} with tag ${TAG}"
+          npm publish "${TARBALL}" --access public --tag "${TAG}"
+          rm -f *.tgz
+          echo "--- Published ${PKG_NAME}@${VERSION} ---"
