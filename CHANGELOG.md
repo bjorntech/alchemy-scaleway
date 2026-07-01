@@ -4,6 +4,21 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.6-beta.59] - 2026-07-01
+
+### Fixed
+
+- `ContainerDeployFailed` now includes a readable fallback message when Scaleway
+  marks a container deployment `error`/`failed` without returning
+  `error_message`, instead of rendering as a blank tagged error. Container
+  readiness polling also includes the container ID and elapsed wait time in
+  progress notes so long Scaleway rollouts remain visibly active.
+- `ContainerImageMirror` now skips copying an image tree when the destination
+  content manifest already exists, while still retagging the requested stable
+  tag. This avoids re-uploading blobs/manifests on retries where a previous
+  failed deploy copied the image into Scaleway Registry but Alchemy did not
+  commit the mirror output state.
+
 ## [0.7.5-beta.59] - 2026-07-01
 
 ### Changed

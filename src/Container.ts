@@ -117,8 +117,22 @@ export const Container = Resource<Container>("Scaleway.Container");
 class ContainerDeployFailed extends Data.TaggedError("Scaleway.ContainerDeployFailed")<{
   containerId: string;
   status: string;
-  errorMessage?: string;
+  message: string;
+  errorMessage: string;
 }> {}
+
+const containerDeployErrorMessage = (containerId: string, record: ScalewayContainerRecord) => {
+  const details = record.error_message?.trim();
+  if (details) return details;
+  return `Scaleway container ${containerId} entered ${record.status ?? "unknown"} state without an error_message`;
+};
+
+const formatElapsed = (startedAt: number, now: number) => {
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return minutes === 0 ? `${remainder}s` : `${minutes}m${remainder.toString().padStart(2, "0")}s`;
+};
 
 const secretsEqual = (
   left: ContainerProps["secretEnvironmentVariables"],
@@ -339,17 +353,21 @@ export const ContainerProvider = () =>
         session: { note(message: string): Effect.Effect<void> },
       ): Effect.Effect<Container["Attributes"], unknown> =>
         Effect.gen(function* () {
+          const startedAt = yield* Effect.sync(() => Date.now());
           while (true) {
             const record = yield* clients.containers.getContainer(containerIdValue);
             if (isContainerError(record)) {
+              const message = containerDeployErrorMessage(containerIdValue, record);
               return yield* new ContainerDeployFailed({
                 containerId: containerIdValue,
                 status: record.status ?? "unknown",
-                errorMessage: record.error_message ?? undefined,
+                message,
+                errorMessage: message,
               });
             }
             if (isContainerReady(record)) return toAttributes(record);
-            yield* session.note(`waiting container ready status=${record.status ?? "unknown"}`);
+            const elapsed = yield* Effect.sync(() => formatElapsed(startedAt, Date.now()));
+            yield* session.note(`waiting container ready id=${containerIdValue} status=${record.status ?? "unknown"} elapsed=${elapsed}`);
             yield* Effect.sleep("2 seconds");
           }
         });

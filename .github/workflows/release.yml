@@ -56,5 +56,9 @@ jobs:
           TARBALL=$(ls *.tgz 2>/dev/null | head -1)
           echo "Publishing tarball: ${TARBALL} with tag ${TAG}"
           npm publish "${TARBALL}" --access public --tag "${TAG}"
+          if [[ "${VERSION}" == *-* ]]; then
+            echo "Adding prerelease dist-tag: next -> ${PKG_NAME}@${VERSION}"
+            npm dist-tag add "${PKG_NAME}@${VERSION}" next
+          fi
           rm -f *.tgz
           echo "--- Published ${PKG_NAME}@${VERSION} ---"

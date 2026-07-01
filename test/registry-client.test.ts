@@ -96,6 +96,12 @@ function startRegistry(options: { requireAuth?: boolean; basic?: string; failUpl
         }
         const entry = manifests.get(reference);
         if (!entry) return new Response("no manifest", { status: 404 });
+        if (req.method === "HEAD") {
+          return new Response(null, {
+            status: 200,
+            headers: { "Content-Type": entry.mediaType, "Docker-Content-Digest": sha256(entry.raw) },
+          });
+        }
         return new Response(entry.raw as unknown as BodyInit, {
           status: 200,
           headers: { "Content-Type": entry.mediaType, "Docker-Content-Digest": sha256(entry.raw) },
@@ -304,6 +310,19 @@ describe("copyImage", () => {
 
     // Second copy finds blobs already present (HEAD 200) and starts no new uploads.
     expect(dest.uploads).toBe(uploadsAfterFirst);
+  });
+
+  test("skips copying an image tree when the destination manifest already exists", async () => {
+    const src = track(startRegistry());
+    const dest = track(startRegistry());
+    seedImage(src, "app/api", "1.0", "v1");
+
+    await copyImage({ source: `${src.host}/app/api:1.0`, destination: `${dest.host}/mirror/api`, destTags: ["a"], allPlatforms: true });
+    const uploadsAfterFirst = dest.uploads;
+    await copyImage({ source: `${src.host}/app/api:1.0`, destination: `${dest.host}/mirror/api`, destTags: ["b"], allPlatforms: true });
+
+    expect(dest.uploads).toBe(uploadsAfterFirst);
+    expect(dest.manifests.has("b")).toBe(true);
   });
 
   test("sends Basic credentials to the source token endpoint", async () => {

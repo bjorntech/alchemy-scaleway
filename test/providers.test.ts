@@ -1643,6 +1643,29 @@ describe("Container", () => {
     }),
   );
 
+  test.provider("reports container deployment failures without Scaleway details", (stack) =>
+    Effect.gen(function* () {
+      mock.failNextContainerDeploys(1);
+
+      const deploy = stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          return yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+          });
+        }),
+      );
+
+      yield* Effect.flip(deploy).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("Scaleway.ContainerDeployFailed");
+          expect(String(error)).toContain("entered error state without an error_message");
+        }),
+      );
+    }),
+  );
+
   test.provider("updates and removes container companion resources", (stack) =>
     Effect.gen(function* () {
       const program = (schedule?: string) =>

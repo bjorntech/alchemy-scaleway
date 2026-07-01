@@ -263,6 +263,18 @@ const getManifest = (client: RegistryClient, repo: string, reference: string, si
     return { digest, mediaType, raw, parsed };
   }, signal);
 
+const manifestExists = (client: RegistryClient, repo: string, digest: string, signal?: AbortSignal): Promise<boolean> =>
+  withRetry(async () => {
+    const res = await client.request("HEAD", `/v2/${repo}/manifests/${digest}`, pushScope(repo), {
+      headers: { Accept: MANIFEST_ACCEPT },
+      signal,
+    });
+    await res.arrayBuffer().catch(() => undefined);
+    if (res.status === 200) return true;
+    if (res.status === 404) return false;
+    throw new Error(`head manifest ${digest} failed: ${res.status}`);
+  }, signal);
+
 const blobExists = (client: RegistryClient, repo: string, digest: string, signal?: AbortSignal): Promise<boolean> =>
   withRetry(async () => {
     const res = await client.request("HEAD", `/v2/${repo}/blobs/${digest}`, pushScope(repo), { signal });
@@ -339,6 +351,11 @@ async function copyManifestTree(
 ): Promise<FetchedManifest> {
   await reportProgress({ onProgress }, `Fetching manifest ${reference}`);
   const manifest = await getManifest(src, srcRepo, reference, signal);
+  if (await manifestExists(dest, destRepo, manifest.digest, signal)) {
+    await reportProgress({ onProgress }, `Manifest ${manifest.digest} already present in destination`);
+    if (!INDEX_TYPES.has(manifest.mediaType)) counter.images += 1;
+    return manifest;
+  }
   if (INDEX_TYPES.has(manifest.mediaType)) {
     await reportProgress({ onProgress }, `Copying ${manifest.parsed.manifests?.length ?? 0} platform manifest(s) from index ${manifest.digest}`);
     for (const child of manifest.parsed.manifests ?? []) {

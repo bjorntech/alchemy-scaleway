@@ -43,6 +43,8 @@ export interface ScalewayMock {
   failNextDomainDeploys(count: number): void;
   /** Make the next created containers expose an endpoint before they become ready. */
   makeNextContainerDeploysSlow(reads: number): void;
+  /** Make the next created containers enter Scaleway's deployment error state. */
+  failNextContainerDeploys(count: number): void;
   /** Seed a live custom domain for recovery tests. */
   seedDomain(input: { id: string; containerId: string; hostname: string; status?: string; errorMessage?: string }): void;
   /** Seed live Function companions for recovery tests. */
@@ -138,6 +140,7 @@ export function installScalewayMock(): ScalewayMock {
   let asyncLifecycle = false;
   let staleRdbListReads = 0;
   let domainDeployErrorsRemaining = 0;
+  let containerDeployErrorsRemaining = 0;
   let slowContainerReadyReads = 0;
   let staleDomainDeleteReads = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
@@ -174,10 +177,16 @@ export function installScalewayMock(): ScalewayMock {
     if (kind === "containers") {
       // v1 has no separate deploy endpoint; Create/Update auto-deploy.
       if (method === "POST") {
+        const status = containerDeployErrorsRemaining > 0
+          ? "error"
+          : slowContainerReadyReads > 0
+            ? "deploying"
+            : "ready";
+        if (containerDeployErrorsRemaining > 0) containerDeployErrorsRemaining--;
         const record: Record<string, unknown> = {
           id: nextId("ctr"),
           region: "fr-par",
-          status: slowContainerReadyReads > 0 ? "deploying" : "ready",
+          status,
           public_endpoint: `https://${nextId("ep")}.functions.fnc.fr-par.scw.cloud`,
           project_id: "proj-test",
           ...input,
@@ -1625,6 +1634,9 @@ export function installScalewayMock(): ScalewayMock {
     },
     makeNextContainerDeploysSlow: (reads) => {
       slowContainerReadyReads = reads;
+    },
+    failNextContainerDeploys: (count) => {
+      containerDeployErrorsRemaining = count;
     },
     seedDomain: ({ id, containerId, hostname, status = "ready", errorMessage }) => {
       domains.set(id, {
