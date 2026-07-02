@@ -4,6 +4,8 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.9-beta.59] - 2026-07-02
+
 ### Added
 
 - `Bucket` now accepts a `project` prop (including the single managed `Project`
