@@ -4,6 +4,14 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+### Fixed
+
+- `ContainerImageMirror` now verifies destination tags through pull-scope
+  registry reads after tagging, so dependent `Container` updates are less likely
+  to race Scaleway Registry tag visibility. `Container` readiness also treats
+  Scaleway's transient "Unable to pull container image" error as retryable for a
+  bounded window before surfacing a deployment failure.
+
 ## [0.7.7-beta.59] - 2026-07-01
 
 ### Fixed

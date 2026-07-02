@@ -127,6 +127,12 @@ const containerDeployErrorMessage = (containerId: string, record: ScalewayContai
   return `Scaleway container ${containerId} entered ${record.status ?? "unknown"} state without an error_message`;
 };
 
+const IMAGE_PULL_NOT_VISIBLE = "unable to pull container image";
+const IMAGE_PULL_RETRY_WINDOW_MS = 60_000;
+
+const isTransientImagePullFailure = (message: string) =>
+  message.toLowerCase().includes(IMAGE_PULL_NOT_VISIBLE);
+
 const formatElapsed = (startedAt: number, now: number) => {
   const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
   const minutes = Math.floor(seconds / 60);
@@ -358,6 +364,13 @@ export const ContainerProvider = () =>
             const record = yield* clients.containers.getContainer(containerIdValue);
             if (isContainerError(record)) {
               const message = containerDeployErrorMessage(containerIdValue, record);
+              const now = yield* Effect.sync(() => Date.now());
+              if (isTransientImagePullFailure(message) && now - startedAt < IMAGE_PULL_RETRY_WINDOW_MS) {
+                const elapsed = formatElapsed(startedAt, now);
+                yield* session.note(`waiting container image pull visibility id=${containerIdValue} elapsed=${elapsed}`);
+                yield* Effect.sleep("2 seconds");
+                continue;
+              }
               return yield* new ContainerDeployFailed({
                 containerId: containerIdValue,
                 status: record.status ?? "unknown",
