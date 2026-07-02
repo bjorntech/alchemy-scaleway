@@ -236,6 +236,16 @@ export const projectId = (explicit?: unknown, existing?: string) =>
     return yield* configuredOrDefaultProjectId();
   });
 
+// Like `projectId` but never falls back to credentials' default project.
+// Used by Object Storage, where an unset project means "the API key's
+// preferred project" and must stay undefined for backward compatibility.
+export const optionalProjectId = (explicit?: unknown, existing?: string): Effect.Effect<string | undefined> =>
+  Effect.gen(function* () {
+    const managedExisting = existingManagedProjectId(explicit, existing);
+    if (managedExisting) return managedExisting;
+    return yield* explicitOrExistingProjectId(explicit, existing);
+  }) as Effect.Effect<string | undefined>;
+
 export const credentialsProjectId = (explicit?: unknown) =>
   Effect.gen(function* () {
     return (yield* explicitProjectId(explicit)) ?? (yield* defaultProjectId());

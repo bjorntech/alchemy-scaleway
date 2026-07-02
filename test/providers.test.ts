@@ -2531,6 +2531,64 @@ describe("Bucket", () => {
       expect(diff).toEqual({ action: "update" });
     }),
   );
+
+  test.provider("scopes bucket requests to an explicit project via access key override", (stack) =>
+    Effect.gen(function* () {
+      const created = yield* stack.deploy(
+        Scaleway.Bucket("Data", { name: "alchemy-bucket-project-test", project: "proj-app" }),
+      );
+
+      expect(created.projectId).toBe("proj-app");
+      const create = bucketRootRequests("PUT", "alchemy-bucket-project-test").at(0);
+      expect(create?.headers.get("authorization")).toContain("Credential=test-access@proj-app/");
+    }),
+  );
+
+  test.provider("changing bucket project forces a replace", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(
+        Scaleway.Bucket("Data", { name: "alchemy-bucket-project-move-test", project: "proj-app" }),
+      );
+      const second = yield* stack.deploy(
+        Scaleway.Bucket("Data", { name: "alchemy-bucket-project-move-test", project: "proj-other" }),
+      );
+
+      expect(first.projectId).toBe("proj-app");
+      expect(second.projectId).toBe("proj-other");
+      expect(bucketRootRequests("PUT", "alchemy-bucket-project-move-test")).toHaveLength(2);
+      // Replaced bucket is retained, not deleted.
+      expect(bucketRootRequests("DELETE", "alchemy-bucket-project-move-test")).toHaveLength(0);
+    }),
+  );
+
+  test.provider("new bucket defaults to the single managed project", (stack) =>
+    Effect.gen(function* () {
+      const { project, bucket } = yield* stack.deploy(
+        Effect.gen(function* () {
+          const project = yield* Scaleway.Project("AppProject", { organizationId: "org-test" });
+          const bucket = yield* Scaleway.Bucket("Data", { name: "alchemy-bucket-managed-project-test" });
+          return { project, bucket };
+        }),
+      );
+
+      expect(bucket.projectId).toBe(project.projectId);
+      const create = bucketRootRequests("PUT", "alchemy-bucket-managed-project-test").at(0);
+      expect(create?.headers.get("authorization")).toContain(`Credential=test-access@${project.projectId}/`);
+    }),
+  );
+
+  test.provider("existing buckets without a project keep the access key scope", (stack) =>
+    Effect.gen(function* () {
+      const first = yield* stack.deploy(Scaleway.Bucket("Data", { name: "alchemy-bucket-legacy-scope-test" }));
+      const again = yield* stack.deploy(Scaleway.Bucket("Data", { name: "alchemy-bucket-legacy-scope-test" }));
+
+      expect(first.projectId).toBeUndefined();
+      expect(again.projectId).toBeUndefined();
+      expect(bucketRootRequests("PUT", "alchemy-bucket-legacy-scope-test")).toHaveLength(1);
+      const create = bucketRootRequests("PUT", "alchemy-bucket-legacy-scope-test").at(0);
+      expect(create?.headers.get("authorization")).toContain("Credential=test-access/");
+    }),
+  );
 });
 
 describe("Vpc", () => {
@@ -3386,6 +3444,43 @@ systemctl start docker
       expect(missing).toBeUndefined();
     }),
   );
+
+  test.provider("recovers a created server by ownership tag after an interrupted create", (stack) =>
+    Effect.gen(function* () {
+      mock.failNext("/user_data/cloud-init", 500, "post-create step failed");
+      const program = Scaleway.Instance("App", {
+        commercialType: "DEV1-S",
+        image: "ubuntu_jammy",
+        cloudInit: "#!/bin/bash\necho hello\n",
+      });
+
+      yield* Effect.flip(stack.deploy(program)).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("post-create step failed");
+        }),
+      );
+
+      const recovered = yield* stack.deploy(program);
+      expect(recovered.serverId).toMatch(/^srv-/);
+      expect(recovered.state).toBe("running");
+      // The retry adopts the tagged server instead of creating an orphan duplicate.
+      const creates = mock.calls.filter((call) => call.method === "POST" && new URL(call.url).pathname.endsWith("/servers"));
+      expect(creates).toHaveLength(1);
+    }),
+  );
+
+  test.provider("retries transient insufficient permissions while a new project propagates", (stack) =>
+    Effect.gen(function* () {
+      mock.failNext("/servers?", 403, "insufficient permissions");
+
+      const created = yield* stack.deploy(Scaleway.Instance("App", { commercialType: "DEV1-S" }));
+
+      expect(created.serverId).toMatch(/^srv-/);
+      // The 403 list call was retried instead of failing the deploy.
+      const lists = mock.calls.filter((call) => call.method === "GET" && call.url.includes("/servers?"));
+      expect(lists.length).toBeGreaterThanOrEqual(2);
+    }),
+  );
 });
 
 describe("SecurityGroup", () => {
@@ -3509,6 +3604,7 @@ describe("SecurityGroup", () => {
         }),
       );
       const provider = yield* Scaleway.SecurityGroup.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const listsBeforeDelete = requests("GET", "/servers?project=proj-test").length;
 
       yield* provider.delete!({
         id: "Firewall",
@@ -3518,7 +3614,7 @@ describe("SecurityGroup", () => {
         session: { note: () => Effect.void },
       } as any);
 
-      expect(requests("GET", "/servers?project=proj-test")).toHaveLength(1);
+      expect(requests("GET", "/servers?project=proj-test")).toHaveLength(listsBeforeDelete + 1);
       expect(requests("POST", `/servers/${created.instance.serverId}/action`).map((call) => JSON.parse(call.body).action)).toContain("terminate");
       expect(requests("DELETE", `/security_groups/${created.securityGroup.securityGroupId}`)).toHaveLength(2);
     }),
