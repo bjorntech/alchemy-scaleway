@@ -1643,6 +1643,25 @@ describe("Container", () => {
     }),
   );
 
+  test.provider("retries transient container image pull visibility failures", (stack) =>
+    Effect.gen(function* () {
+      mock.delayNextContainerImagePulls(1);
+
+      const created = yield* stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          return yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+          });
+        }),
+      );
+
+      expect(created.status).toBe("ready");
+      expect(containerGets()).toHaveLength(2);
+    }),
+  );
+
   test.provider("reports container deployment failures without Scaleway details", (stack) =>
     Effect.gen(function* () {
       mock.failNextContainerDeploys(1);

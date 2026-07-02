@@ -45,6 +45,8 @@ export interface ScalewayMock {
   makeNextContainerDeploysSlow(reads: number): void;
   /** Make the next created containers enter Scaleway's deployment error state. */
   failNextContainerDeploys(count: number): void;
+  /** Make the next created containers report a transient image-pull error before becoming ready. */
+  delayNextContainerImagePulls(reads: number): void;
   /** Seed a live custom domain for recovery tests. */
   seedDomain(input: { id: string; containerId: string; hostname: string; status?: string; errorMessage?: string }): void;
   /** Seed live Function companions for recovery tests. */
@@ -141,6 +143,7 @@ export function installScalewayMock(): ScalewayMock {
   let staleRdbListReads = 0;
   let domainDeployErrorsRemaining = 0;
   let containerDeployErrorsRemaining = 0;
+  let transientImagePullErrorReads = 0;
   let slowContainerReadyReads = 0;
   let staleDomainDeleteReads = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
@@ -179,16 +182,24 @@ export function installScalewayMock(): ScalewayMock {
       if (method === "POST") {
         const status = containerDeployErrorsRemaining > 0
           ? "error"
+          : transientImagePullErrorReads > 0
+            ? "error"
           : slowContainerReadyReads > 0
             ? "deploying"
             : "ready";
         if (containerDeployErrorsRemaining > 0) containerDeployErrorsRemaining--;
+        const imagePullReads = transientImagePullErrorReads;
+        transientImagePullErrorReads = 0;
         const record: Record<string, unknown> = {
           id: nextId("ctr"),
           region: "fr-par",
           status,
           public_endpoint: `https://${nextId("ep")}.functions.fnc.fr-par.scw.cloud`,
           project_id: "proj-test",
+          error_message: imagePullReads > 0
+            ? "Unable to pull container image. Check that the image still exists and please retry."
+            : undefined,
+          ...(imagePullReads > 0 ? { __transientImagePullReads: imagePullReads } : {}),
           ...input,
         };
         containers.set(record.id as string, record);
@@ -197,6 +208,17 @@ export function installScalewayMock(): ScalewayMock {
       const existing = containers.get(id);
       if (!existing) return json({ message: "container not found" }, 404);
       if (method === "GET") {
+        const imagePullReads = Number(existing.__transientImagePullReads ?? 0);
+        if (imagePullReads > 0) {
+          const next = { ...existing, __transientImagePullReads: imagePullReads - 1 };
+          containers.set(id, next);
+          return json(next);
+        }
+        if (Object.hasOwn(existing, "__transientImagePullReads") && existing.__transientImagePullReads === 0) {
+          const ready = { ...existing, status: "ready", error_message: undefined, __transientImagePullReads: undefined };
+          containers.set(id, ready);
+          return json(ready);
+        }
         if (existing.status === "deploying") {
           if (slowContainerReadyReads > 0) {
             slowContainerReadyReads--;
@@ -1637,6 +1659,9 @@ export function installScalewayMock(): ScalewayMock {
     },
     failNextContainerDeploys: (count) => {
       containerDeployErrorsRemaining = count;
+    },
+    delayNextContainerImagePulls: (reads) => {
+      transientImagePullErrorReads = reads;
     },
     seedDomain: ({ id, containerId, hostname, status = "ready", errorMessage }) => {
       domains.set(id, {

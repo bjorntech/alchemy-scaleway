@@ -25,12 +25,13 @@ interface MockRegistry {
 
 // A minimal Registry v2 server that requires Bearer auth (to exercise the
 // challenge/token flow) and enforces blob referential integrity on manifest push.
-function startRegistry(options: { requireAuth?: boolean; basic?: string; failUploadsTimes?: number } = {}): MockRegistry {
+function startRegistry(options: { requireAuth?: boolean; basic?: string; failUploadsTimes?: number; delayedManifestHeads?: Record<string, number> } = {}): MockRegistry {
   const requireAuth = options.requireAuth ?? true;
   const blobs = new Map<string, Uint8Array>();
   const manifests = new Map<string, ManifestEntry>();
   const state = { uploads: 0, manifestPuts: 0 };
   let remainingFailures = options.failUploadsTimes ?? 0;
+  const delayedManifestHeads = new Map(Object.entries(options.delayedManifestHeads ?? {}));
 
   const server = Bun.serve({
     port: 0,
@@ -99,6 +100,11 @@ function startRegistry(options: { requireAuth?: boolean; basic?: string; failUpl
         const entry = manifests.get(reference);
         if (!entry) return new Response("no manifest", { status: 404 });
         if (req.method === "HEAD") {
+          const delayedHeads = delayedManifestHeads.get(reference) ?? 0;
+          if (delayedHeads > 0) {
+            delayedManifestHeads.set(reference, delayedHeads - 1);
+            return new Response("manifest not visible yet", { status: 404 });
+          }
           return new Response(null, {
             status: 200,
             headers: { "Content-Type": entry.mediaType, "Docker-Content-Digest": sha256(entry.raw) },
@@ -350,6 +356,26 @@ describe("copyImage", () => {
 
     expect(dest.manifestPuts).toBe(manifestPutsAfterFirst);
     expect(progress.some((message) => message.includes("already points at"))).toBe(true);
+  });
+
+  test("waits until pushed tags are pull-visible", async () => {
+    const src = track(startRegistry());
+    const dest = track(startRegistry({ delayedManifestHeads: { "1.0": 1 } }));
+    const seeded = seedImage(src, "app/api", "1.0", "v1");
+    const progress: string[] = [];
+
+    const result = await copyImage({
+      source: `${src.host}/app/api:1.0`,
+      destination: `${dest.host}/mirror/api`,
+      destTags: ["1.0"],
+      allPlatforms: true,
+      onProgress: (message) => {
+        progress.push(message);
+      },
+    });
+
+    expect(result.digest).toBe(seeded.digest);
+    expect(progress).toContain(`Verifying mirrored image ${dest.host}/mirror/api:1.0`);
   });
 
   test("sends Basic credentials to the source token endpoint", async () => {

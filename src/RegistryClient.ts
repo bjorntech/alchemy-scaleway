@@ -60,6 +60,7 @@ const INDEX_TYPES = new Set([
 const sha256 = (data: Uint8Array) => `sha256:${createHash("sha256").update(data).digest("hex")}`;
 
 const RETRY_DELAYS = [250, 1_000, 2_000];
+const MANIFEST_VISIBILITY_DELAYS = [500, 1_000, 2_000, 4_000, 8_000, 15_000];
 
 const isTransient = (error: unknown) => {
   const message = String(error instanceof Error ? error.message : error).toLowerCase();
@@ -275,9 +276,15 @@ const manifestExists = (client: RegistryClient, repo: string, digest: string, si
     throw new Error(`head manifest ${digest} failed: ${res.status}`);
   }, signal);
 
-const manifestDigest = (client: RegistryClient, repo: string, reference: string, signal?: AbortSignal): Promise<string | undefined> =>
+const manifestDigest = (
+  client: RegistryClient,
+  repo: string,
+  reference: string,
+  signal?: AbortSignal,
+  scope = pushScope(repo),
+): Promise<string | undefined> =>
   withRetry(async () => {
-    const res = await client.request("HEAD", `/v2/${repo}/manifests/${reference}`, pushScope(repo), {
+    const res = await client.request("HEAD", `/v2/${repo}/manifests/${reference}`, scope, {
       headers: { Accept: MANIFEST_ACCEPT },
       signal,
     });
@@ -286,6 +293,41 @@ const manifestDigest = (client: RegistryClient, repo: string, reference: string,
     if (res.status !== 200) throw new Error(`head manifest ${reference} failed: ${res.status}`);
     return res.headers.get("docker-content-digest") ?? undefined;
   }, signal);
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error("aborted"));
+      return;
+    }
+    const timeout = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        reject(signal.reason ?? new Error("aborted"));
+      },
+      { once: true },
+    );
+  });
+
+const waitForManifestVisible = async (
+  client: RegistryClient,
+  repo: string,
+  reference: string,
+  expectedDigest: string,
+  signal?: AbortSignal,
+) => {
+  for (const delay of [0, ...MANIFEST_VISIBILITY_DELAYS]) {
+    if (delay > 0) await sleep(delay, signal);
+    const digest = await manifestDigest(client, repo, reference, signal, pullScope(repo));
+    if (digest === expectedDigest) return;
+    if (digest && digest !== expectedDigest) {
+      throw new Error(`tag ${repo}:${reference} points at ${digest}, expected ${expectedDigest}`);
+    }
+  }
+  throw new Error(`tag ${repo}:${reference} was not pull-visible as ${expectedDigest}`);
+};
 
 const blobExists = (client: RegistryClient, repo: string, digest: string, signal?: AbortSignal): Promise<boolean> =>
   withRetry(async () => {
@@ -437,6 +479,8 @@ export async function copyImage(request: ImageCopyRequest): Promise<ImageCopyRes
     await reportProgress(request, `Tagging mirrored image ${request.destination}:${tag}`);
     const changed = await putManifestIfNeeded(dest, destRef.repository, tag, pushTarget, request.signal);
     if (!changed) await reportProgress(request, `Tag ${request.destination}:${tag} already points at ${pushTarget.digest}`);
+    await reportProgress(request, `Verifying mirrored image ${request.destination}:${tag}`);
+    await waitForManifestVisible(dest, destRef.repository, tag, pushTarget.digest, request.signal);
   }
   return { digest: pushTarget.digest, platforms: counter.images };
 }

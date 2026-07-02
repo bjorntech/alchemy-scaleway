@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.7.8-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Verifies mirrored tags are pull-visible before dependent container updates and retries transient image-pull visibility errors. |
 | `0.7.7-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Skips redundant mirror tag updates when the destination tag already points at the desired digest. |
 | `0.7.6-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Improves container deploy failure diagnostics and skips redundant mirror copies after interrupted deploy retries. |
 | `0.7.5-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | `ContainerImageMirror` emits registry-copy progress notes and accepts per-operation timeout budgets. |
