@@ -4,6 +4,25 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+### Added
+
+- `Bucket` now accepts a `project` prop (including the single managed `Project`
+  default) by signing S3 requests with Scaleway's documented
+  `ACCESS_KEY@project-id` access-key override. Buckets without an explicit or
+  persisted project keep using the API key's preferred project, preserving
+  existing behavior. Changing `project` forces a replacement.
+
+### Fixed
+
+- `Instance` no longer leaks an orphan server when a create is interrupted
+  after the Scaleway server exists but before Alchemy persists its ID. Servers
+  are tagged with a per-generation `alchemy:instance-id`, and the retry
+  recovers the matching server instead of creating a duplicate; replacements
+  mint a new generation tag, so pre-replacement servers are never adopted.
+- `Instance` reconcile now retries 403 `insufficient permissions` errors with
+  bounded backoff, absorbing IAM propagation delays right after a managed
+  `Project` is created.
+
 ## [0.7.8-beta.59] - 2026-07-02
 
 ### Fixed

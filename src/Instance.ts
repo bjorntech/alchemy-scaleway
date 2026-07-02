@@ -83,7 +83,13 @@ export type Instance = Resource<
 export const Instance = withManagedProjectDefault(Resource<Instance>("Scaleway.Instance"));
 
 const stringsEqual = (left?: string[], right?: string[]) => JSON.stringify([...(left ?? [])].sort()) === JSON.stringify([...(right ?? [])].sort());
-const withAlchemyTag = (id: string, tags: string[] | undefined) => [`alchemy:logical-id=${id}`, ...(tags ?? [])];
+// The instance-id tag marks the Alchemy resource generation that created the
+// server. Interrupted creates retry with the same instance id (allowing safe
+// recovery of a leaked server), while replacements mint a new one (so the
+// pre-replacement server is never adopted).
+const withAlchemyTag = (id: string, instanceId: string, tags: string[] | undefined) =>
+  [`alchemy:logical-id=${id}`, `alchemy:instance-id=${instanceId}`, ...(tags ?? [])];
+const instanceIdTag = (instanceId: string) => `alchemy:instance-id=${instanceId}`;
 const zoneOf = (region: string, zone?: string) => !zone || zone === region ? `${region}-1` : zone;
 const volumesInput = (volumes: Record<string, InstanceVolume> | undefined) =>
   Object.fromEntries(
@@ -160,6 +166,14 @@ const isTransientCloudError = (error: unknown) => {
   const status = (error as { statusCode?: unknown })?.statusCode;
   return typeof status === "number" && (status >= 500 || status === 429);
 };
+// IAM permissions can lag behind a freshly created Scaleway project, making
+// reads/creates fail with 403 "insufficient permissions" for a short window.
+const isPermissionDenied = (error: unknown) => {
+  const status = (error as { statusCode?: unknown })?.statusCode;
+  if (status === 403) return true;
+  return String((error as { message?: unknown })?.message ?? "").toLowerCase().includes("insufficient permissions");
+};
+const PERMISSION_RETRY_DELAYS = ["1 second", "2 seconds", "4 seconds", "8 seconds", "15 seconds", "30 seconds"] as const;
 function managedPublicIpIdsFromRecord(record: ScalewayInstanceRecord) {
   return (record.public_ips ?? []).filter((ip) => ip.dynamic !== true).map((ip) => ip.id).filter(isString);
 }
@@ -177,10 +191,31 @@ export const InstanceProvider = () =>
       const clients = yield* makeScalewayClients;
       const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 255 });
       const publicIpIdsOf = (refs: InstancePublicIpRef[] | undefined) => Effect.all((refs ?? []).map(publicIpIdOf));
+      const retryPermissionPropagation = <A, E>(
+        effect: Effect.Effect<A, E>,
+        session: { note(message: string): Effect.Effect<void> },
+        remaining: ReadonlyArray<(typeof PERMISSION_RETRY_DELAYS)[number]> = PERMISSION_RETRY_DELAYS,
+      ): Effect.Effect<A, E> =>
+        effect.pipe(
+          Effect.catch((error) => {
+            const delay = remaining[0];
+            return isPermissionDenied(error) && delay !== undefined
+              ? session.note(`waiting instance permissions propagation retry_in=${delay}`).pipe(
+                  Effect.flatMap(() => Effect.sleep(delay)),
+                  Effect.flatMap(() => retryPermissionPropagation(effect, session, remaining.slice(1))),
+                )
+              : Effect.fail(error);
+          }),
+        );
+      const findOwnedInstance = (zone: string, project: string, instanceId: string) =>
+        clients.instance.listInstances({ zone, project }).pipe(
+          Effect.map((records) => records.find((record) => (record.tags ?? []).includes(instanceIdTag(instanceId)))),
+          Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+        );
       const waitForState = (zone: string, serverId: string, state: string, session: { note(message: string): Effect.Effect<void> }) =>
         Effect.gen(function* () {
           while (true) {
-            const record = yield* clients.instance.getInstance({ zone, serverId });
+            const record = yield* retryPermissionPropagation(clients.instance.getInstance({ zone, serverId }), session);
             if (record.state === state) return record;
             yield* session.note(`waiting instance state state=${record.state ?? "unknown"} target=${state}`);
             yield* Effect.sleep("1 second");
@@ -245,7 +280,7 @@ export const InstanceProvider = () =>
       return Instance.Provider.of({
         stables: ["serverId", "zone", "projectId"],
         list: () => Effect.succeed([]),
-        diff: Effect.fnUntraced(function* ({ id, news, output }) {
+        diff: Effect.fnUntraced(function* ({ id, instanceId, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone)) return replaceAction(news, output);
           if (output.projectId !== (yield* projectId(projectInput(news), output.projectId))) return replaceAction(news, output);
@@ -262,7 +297,7 @@ export const InstanceProvider = () =>
           if (news.routedIpEnabled === false && output.routedIpEnabled) throw new Error("Scaleway routed IP mode cannot be disabled once enabled.");
           if (
             output.name !== name ||
-            !stringsEqual(output.tags, withAlchemyTag(id, news.tags)) ||
+            !stringsEqual(output.tags, withAlchemyTag(id, instanceId, news.tags)) ||
             news.dynamicIpRequired !== undefined && output.dynamicIpRequired !== news.dynamicIpRequired ||
             news.routedIpEnabled !== undefined && output.routedIpEnabled !== news.routedIpEnabled ||
             output.bootType !== (news.bootType ?? output.bootType) ||
@@ -282,7 +317,7 @@ export const InstanceProvider = () =>
             Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
           );
         }),
-        reconcile: Effect.fnUntraced(function* ({ id, news, output, session }) {
+        reconcile: Effect.fnUntraced(function* ({ id, instanceId, news, output, session }) {
           const zone = zoneOf(clients.region, news.zone);
           const name = yield* nameOf(id, news.name);
           const publicIps = news.publicIps === undefined ? undefined : yield* publicIpIdsOf(news.publicIps);
@@ -290,7 +325,20 @@ export const InstanceProvider = () =>
           const init = cloudInitValue(news.cloudInit);
           const initHash = cloudInitHash(news.cloudInit);
           const referencedProjectId = yield* projectIdFromRefs(news);
-          if (!output?.serverId && publicIps !== undefined) {
+          const resolvedProject = yield* projectId(projectInput(news), output?.projectId ?? referencedProjectId);
+          // A previous create may have succeeded while a post-create step failed
+          // before the server ID was persisted. Recover the tagged server instead
+          // of creating a duplicate. Matching on the instance-id tag scopes
+          // recovery to this exact resource generation, so replacement creates
+          // never adopt the pre-replacement server.
+          const adopted = output?.serverId
+            ? undefined
+            : yield* retryPermissionPropagation(findOwnedInstance(zone, resolvedProject, instanceId), session);
+          if (adopted) {
+            yield* session.note(`Recovered Scaleway instance ${adopted.id} from ownership tag after interrupted create`);
+          }
+          const existingServerId = output?.serverId ?? adopted?.id;
+          if (!existingServerId && publicIps !== undefined) {
             for (const [index, publicIp] of publicIps.entries()) {
               const attachedServerId = news.publicIps ? yield* publicIpAttachmentOf(news.publicIps[index]) : undefined;
               const liveAttachedServerId = attachedServerId ?? (yield* livePublicIpAttachment(clients, zone, publicIp));
@@ -300,12 +348,12 @@ export const InstanceProvider = () =>
               }
             }
           }
-          let record = output?.serverId
+          let record = existingServerId
             ? yield* clients.instance.updateInstance({
                 zone,
-                serverId: output.serverId,
+                serverId: existingServerId,
                 name,
-                tags: withAlchemyTag(id, news.tags),
+                tags: withAlchemyTag(id, instanceId, news.tags),
                 dynamic_ip_required: news.dynamicIpRequired,
                 routed_ip_enabled: news.routedIpEnabled,
                 boot_type: news.bootType,
@@ -313,22 +361,25 @@ export const InstanceProvider = () =>
                 placement_group: news.placementGroupId,
                 protected: news.protected ?? false,
               })
-            : yield* clients.instance.createInstance({
-                zone,
-                name,
-                project: yield* projectId(projectInput(news), output?.projectId ?? referencedProjectId),
-                commercial_type: news.commercialType,
-                image: news.image,
-                volumes: news.volumes ? volumesInput(news.volumes) : undefined,
-                tags: withAlchemyTag(id, news.tags),
-                dynamic_ip_required: news.dynamicIpRequired,
-                routed_ip_enabled: news.routedIpEnabled,
-                public_ips: publicIps,
-                boot_type: news.bootType,
-                security_group: typeof securityGroup === "string" ? securityGroup : undefined,
-                placement_group: news.placementGroupId,
-                protected: news.protected ?? false,
-              });
+            : yield* retryPermissionPropagation(
+                clients.instance.createInstance({
+                  zone,
+                  name,
+                  project: resolvedProject,
+                  commercial_type: news.commercialType,
+                  image: news.image,
+                  volumes: news.volumes ? volumesInput(news.volumes) : undefined,
+                  tags: withAlchemyTag(id, instanceId, news.tags),
+                  dynamic_ip_required: news.dynamicIpRequired,
+                  routed_ip_enabled: news.routedIpEnabled,
+                  public_ips: publicIps,
+                  boot_type: news.bootType,
+                  security_group: typeof securityGroup === "string" ? securityGroup : undefined,
+                  placement_group: news.placementGroupId,
+                  protected: news.protected ?? false,
+                }),
+                session,
+              );
           if (!output?.serverId && init !== undefined) {
             yield* clients.instance.setInstanceUserData({ zone, serverId: record.id, key: "cloud-init", value: init });
           }
@@ -337,7 +388,7 @@ export const InstanceProvider = () =>
             yield* clients.instance.instanceAction({ zone, serverId: record.id, action: "poweroff" }).pipe(Effect.catchIf(isPreconditionError, () => Effect.void));
             record = yield* waitForState(zone, record.id, "stopped", session);
           }
-          const waitForIps = output?.serverId && publicIps !== undefined;
+          const waitForIps = existingServerId !== undefined && publicIps !== undefined;
           if (waitForIps) {
             const currentPublicIps = managedPublicIpIdsFromRecord(record);
             for (const publicIp of currentPublicIps.filter((publicIp) => !publicIps.includes(publicIp))) {
@@ -354,7 +405,7 @@ export const InstanceProvider = () =>
           if (waitForIps) {
             record = yield* waitForPublicIps(zone, record.id, publicIps, session);
           }
-          yield* session.note(`${output?.serverId ? "Updated" : "Created"} Scaleway instance ${record.id}`);
+          yield* session.note(`${existingServerId ? "Updated" : "Created"} Scaleway instance ${record.id}`);
           return toAttributes(record, news.volumes, news.image, initHash);
         }),
         delete: Effect.fnUntraced(function* ({ output, session }) {

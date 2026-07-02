@@ -639,20 +639,23 @@ export interface ScalewayClientsShape {
     createBucket(input: {
       name: string;
       region: string;
+      project?: string;
       tags?: Record<string, string>;
       versioning?: boolean;
     }): Effect.Effect<ObjectStorageBucketRecord, ScalewayError>;
     getBucket(input: {
       name: string;
       region?: string;
+      project?: string;
     }): Effect.Effect<ObjectStorageBucketRecord, ScalewayError>;
     updateBucket(input: {
       name: string;
       region: string;
+      project?: string;
       tags?: Record<string, string>;
       versioning?: boolean;
     }): Effect.Effect<ObjectStorageBucketRecord, ScalewayError>;
-    deleteBucket(input: { name: string; region: string }): Effect.Effect<void, ScalewayError>;
+    deleteBucket(input: { name: string; region: string; project?: string }): Effect.Effect<void, ScalewayError>;
     getObject(input: {
       bucket: string;
       region: string;
@@ -1248,17 +1251,22 @@ function makeObjectStorageClient(
   defaultRegion: string,
 ) {
   const clients = new Map<string, AwsClient>();
-  const getClient = (region: string) => {
+  // Scaleway's S3-compatible API scopes bucket operations to the API key's
+  // preferred project. Appending `@<project-id>` to the access key overrides
+  // the target project per request (same mechanism the Terraform provider
+  // uses for `project_id` on object buckets).
+  const getClient = (region: string, project?: string) => {
     if (!accessKey) throw new Error("Missing SCW_ACCESS_KEY for Scaleway Object Storage");
-    const existing = clients.get(region);
+    const cacheKey = `${region}\0${project ?? ""}`;
+    const existing = clients.get(cacheKey);
     if (existing) return existing;
     const client = new AwsClient({
-      accessKeyId: accessKey,
+      accessKeyId: project ? `${accessKey}@${project}` : accessKey,
       secretAccessKey: secretKey,
       service: "s3",
       region,
     });
-    clients.set(region, client);
+    clients.set(cacheKey, client);
     return client;
   };
 
@@ -1272,11 +1280,11 @@ function makeObjectStorageClient(
     region: string,
     method: "GET" | "PUT" | "HEAD" | "DELETE",
     path: string,
-    init?: { body?: string; headers?: Record<string, string> },
+    init?: { body?: string; headers?: Record<string, string>; project?: string },
   ) =>
     Effect.tryPromise({
       try: () =>
-        getClient(region).fetch(`${bucketEndpoint(region)}${bucketPath(bucket, path)}`, {
+        getClient(region, init?.project).fetch(`${bucketEndpoint(region)}${bucketPath(bucket, path)}`, {
           method,
           ...(init?.headers ? { headers: init.headers } : {}),
           ...(init?.body ? { body: init.body } : {}),
@@ -1310,13 +1318,14 @@ function makeObjectStorageClient(
   const headBucket = (
     bucket: string,
     region: string,
+    project?: string,
   ): Effect.Effect<ObjectStorageBucketRecord, ScalewayError> =>
     Effect.gen(function* () {
-      const response = yield* request(bucket, region, "HEAD", "/");
+      const response = yield* request(bucket, region, "HEAD", "/", { project });
       yield* ensureOk(response, "HEAD", "/");
       const bucketRegion = response.headers.get("x-amz-bucket-region") ?? region;
-      const versioning = yield* getVersioning(bucket, bucketRegion);
-      const tags = yield* getTagging(bucket, bucketRegion);
+      const versioning = yield* getVersioning(bucket, bucketRegion, project);
+      const tags = yield* getTagging(bucket, bucketRegion, project);
       return omitUndefined({
         name: bucket,
         region: bucketRegion,
@@ -1326,9 +1335,9 @@ function makeObjectStorageClient(
       }) as ObjectStorageBucketRecord;
     });
 
-  const getVersioning = (bucket: string, region: string) =>
+  const getVersioning = (bucket: string, region: string, project?: string) =>
     Effect.gen(function* () {
-      const response = yield* request(bucket, region, "GET", "/?versioning");
+      const response = yield* request(bucket, region, "GET", "/?versioning", { project });
       const ok = yield* ensureOk(response, "GET", "/?versioning");
       const body = yield* Effect.tryPromise({
         try: () => ok.text(),
@@ -1338,9 +1347,9 @@ function makeObjectStorageClient(
       return body.includes("<Status>Enabled</Status>");
     });
 
-  const getTagging = (bucket: string, region: string) =>
+  const getTagging = (bucket: string, region: string, project?: string) =>
     Effect.gen(function* () {
-      const response = yield* request(bucket, region, "GET", "/?tagging");
+      const response = yield* request(bucket, region, "GET", "/?tagging", { project });
       const ok = yield* ensureOk(response, "GET", "/?tagging");
       const body = yield* Effect.tryPromise({
         try: () => ok.text(),
@@ -1364,7 +1373,7 @@ function makeObjectStorageClient(
       ),
     );
 
-  const putVersioning = (bucket: string, region: string, enabled: boolean | undefined) =>
+  const putVersioning = (bucket: string, region: string, enabled: boolean | undefined, project?: string) =>
     enabled === undefined
       ? Effect.void
       : Effect.gen(function* () {
@@ -1373,16 +1382,17 @@ function makeObjectStorageClient(
               `<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>${enabled ? "Enabled" : "Suspended"}</Status></VersioningConfiguration>`,
             ),
             headers: { "content-type": "application/xml" },
+            project,
           });
           yield* ensureOk(response, "PUT", "/?versioning");
         });
 
-  const putTags = (bucket: string, region: string, tags: Record<string, string> | undefined) =>
+  const putTags = (bucket: string, region: string, tags: Record<string, string> | undefined, project?: string) =>
     tags === undefined
       ? Effect.void
       : Object.keys(tags).length === 0
         ? Effect.gen(function* () {
-            const response = yield* request(bucket, region, "DELETE", "/?tagging");
+            const response = yield* request(bucket, region, "DELETE", "/?tagging", { project });
             yield* ensureOk(response, "DELETE", "/?tagging");
           }).pipe(Effect.catchIf(isNotFound, () => Effect.void))
         : Effect.gen(function* () {
@@ -1397,6 +1407,7 @@ function makeObjectStorageClient(
             const response = yield* request(bucket, region, "PUT", "/?tagging", {
               body,
               headers: { "content-type": "application/xml" },
+              project,
             });
             yield* ensureOk(response, "PUT", "/?tagging");
           });
@@ -1408,11 +1419,13 @@ function makeObjectStorageClient(
     createBucket: ({
       name,
       region,
+      project,
       tags,
       versioning,
     }: {
       name: string;
       region: string;
+      project?: string;
       tags?: Record<string, string>;
       versioning?: boolean;
     }) =>
@@ -1422,33 +1435,36 @@ function makeObjectStorageClient(
             `<CreateBucketConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><LocationConstraint>${escapeXml(region)}</LocationConstraint></CreateBucketConfiguration>`,
           ),
           headers: { "content-type": "application/xml" },
+          project,
         });
         yield* ensureOk(response, "PUT", "/");
-        yield* putVersioning(name, region, versioning);
-        yield* putTags(name, region, tags);
-        return yield* headBucket(name, region);
+        yield* putVersioning(name, region, versioning, project);
+        yield* putTags(name, region, tags, project);
+        return yield* headBucket(name, region, project);
       }),
-    getBucket: ({ name, region }: { name: string; region?: string }) =>
-      headBucket(name, region ?? defaultRegion),
+    getBucket: ({ name, region, project }: { name: string; region?: string; project?: string }) =>
+      headBucket(name, region ?? defaultRegion, project),
     updateBucket: ({
       name,
       region,
+      project,
       tags,
       versioning,
     }: {
       name: string;
       region: string;
+      project?: string;
       tags?: Record<string, string>;
       versioning?: boolean;
     }) =>
       Effect.gen(function* () {
-        yield* putVersioning(name, region, versioning);
-        yield* putTags(name, region, tags);
-        return yield* headBucket(name, region);
+        yield* putVersioning(name, region, versioning, project);
+        yield* putTags(name, region, tags, project);
+        return yield* headBucket(name, region, project);
       }),
-    deleteBucket: ({ name, region }: { name: string; region: string }) =>
+    deleteBucket: ({ name, region, project }: { name: string; region: string; project?: string }) =>
       Effect.gen(function* () {
-        const response = yield* request(name, region, "DELETE", "/");
+        const response = yield* request(name, region, "DELETE", "/", { project });
         yield* ensureOk(response, "DELETE", "/");
       }),
     getObject: ({ bucket, region, key }: { bucket: string; region: string; key: string }) =>
