@@ -4,6 +4,8 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.8-beta.59] - 2026-07-02
+
 ### Fixed
 
 - `ContainerImageMirror` now verifies destination tags through pull-scope
