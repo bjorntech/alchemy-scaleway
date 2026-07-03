@@ -534,6 +534,10 @@ export interface ScalewayClientsShape {
     createContainer(
       input: Record<string, unknown>,
     ): Effect.Effect<ScalewayContainerRecord, ScalewayError>;
+    listContainers(input: {
+      namespaceId: string;
+      name?: string;
+    }): Effect.Effect<ScalewayContainerRecord[], ScalewayError>;
     getContainer(containerId: string): Effect.Effect<ScalewayContainerRecord, ScalewayError>;
     updateContainer(
       containerId: string,
@@ -934,6 +938,10 @@ export function buildScalewayClients(credentials: ScalewayCredentialsService): S
       deleteNamespace: (id) => request<void>("DELETE", `${base}/namespaces/${id}`),
       createContainer: (input) =>
         request("POST", `${base}/containers`, input).pipe(Effect.map(decodeContainer)),
+      listContainers: ({ namespaceId, name }) =>
+        listAllPages<ScalewayContainerRecord, "containers">("containers", (page, pageSize) =>
+          `${base}/containers${query({ namespace_id: namespaceId, name, page, page_size: pageSize })}`
+        ),
       getContainer: (id) =>
         request("GET", `${base}/containers/${id}`).pipe(Effect.map(decodeContainer)),
       updateContainer: (id, input) =>

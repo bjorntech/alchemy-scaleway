@@ -121,6 +121,8 @@ export default Alchemy.Stack(
       public: false,
     });
 
+    // `dockerfile` preserves existing cwd-relative paths when they exist;
+    // otherwise it is resolved relative to `context`.
     const apiImage = yield* Scaleway.ContainerImage("ApiImage", {
       registry,
       context: ".",
