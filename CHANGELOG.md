@@ -4,6 +4,8 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.10-beta.59] - 2026-07-03
+
 ### Fixed
 
 - `Container` create retries that hit a same-name Scaleway `resource already
