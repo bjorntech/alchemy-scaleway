@@ -512,6 +512,115 @@ describe("ContainerImage", () => {
     }),
   );
 
+  test.provider("resolves dockerfile relative to the Docker context", (stack) =>
+    Effect.gen(function* () {
+      const root = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      mkdirSync(join(root, "application"));
+      writeFileSync(join(root, "application", "Dockerfile"), "FROM scratch\n");
+      writeFileSync(join(root, "application", "app.txt"), "first\n");
+
+      try {
+        const image = yield* stack.deploy(
+          Scaleway.ContainerImage("ApiImage", {
+            registry: "rg.fr-par.scw.cloud/demo-registry",
+            context: "application",
+            dockerfile: "Dockerfile",
+            repository: "api",
+            cwd: root,
+          }),
+        );
+
+        expect(image.digest).toMatch(/^sha256:/);
+        const build = imageCommands.find((command) => command.args[0] === "build");
+        expect(build?.args[1]).toBe("-f");
+        expect(build?.args[2]).toBe(join(root, "application", "Dockerfile"));
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("falls back to cwd-relative dockerfile paths for backward compatibility", (stack) =>
+    Effect.gen(function* () {
+      const root = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      mkdirSync(join(root, "application"));
+      writeFileSync(join(root, "application", "Dockerfile"), "FROM scratch\n");
+
+      try {
+        const image = yield* stack.deploy(
+          Scaleway.ContainerImage("ApiImage", {
+            registry: "rg.fr-par.scw.cloud/demo-registry",
+            context: "application",
+            dockerfile: "application/Dockerfile",
+            repository: "api",
+            cwd: root,
+          }),
+        );
+
+        expect(image.digest).toMatch(/^sha256:/);
+        const build = imageCommands.find((command) => command.args[0] === "build");
+        expect(build?.args[2]).toBe(join(root, "application", "Dockerfile"));
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("keeps cwd-relative dockerfile behavior when both cwd and context paths exist", (stack) =>
+    Effect.gen(function* () {
+      const root = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      mkdirSync(join(root, "application"));
+      writeFileSync(join(root, "Dockerfile"), "FROM scratch\n# root\n");
+      writeFileSync(join(root, "application", "Dockerfile"), "FROM scratch\n# context\n");
+
+      try {
+        const image = yield* stack.deploy(
+          Scaleway.ContainerImage("ApiImage", {
+            registry: "rg.fr-par.scw.cloud/demo-registry",
+            context: "application",
+            dockerfile: "Dockerfile",
+            repository: "api",
+            cwd: root,
+          }),
+        );
+
+        expect(image.digest).toMatch(/^sha256:/);
+        const build = imageCommands.find((command) => command.args[0] === "build");
+        expect(build?.args[2]).toBe(join(root, "Dockerfile"));
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  test.provider("fails with a clear error when the dockerfile cannot be found", (stack) =>
+    Effect.gen(function* () {
+      const root = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
+      mkdirSync(join(root, "application"));
+
+      try {
+        const deploy = stack.deploy(
+          Scaleway.ContainerImage("ApiImage", {
+            registry: "rg.fr-par.scw.cloud/demo-registry",
+            context: "application",
+            dockerfile: "Dockerfile.missing",
+            repository: "api",
+            cwd: root,
+          }),
+        );
+
+        yield* Effect.flip(deploy).pipe(
+          Effect.map((error) => {
+            expect(String(error)).toContain("Dockerfile.missing not found relative to context");
+            expect(String(error)).toContain("or working directory");
+          }),
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }),
+  );
+
   test.provider("rebuilds when Docker context contents change", (stack) =>
     Effect.gen(function* () {
       const context = mkdtempSync(join(tmpdir(), "alchemy-scaleway-image-"));
@@ -1680,6 +1789,61 @@ describe("Container", () => {
         Effect.map((error) => {
           expect(String(error)).toContain("Scaleway.ContainerDeployFailed");
           expect(String(error)).toContain("entered error state without an error_message");
+        }),
+      );
+    }),
+  );
+
+  test.provider("reports the exact same-name container after a failed create leaves an orphan", (stack) =>
+    Effect.gen(function* () {
+      mock.failNextContainerDeploys(1);
+
+      const program = Effect.gen(function* () {
+        const ns = yield* Scaleway.Namespace("Ns", {});
+        return yield* Scaleway.Container("Api", {
+          namespace: ns,
+          image: "rg.fr-par.scw.cloud/demo/api:latest",
+        });
+      });
+
+      // First deploy creates the container at the API level but fails before
+      // attributes ever reach Alchemy state, leaving an orphaned container.
+      yield* Effect.flip(stack.deploy(program)).pipe(
+        Effect.map((error) => expect(String(error)).toContain("Scaleway.ContainerDeployFailed")),
+      );
+
+      yield* Effect.flip(stack.deploy(program)).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("already exists");
+          expect(String(error)).toContain("as ctr-");
+          expect(String(error)).toContain("delete that orphaned or unmanaged container before retrying");
+        }),
+      );
+      // Two create attempts (initial + retried 409), then diagnostic via list.
+      expect(containerCreates()).toHaveLength(2);
+      expect(requests("GET", "/containers?").length).toBeGreaterThan(0);
+      expect(containerPatches()).toHaveLength(0);
+    }),
+  );
+
+  test.provider("fails with a clear error when an already-exists conflict cannot be recovered", (stack) =>
+    Effect.gen(function* () {
+      mock.failNext("/regions/fr-par/containers", 409, "resource already exists");
+
+      const deploy = stack.deploy(
+        Effect.gen(function* () {
+          const ns = yield* Scaleway.Namespace("Ns", {});
+          return yield* Scaleway.Container("Api", {
+            namespace: ns,
+            image: "rg.fr-par.scw.cloud/demo/api:latest",
+          });
+        }),
+      );
+
+      yield* Effect.flip(deploy).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("already exists");
+          expect(String(error)).toContain("no matching container could be listed");
         }),
       );
     }),

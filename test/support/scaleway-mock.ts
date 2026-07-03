@@ -150,11 +150,12 @@ export function installScalewayMock(): ScalewayMock {
   const forcedErrors: Array<{ fragment: string; status: number; message: string }> = [];
   const recordProject = (record: Record<string, unknown>) => record.project ?? record.project_id;
 
-  const containersHandler = (method: string, pathname: string, body: unknown): Response => {
+  const containersHandler = (method: string, pathname: string, search: string, body: unknown): Response => {
     // The v1 API returns resource objects flat (no envelope), e.g. {"id": ..., "name": ...}.
     const segments = pathname.split("/").filter(Boolean); // [containers, v1, regions, fr-par, <kind>, <id?>]
     const kind = segments[4];
     const id = segments[5];
+    const params = new URLSearchParams(search);
     const input = (body ?? {}) as Record<string, unknown>;
 
     if (kind === "namespaces") {
@@ -179,7 +180,26 @@ export function installScalewayMock(): ScalewayMock {
 
     if (kind === "containers") {
       // v1 has no separate deploy endpoint; Create/Update auto-deploy.
+      if (!id && method === "GET") {
+        const namespaceId = params.get("namespace_id");
+        const name = params.get("name");
+        const matching = [...containers.values()].filter(
+          (container) =>
+            (!namespaceId || container.namespace_id === namespaceId) &&
+            (!name || container.name === name),
+        );
+        const page = pageOf(matching, params);
+        return json({ containers: page.items, total_count: page.total_count });
+      }
       if (method === "POST") {
+        // The real API rejects duplicate container names within a namespace.
+        if (
+          [...containers.values()].some(
+            (container) => container.name === input.name && container.namespace_id === input.namespace_id,
+          )
+        ) {
+          return json({ message: "resource already exists" }, 409);
+        }
         const status = containerDeployErrorsRemaining > 0
           ? "error"
           : transientImagePullErrorReads > 0
@@ -1587,7 +1607,7 @@ export function installScalewayMock(): ScalewayMock {
       if (parsed.pathname.startsWith("/functions/")) {
         return functionsHandler(method, parsed.pathname, parsed.search, parsedBody);
       }
-      return containersHandler(method, parsed.pathname, parsedBody);
+      return containersHandler(method, parsed.pathname, parsed.search, parsedBody);
     }
     if (parsed.host === "function-upload.local") {
       if (method !== "PUT") return json({ message: "expected upload PUT" }, 405);

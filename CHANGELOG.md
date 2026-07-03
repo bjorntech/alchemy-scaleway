@@ -4,6 +4,17 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.10-beta.59] - 2026-07-03
+
+### Fixed
+
+- `Container` create retries that hit a same-name Scaleway `resource already
+  exists` conflict now report the exact live container ID when it can be listed,
+  instead of only surfacing the generic API conflict.
+- `ContainerImage.dockerfile` now resolves relative to `context` when no
+  cwd-relative file exists, while preserving existing cwd-relative behavior for
+  stacks that already rely on it.
+
 ## [0.7.9-beta.59] - 2026-07-02
 
 ### Added

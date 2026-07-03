@@ -288,6 +288,36 @@ const hashPath = (
     }));
   });
 
+const pathExists = (path: string) =>
+  lstat(path).then(
+    () => true,
+    () => false,
+  );
+
+/**
+ * Preserves existing cwd-relative `dockerfile` behavior when that path exists,
+ * then falls back to context-relative resolution for Docker CLI ergonomics.
+ */
+const resolveDockerfile = (
+  cwd: string,
+  context: string,
+  dockerfile: string,
+): Effect.Effect<string, Error, never> =>
+  Effect.tryPromise({
+    try: async () => {
+      const cwdCandidate = resolve(cwd, dockerfile);
+      if (await pathExists(cwdCandidate)) return cwdCandidate;
+      const contextCandidate = resolve(cwd, context, dockerfile);
+      if (contextCandidate !== cwdCandidate && (await pathExists(contextCandidate))) return contextCandidate;
+      throw new Error(
+        `Dockerfile ${dockerfile} not found relative to context (${contextCandidate})${
+          cwdCandidate !== contextCandidate ? ` or working directory (${cwdCandidate})` : ""
+        }`,
+      );
+    },
+    catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+  });
+
 const sourceHash = (props: ContainerImageProps): Effect.Effect<string, Error, never> =>
   Effect.gen(function* () {
     const cwd = props.cwd ?? process.cwd();
@@ -299,7 +329,7 @@ const sourceHash = (props: ContainerImageProps): Effect.Effect<string, Error, ne
     hash.update(props.platform ?? "linux/amd64");
     yield* hashPath(hash, contextRoot, contextRoot, ignoreRules);
     if (props.dockerfile) {
-      const dockerfilePath = resolve(cwd, props.dockerfile);
+      const dockerfilePath = yield* resolveDockerfile(cwd, props.context, props.dockerfile);
       if (toDockerPath(relative(contextRoot, dockerfilePath)).startsWith("..")) hash.update(`dockerfile:${toDockerPath(relative(cwd, dockerfilePath))}`);
       yield* hashPath(hash, contextRoot, dockerfilePath, []);
     }
@@ -379,7 +409,9 @@ export const ContainerImageProvider = () =>
           const tag = contentTag(requestedTag, digest);
           const ref = imageRef(registry, repository, tag);
           const stableRef = imageRef(registry, repository, requestedTag);
-          const dockerfile = news.dockerfile ?? join(news.context, "Dockerfile");
+          const dockerfile = news.dockerfile
+            ? yield* resolveDockerfile(cwd, news.context, news.dockerfile)
+            : join(news.context, "Dockerfile");
           const login = registryLogin(registry, news.auth, credentials.secretKey);
           const dockerBuildArgs = [
             "build",

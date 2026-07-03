@@ -253,6 +253,11 @@ function compact<T>(items: Array<T | undefined>) {
   return items.filter((item): item is T => item !== undefined);
 }
 
+const isResourceAlreadyExists = (error: unknown) =>
+  error instanceof ScalewayError &&
+  error.statusCode === 409 &&
+  error.message.toLowerCase().includes("resource already exists");
+
 const isTransientState = (error: unknown) =>
   String((error as { message?: unknown })?.message ?? "")
     .toLowerCase()
@@ -622,8 +627,25 @@ export const ContainerProvider = () =>
               session,
             );
           }
+          const sameNameConflictDiagnostic = Effect.gen(function* () {
+            const resolvedNamespaceId = yield* namespaceId(news.namespace);
+            const name = yield* nameOf(id, news.name);
+            const existing = (yield* clients.containers.listContainers({
+              namespaceId: resolvedNamespaceId,
+              name,
+            })).find((record) => record.name === name);
+            return yield* Effect.fail(
+              new Error(
+                existing
+                  ? `Scaleway container ${name} already exists in namespace ${resolvedNamespaceId} as ${existing.id}; delete that orphaned or unmanaged container before retrying`
+                  : `Scaleway container ${name} already exists in namespace ${resolvedNamespaceId} but no matching container could be listed; retry or inspect the Scaleway Containers console`,
+              ),
+            );
+          });
           const input = yield* inputFor(id, news, false);
-          const created = yield* retryTransient(clients.containers.createContainer(input), session);
+          const created = yield* retryTransient(clients.containers.createContainer(input), session).pipe(
+            Effect.catchIf(isResourceAlreadyExists, () => sameNameConflictDiagnostic),
+          );
           yield* session.note(`Created Scaleway container ${created.id}`);
           const ready = yield* waitForReady(created.id, session);
           return yield* provisionCompanions({ ...ready, imageDigest: news.imageDigest }, undefined, news, session);
