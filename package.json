@@ -1,6 +1,6 @@
 {
   "name": "@bjorntech/alchemy-scaleway",
-  "version": "0.7.10-beta.59",
+  "version": "0.7.11-beta.62",
   "description": "Scaleway providers for Alchemy v2",
   "keywords": [
     "alchemy",
@@ -56,17 +56,17 @@
     "jszip": "^3.10.1"
   },
   "devDependencies": {
-    "@effect/platform-bun": "4.0.0-beta.84",
-    "@effect/platform-node": "4.0.0-beta.84",
-    "@effect/platform-node-shared": "4.0.0-beta.84",
+    "@effect/platform-bun": "4.0.0-beta.98",
+    "@effect/platform-node": "4.0.0-beta.98",
+    "@effect/platform-node-shared": "4.0.0-beta.98",
     "@types/bun": "latest",
-    "alchemy": "2.0.0-beta.59",
-    "effect": "4.0.0-beta.84",
+    "alchemy": "2.0.0-beta.62",
+    "effect": "4.0.0-beta.98",
     "oxfmt": "latest",
     "typescript": "latest"
   },
   "peerDependencies": {
-    "alchemy": "2.0.0-beta.59",
-    "effect": ">=4.0.0-beta.84 || >=4.0.0"
+    "alchemy": "2.0.0-beta.62",
+    "effect": ">=4.0.0-beta.98 || >=4.0.0"
   }
 }

@@ -283,6 +283,7 @@ describe("Project", () => {
       mock.markProjectDatabasesDeleting(out.project.projectId, 0);
       yield* provider.delete!({
         id: "AppProject",
+        fqn: "AppProject",
         instanceId: "test",
         olds: { organizationId: "org-test" },
         output: out.project,
@@ -1536,6 +1537,7 @@ describe("DatabaseInstance", () => {
 
       const diff = yield* provider.diff!({
         id: "Database",
+        fqn: "Database",
         instanceId: "test",
         olds: props,
         news: props,
@@ -2679,6 +2681,7 @@ describe("Bucket", () => {
 
       const diff = yield* provider.diff!({
         id: "Bucket",
+        fqn: "Bucket",
         instanceId: "test",
         olds: props,
         news: props,
@@ -2832,6 +2835,7 @@ describe("Vpc", () => {
       const provider = yield* Scaleway.Vpc.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "Network",
+        fqn: "Network",
         instanceId: "test",
         olds: { tags: ["read=ok"] },
         output: created,
@@ -2841,6 +2845,7 @@ describe("Vpc", () => {
       mock.removeVpc(created.vpcId);
       const missing = yield* provider.read!({
         id: "Network",
+        fqn: "Network",
         instanceId: "test",
         olds: { tags: ["read=ok"] },
         output: created,
@@ -2927,6 +2932,7 @@ describe("PrivateNetwork", () => {
       const provider = yield* Scaleway.PrivateNetwork.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "Lan",
+        fqn: "Lan",
         instanceId: "test",
         olds: { tags: ["read=ok"] },
         output: created,
@@ -2936,6 +2942,7 @@ describe("PrivateNetwork", () => {
       mock.removePrivateNetwork(created.privateNetworkId);
       const missing = yield* provider.read!({
         id: "Lan",
+        fqn: "Lan",
         instanceId: "test",
         olds: { tags: ["read=ok"] },
         output: created,
@@ -3105,6 +3112,7 @@ describe("VpcRoute", () => {
       const provider = yield* Scaleway.VpcRoute.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "Route",
+        fqn: "Route",
         instanceId: "test",
         olds: {
           vpc: "vpc-a",
@@ -3118,6 +3126,7 @@ describe("VpcRoute", () => {
       mock.removeRoute(created.routeId);
       const missing = yield* provider.read!({
         id: "Route",
+        fqn: "Route",
         instanceId: "test",
         olds: {
           vpc: "vpc-a",
@@ -3202,6 +3211,7 @@ describe("VpcConnector", () => {
       const provider = yield* Scaleway.VpcConnector.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "Connector",
+        fqn: "Connector",
         instanceId: "test",
         olds: { vpc: "vpc-a", targetVpc: "vpc-b" },
         output: created,
@@ -3211,6 +3221,7 @@ describe("VpcConnector", () => {
       mock.removeVpcConnector(created.vpcConnectorId);
       const missing = yield* provider.read!({
         id: "Connector",
+        fqn: "Connector",
         instanceId: "test",
         olds: { vpc: "vpc-a", targetVpc: "vpc-b" },
         output: created,
@@ -3281,6 +3292,7 @@ systemctl start docker
       const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const diff = yield* provider.diff!({
         id: "App",
+        fqn: "App",
         instanceId: "test",
         olds: { commercialType: "DEV1-S", cloudInit: "#!/bin/bash\necho first\n" },
         news: { commercialType: "DEV1-S", cloudInit: "#!/bin/bash\necho second\n" },
@@ -3307,6 +3319,7 @@ systemctl start docker
       const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       yield* provider.reconcile!({
         id: "App",
+        fqn: "App",
         instanceId: "test",
         olds: { commercialType: "DEV1-S" },
         news: {
@@ -3335,6 +3348,7 @@ systemctl start docker
       const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       yield* provider.reconcile!({
         id: "App",
+        fqn: "App",
         instanceId: "test",
         olds: { commercialType: "DEV1-S" },
         news: {
@@ -3361,6 +3375,7 @@ systemctl start docker
       const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       yield* provider.reconcile!({
         id: "App",
+        fqn: "App",
         instanceId: "test",
         olds: { commercialType: "DEV1-S" },
         news: {
@@ -3487,6 +3502,7 @@ systemctl start docker
 
       yield* provider.delete!({
         id: "App",
+        fqn: "App",
         instanceId: "test",
         olds: { commercialType: "DEV1-S" },
         output: { ...created, zone: "fr-par", volumes: undefined },
@@ -3582,6 +3598,7 @@ systemctl start docker
       const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "App",
+        fqn: "App",
         instanceId: "test",
         olds: { zone: "fr-par-1", commercialType: "DEV1-S" },
         output: created,
@@ -3590,6 +3607,7 @@ systemctl start docker
 
       const legacyRead = yield* provider.read!({
         id: "App",
+        fqn: "App",
         instanceId: "test",
         olds: { commercialType: "DEV1-S" },
         output: { ...created, zone: "fr-par", volumes: undefined, createdVolumeIds: ["vol-detached"] },
@@ -3601,6 +3619,7 @@ systemctl start docker
       mock.removeServer(created.serverId);
       const missing = yield* provider.read!({
         id: "App",
+        fqn: "App",
         instanceId: "test",
         olds: { zone: "fr-par-1", commercialType: "DEV1-S" },
         output: created,
@@ -3726,6 +3745,7 @@ describe("SecurityGroup", () => {
       const provider = yield* Scaleway.SecurityGroup.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "Firewall",
+        fqn: "Firewall",
         instanceId: "test",
         olds: { zone: "fr-par-1" },
         output: created,
@@ -3736,6 +3756,7 @@ describe("SecurityGroup", () => {
 
       yield* provider.read!({
         id: "Firewall",
+        fqn: "Firewall",
         instanceId: "test",
         olds: {},
         output: { ...created, zone: "fr-par" },
@@ -3745,6 +3766,7 @@ describe("SecurityGroup", () => {
       mock.removeSecurityGroup(created.securityGroupId);
       const missing = yield* provider.read!({
         id: "Firewall",
+        fqn: "Firewall",
         instanceId: "test",
         olds: { zone: "fr-par-1" },
         output: created,
@@ -3772,6 +3794,7 @@ describe("SecurityGroup", () => {
 
       yield* provider.delete!({
         id: "Firewall",
+        fqn: "Firewall",
         instanceId: "test",
         olds: { zone: "fr-par-1" },
         output: created.securityGroup,
@@ -3897,6 +3920,7 @@ describe("FlexibleIp", () => {
       const provider = yield* Scaleway.FlexibleIp.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "PublicIp",
+        fqn: "PublicIp",
         instanceId: "test",
         olds: { zone: "fr-par-1" },
         output: created,
@@ -3905,6 +3929,7 @@ describe("FlexibleIp", () => {
 
       yield* provider.read!({
         id: "PublicIp",
+        fqn: "PublicIp",
         instanceId: "test",
         olds: {},
         output: { ...created, zone: "fr-par" },
@@ -3914,6 +3939,7 @@ describe("FlexibleIp", () => {
       mock.removeFlexibleIp(created.ipId);
       const missing = yield* provider.read!({
         id: "PublicIp",
+        fqn: "PublicIp",
         instanceId: "test",
         olds: { zone: "fr-par-1" },
         output: created,
@@ -3936,6 +3962,7 @@ describe("DnsZone", () => {
       const provider = yield* Scaleway.DnsZone.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "Zone",
+        fqn: "Zone",
         instanceId: "test",
         olds: { domain: "example.test", subdomain: "app" },
         output: zone,
@@ -4045,6 +4072,7 @@ describe("DnsZone", () => {
 
       yield* provider.delete!({
         id: "LegacyZone",
+        fqn: "LegacyZone",
         instanceId: "test",
         olds: { domain: "legacy.example.test" },
         output: {
@@ -4078,6 +4106,7 @@ describe("DnsZone", () => {
       const provider = yield* Scaleway.DnsZone.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "OwnedZone",
+        fqn: "OwnedZone",
         instanceId: "test",
         olds: { domain: "example.test", subdomain: "owned", project: out.project.projectId },
         output: out.zone,
@@ -4095,6 +4124,7 @@ describe("DnsRecord", () => {
       const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "IncompleteRecord",
+        fqn: "IncompleteRecord",
         instanceId: "test",
         olds: {
           project: "proj-test",
@@ -4207,6 +4237,7 @@ describe("DnsRecord", () => {
       const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "AppRecord",
+        fqn: "AppRecord",
         instanceId: "test",
         olds: {
           zone: "shared.example.test",
@@ -4250,6 +4281,7 @@ describe("DnsRecord", () => {
       const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "SharedRecord",
+        fqn: "SharedRecord",
         instanceId: "test",
         olds: {
           zone: "string-zone.example.test",
@@ -4288,6 +4320,7 @@ describe("DnsRecord", () => {
       const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const create = provider.reconcile!({
         id: "ReplacementRecord",
+        fqn: "ReplacementRecord",
         instanceId: "test",
         olds: undefined,
         news: {
@@ -4329,6 +4362,7 @@ describe("DnsRecord", () => {
       const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const created = yield* provider.reconcile!({
         id: "ReplacementRecord",
+        fqn: "ReplacementRecord",
         instanceId: "test",
         olds: undefined,
         news: {
@@ -4378,6 +4412,7 @@ describe("DnsRecord", () => {
       const { projectId: _legacyMissingProjectId, ...legacyOutput } = result.record;
       const read = yield* provider.read!({
         id: "AppRecord",
+        fqn: "AppRecord",
         instanceId: "test",
         olds: {
           zone: result.zone as unknown as Scaleway.DnsZone,
@@ -4538,6 +4573,7 @@ describe("PrivateNic", () => {
       const provider = yield* Scaleway.PrivateNic.Provider.pipe(Effect.provide(vpcLifecycleLayer));
       const read = yield* provider.read!({
         id: "Nic",
+        fqn: "Nic",
         instanceId: "test",
         olds: { zone: "fr-par-1", serverId: "server-a", privateNetwork: "pn-a" },
         output: created,
@@ -4546,6 +4582,7 @@ describe("PrivateNic", () => {
 
       yield* provider.read!({
         id: "Nic",
+        fqn: "Nic",
         instanceId: "test",
         olds: { serverId: "server-a", privateNetwork: "pn-a" },
         output: { ...created, zone: "fr-par" },
@@ -4555,6 +4592,7 @@ describe("PrivateNic", () => {
       mock.removePrivateNic(created.serverId, created.privateNicId);
       const missing = yield* provider.read!({
         id: "Nic",
+        fqn: "Nic",
         instanceId: "test",
         olds: { zone: "fr-par-1", serverId: "server-a", privateNetwork: "pn-a" },
         output: created,
