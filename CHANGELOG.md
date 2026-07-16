@@ -4,6 +4,13 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.11-beta.62] - 2026-07-16
+
+### Changed
+
+- Updated compatibility target to `alchemy@2.0.0-beta.62` and Effect `>=4.0.0-beta.98`.
+- Updated direct provider lifecycle test calls for Alchemy beta.62's required `fqn` request field.
+
 ## [0.7.10-beta.59] - 2026-07-03
 
 ### Fixed

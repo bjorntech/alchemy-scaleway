@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.7.11-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 || >=4.0.0` | Updates compatibility to Alchemy beta.62 and Effect beta.98. |
 | `0.7.10-beta.59`            | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Reports exact same-name Container conflicts and resolves `ContainerImage.dockerfile` relative to `context` when no cwd-relative file exists. |
 | `0.7.9-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Recovers interrupted Instance creates, retries transient post-Project IAM propagation errors, and adds Bucket project scoping. |
 | `0.7.8-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Verifies mirrored tags are pull-visible before dependent container updates and retries transient image-pull visibility errors. |
@@ -49,7 +50,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 ## Install
 
 ```sh
-bun add alchemy@2.0.0-beta.59 effect @bjorntech/alchemy-scaleway
+bun add alchemy@2.0.0-beta.62 effect @bjorntech/alchemy-scaleway
 ```
 
 `@bjorntech/alchemy-scaleway` ships raw TypeScript and uses `.ts` import suffixes internally. Your `tsconfig.json` needs `"moduleResolution": "Bundler"` and `"allowImportingTsExtensions": true`.
