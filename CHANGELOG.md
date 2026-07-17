@@ -4,6 +4,13 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.12-beta.62] - 2026-07-17
+
+### Fixed
+
+- `FlexibleIp` now treats omitted `serverId` as unmanaged/preserved instead of
+  detaching during unrelated updates; use `serverId: null` to explicitly detach.
+
 ## [0.7.11-beta.62] - 2026-07-16
 
 ### Changed
