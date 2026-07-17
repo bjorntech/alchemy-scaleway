@@ -3835,6 +3835,71 @@ describe("FlexibleIp", () => {
     }),
   );
 
+  test.provider("omitting flexible IP serverId preserves live attachment", () =>
+    Effect.gen(function* () {
+      mock.addFlexibleIp("ip-managed", { serverId: "server-a" });
+      mock.setFlexibleIpTags("ip-managed", ["alchemy:logical-id=PublicIp", "role=edge"]);
+      const provider = yield* Scaleway.FlexibleIp.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+
+      const diff = yield* provider.diff!({
+        id: "PublicIp",
+        fqn: "PublicIp",
+        instanceId: "test",
+        olds: { zone: "fr-par-1", tags: ["role=edge"], serverId: "server-a" },
+        news: { zone: "fr-par-1", tags: ["role=edge"] },
+        oldBindings: [],
+        newBindings: [],
+        output: {
+          ipId: "ip-managed",
+          address: "203.0.113.10",
+          zone: "fr-par-1",
+          projectId: "proj-test",
+          tags: ["alchemy:logical-id=PublicIp", "role=edge"],
+          serverId: "server-a",
+          type: "routed_ipv4",
+        },
+      });
+
+      expect(diff).toEqual({ action: "noop" });
+
+      const updated = yield* provider.reconcile!({
+        id: "PublicIp",
+        fqn: "PublicIp",
+        instanceId: "test",
+        olds: { zone: "fr-par-1", tags: ["role=edge"], serverId: "server-a" },
+        news: { zone: "fr-par-1", tags: ["role=sip"] },
+        oldBindings: [],
+        newBindings: [],
+        output: {
+          ipId: "ip-managed",
+          address: "203.0.113.10",
+          zone: "fr-par-1",
+          projectId: "proj-test",
+          tags: ["alchemy:logical-id=PublicIp", "role=edge"],
+          serverId: "server-a",
+          type: "routed_ipv4",
+        },
+        session: { note: () => Effect.void },
+      } as any);
+
+      const patchBody = JSON.parse(requests("PATCH", "/ips/ip-managed").at(-1)!.body);
+      expect(patchBody).not.toHaveProperty("server");
+      expect(updated.serverId).toBe("server-a");
+    }),
+  );
+
+  test.provider("explicit flexible IP serverId null detaches attachment", (stack) =>
+    Effect.gen(function* () {
+      const attached = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { zone: "fr-par-1", serverId: "server-a" }));
+
+      const detached = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { zone: "fr-par-1", serverId: null }));
+
+      expect(detached.ipId).toBe(attached.ipId);
+      expect(detached.serverId).toBeUndefined();
+      expect(JSON.parse(requests("PATCH", `/ips/${attached.ipId}`).at(-1)!.body).server).toBeNull();
+    }),
+  );
+
   test.provider("changing flexible IP type forces a replace", (stack) =>
     Effect.gen(function* () {
       const first = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { type: "routed_ipv4" }));
