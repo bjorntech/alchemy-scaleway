@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.7.12-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 || >=4.0.0` | Preserves existing `FlexibleIp` server attachment when `serverId` is omitted; use `serverId: null` to detach. |
 | `0.7.11-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 || >=4.0.0` | Updates compatibility to Alchemy beta.62 and Effect beta.98. |
 | `0.7.10-beta.59`            | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Reports exact same-name Container conflicts and resolves `ContainerImage.dockerfile` relative to `context` when no cwd-relative file exists. |
 | `0.7.9-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Recovers interrupted Instance creates, retries transient post-Project IAM propagation errors, and adds Bucket project scoping. |
@@ -255,7 +256,7 @@ Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJE
 - `VpcConnector` - Scaleway VPC connector lifecycle for connecting two VPCs, with name and tag updates in place.
 - `Instance` - Scaleway Instance lifecycle for virtual machines, with conservative replacement for image/type/volume/cloud-init identity changes and action-based power state convergence.
 - `SecurityGroup` - Scaleway Instance security group lifecycle. This resource owns the complete security group rule set.
-- `FlexibleIp` - Scaleway Instance flexible IP reservation lifecycle, including tag, reverse DNS, and server attachment updates. Defaults to `retain()` on removal and uses `alchemy:logical-id` tags for later rediscovery.
+- `FlexibleIp` - Scaleway Instance flexible IP reservation lifecycle, including tag, reverse DNS, and server attachment updates. Omit `serverId` to leave attachment unmanaged/preserved, set it to a server ID to attach, or set it to `null` to detach. Defaults to `retain()` on removal and uses `alchemy:logical-id` tags for later rediscovery.
 - `PrivateNic` - Scaleway Instance private NIC lifecycle for attaching one Instance to one Private Network.
 
 `Instance.cloudInit` accepts a multi-line `string` or `Redacted<string>` and writes it to Scaleway's `cloud-init` user-data key before the first boot. The script is treated as first-boot input: Alchemy stores only a SHA-256 hash in resource outputs, and changing the value replaces the Instance instead of mutating a running VM.

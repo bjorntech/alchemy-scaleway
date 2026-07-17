@@ -14,7 +14,11 @@ export interface FlexibleIpProps {
   zone?: string;
   project?: ProjectRef;
   tags?: string[];
-  serverId?: string;
+  /**
+   * Server to attach this IP to. Omit to leave attachment unmanaged, or set
+   * null to explicitly detach an already-attached IP.
+   */
+  serverId?: string | null;
   type?: FlexibleIpType;
   reverse?: string;
 }
@@ -47,6 +51,9 @@ const stringsEqual = (left?: string[], right?: string[]) => JSON.stringify([...(
 const withAlchemyTag = (id: string, tags: string[] | undefined) => [`alchemy:logical-id=${id}`, ...(tags ?? [])];
 const hasAlchemyTag = (id: string, tags: string[] | undefined) => (tags ?? []).includes(`alchemy:logical-id=${id}`);
 const zoneOf = (region: string, zone?: string) => !zone || zone === region ? `${region}-1` : zone;
+const hasServerIntent = (props: FlexibleIpProps) => props.serverId !== undefined;
+const serverUpdate = (props: FlexibleIpProps) => hasServerIntent(props) ? { server: props.serverId ?? null } : {};
+const serverCreate = (props: FlexibleIpProps) => props.serverId ? { server: props.serverId } : {};
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const FlexibleIpProvider = () =>
@@ -76,7 +83,11 @@ export const FlexibleIpProvider = () =>
           if (!isResolved(news) || !output) return undefined;
           if (zoneOf(clients.region, output.zone) !== zoneOf(clients.region, news.zone) || output.type !== (news.type ?? "routed_ipv4")) return { action: "replace" } as const;
           if (output.projectId !== (yield* projectId(projectInput(news), output.projectId))) return { action: "replace" } as const;
-          if (!stringsEqual(output.tags, withAlchemyTag(id, news.tags)) || output.serverId !== news.serverId || output.reverse !== news.reverse) return { action: "update" } as const;
+          if (
+            !stringsEqual(output.tags, withAlchemyTag(id, news.tags)) ||
+            (hasServerIntent(news) && (output.serverId ?? null) !== (news.serverId ?? null)) ||
+            output.reverse !== news.reverse
+          ) return { action: "update" } as const;
           return { action: "noop" } as const;
         }),
         read: Effect.fnUntraced(function* ({ id, olds, output }) {
@@ -102,7 +113,7 @@ export const FlexibleIpProvider = () =>
           const resolvedProjectId = yield* projectId(projectInput(news), output?.projectId);
           let record: ScalewayFlexibleIpRecord;
           if (output?.ipId) {
-            record = yield* clients.instance.updateFlexibleIp({ zone, ip: output.ipId, tags, server: news.serverId ?? null, reverse: news.reverse ?? null });
+            record = yield* clients.instance.updateFlexibleIp({ zone, ip: output.ipId, tags, ...serverUpdate(news), reverse: news.reverse ?? null });
           } else {
             const found = yield* clients.instance.listFlexibleIps({ zone, project: resolvedProjectId }).pipe(
               Effect.map((ips) => ips.find((ip) =>
@@ -114,12 +125,12 @@ export const FlexibleIpProvider = () =>
               Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
             );
             if (found) {
-              record = yield* clients.instance.updateFlexibleIp({ zone, ip: found.id, tags, server: news.serverId ?? null, reverse: news.reverse ?? null });
+              record = yield* clients.instance.updateFlexibleIp({ zone, ip: found.id, tags, ...serverUpdate(news), reverse: news.reverse ?? null });
             } else {
-              record = yield* clients.instance.createFlexibleIp({ zone, project: resolvedProjectId, tags, server: news.serverId, type: news.type ?? "routed_ipv4" });
+              record = yield* clients.instance.createFlexibleIp({ zone, project: resolvedProjectId, tags, ...serverCreate(news), type: news.type ?? "routed_ipv4" });
             }
             if (!found && news.reverse !== undefined) {
-              record = yield* clients.instance.updateFlexibleIp({ zone, ip: record.id, tags, server: news.serverId ?? null, reverse: news.reverse }).pipe(
+              record = yield* clients.instance.updateFlexibleIp({ zone, ip: record.id, tags, ...serverUpdate(news), reverse: news.reverse }).pipe(
                 Effect.catch((error) =>
                   clients.instance.deleteFlexibleIp({ zone, ip: record.id }).pipe(
                     Effect.catchIf(isNotFound, () => Effect.void),
