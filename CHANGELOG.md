@@ -4,6 +4,17 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+### Changed
+
+- `DnsRecord` now separates explicit cold-state takeover from ordinary updates
+  with `takeoverExisting`; `overwriteExisting` remains a deprecated alias.
+  Newly taken-over record sets are retained on destroy unless
+  `deleteTakenOver: true` is set, while legacy outputs without ownership keep
+  the previous delete behavior for compatibility.
+- `DnsZone` discovery now fails when the same zone name is visible in multiple
+  projects unless the DNS authority project is explicit, avoiding arbitrary
+  cross-project selection.
+
 ## [0.7.12-beta.62] - 2026-07-17
 
 ### Fixed

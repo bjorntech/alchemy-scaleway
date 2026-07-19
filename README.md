@@ -243,8 +243,8 @@ Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJE
 - `Function` - Scaleway Serverless Function lifecycle. It creates/updates function metadata, bundles a local entrypoint or uploads a prebuilt ZIP through Scaleway's upload URL, deploys the function, waits for readiness, stores a source hash so unchanged deploys skip upload/deploy, and can manage custom domains and cron triggers directly.
 - `FunctionCron` - Serverless Function cron lifecycle.
 - `FunctionDomain` - Serverless Function custom domain lifecycle.
-- `DnsZone` - Scaleway Domains and DNS zone handle. Existing apex or child zones are discovered by zone name across accessible projects and returned with their live `projectId`; absent child zones (`domain` plus `subdomain`) are created in the requested DNS project. Referenced existing zones are retained on delete, while zones created by Alchemy can be deleted if you opt into `destroy()`.
-- `DnsRecord` - Scaleway Domains and DNS record-set lifecycle. Records are scoped through their `DnsZone`, including its project, or through an explicit `project`; otherwise DNS operations use `SCW_DEFAULT_PROJECT_ID`. Records can use explicit values or infer a target from resources such as `Container`, `FlexibleIp`, `Instance`, `RegistryNamespace`, and `Bucket`. Initial creates refuse to replace an existing same-name/type record set unless `overwriteExisting: true` is set.
+- `DnsZone` - Scaleway Domains and DNS zone handle. Existing apex or child zones are discovered by zone name and returned with their live `projectId`; absent child zones (`domain` plus `subdomain`) are created in the requested DNS project. If the same zone name is visible in multiple projects, pass the DNS authority project explicitly. Referenced existing zones are retained on delete, while zones created by Alchemy can be deleted if you opt into `destroy()`.
+- `DnsRecord` - Scaleway Domains and DNS record-set lifecycle. Records are scoped through their `DnsZone`, including its DNS authority project, or through an explicit `project`; otherwise DNS operations use `SCW_DEFAULT_PROJECT_ID`. Records can use explicit values or infer a target from resources such as `Container`, `FlexibleIp`, `Instance`, `RegistryNamespace`, and `Bucket`. Initial creates refuse to replace an existing same-name/type record set unless `takeoverExisting: true` is set (`overwriteExisting` remains as a deprecated alias).
 - `RegistryNamespace` - Scaleway Container Registry namespace lifecycle with ready-to-use image prefix output.
 - `Secret` - Scaleway Secret Manager secret metadata and version lifecycle. Secret values are accepted as `Redacted<string>` and are never returned in outputs. Destroying a non-retained secret permanently deletes its versions before deleting the secret container.
 - `DatabaseInstance` - Scaleway Managed Database for PostgreSQL/MySQL instance lifecycle with readiness polling, project defaults, endpoint outputs, and redacted admin password input. Engine, node type, default user, password, HA mode, and volume shape changes replace the instance; name, tags, and backup schedule update in place. Defaults to `retain()` on removal and uses `alchemy:logical-id` tags for later rediscovery.
@@ -286,9 +286,9 @@ High-value resources that can hold data or scarce addresses default to `retain()
 
 `DnsRecord.target` chooses `A` or `AAAA` for IP addresses and `CNAME` for hostnames/endpoints. Use `records` plus an explicit `type` when you need full control over MX, TXT, SRV, CAA, or other record data:
 
-`DnsRecord` owns the complete record set for one zone/name/type. If the record set already exists outside Alchemy, initial creation fails by default to avoid replacing unmanaged DNS. Set `overwriteExisting: true` only when you intentionally want Alchemy to take over and replace that record set.
+`DnsRecord` owns the complete record set for one zone/name/type. If the record set already exists outside Alchemy, initial creation fails by default to avoid replacing unmanaged DNS. Set `takeoverExisting: true` only when you intentionally want Alchemy to take over and replace that record set. Taken-over record sets are updated while the resource exists but are retained on destroy unless you also set `deleteTakenOver: true`; record sets created from scratch by `DnsRecord` are deleted normally. `overwriteExisting: true` is still accepted as a deprecated takeover alias for older stacks, but new code should use `takeoverExisting`.
 
-DNS zones can live in a shared/default project while targets live in another project. `DnsZone.project` is the preferred DNS project for lookup or child-zone creation, not the target application project. If the zone already exists in another accessible project, `DnsZone` references that live zone and `DnsRecord` writes records using the zone's returned `projectId`; `Domain` remains scoped to the target container:
+DNS zones can live in a shared/default authority project while targets live in another application project. `DnsZone.project` is the preferred DNS authority project for lookup or child-zone creation, not the target application project. If the zone already exists in one other accessible project, `DnsZone` references that live zone and `DnsRecord` writes records using the zone's returned `projectId`; if multiple same-name zones are visible, pass the DNS authority project explicitly so Alchemy cannot choose the wrong zone. `Domain` remains scoped to the target container:
 
 For apex zones such as `example.com`, register, transfer, or validate the domain in Scaleway first, then use `DnsZone` as an existing-zone reference. To create a child zone such as `dev.example.com`, pass `{ domain: "example.com", subdomain: "dev" }`.
 
@@ -312,7 +312,7 @@ yield* Scaleway.DnsRecord("SipWildcard", {
   zone: sipZone,
   name: "*",
   target: publicIp,
-  overwriteExisting: true,
+  takeoverExisting: true,
 });
 ```
 

@@ -38,6 +38,8 @@ export interface ScalewayMock {
   seedBucket(name: string, region: string, tags?: Record<string, string>): void;
   /** Seed an existing DNS zone, such as an apex zone registered outside Alchemy. */
   seedDnsZone(dnsZone: string, projectId?: string): void;
+  /** Seed an existing DNS record set outside Alchemy. */
+  seedDnsRecord(input: { dnsZone: string; projectId?: string; name: string; type: string; data: string; ttl?: number; priority?: number; comment?: string }): void;
   removeDnsZone(dnsZone: string, projectId?: string): void;
   /** Make the next created custom domains enter Scaleway's deployment error state. */
   failNextDomainDeploys(count: number): void;
@@ -1667,6 +1669,13 @@ export function installScalewayMock(): ScalewayMock {
     seedDnsZone: (dnsZone, projectId = "proj-test") => {
       const record = zoneRecordOf(dnsZone, projectId);
       dnsZones.set(zoneKeyOf(record), record);
+    },
+    seedDnsRecord: ({ dnsZone, projectId = "proj-test", name, type, data, ttl = 300, priority = 0, comment }) => {
+      const key = `${projectId}:${dnsZone}`;
+      dnsRecords.set(key, [
+        ...(dnsRecords.get(key) ?? []),
+        { id: nextId("dnsrec"), name, type, data, ttl, priority, ...(comment === undefined ? {} : { comment }) },
+      ]);
     },
     removeDnsZone: (dnsZone, projectId = "proj-test") => {
       dnsZones.delete(`${projectId}:${dnsZone}`);

@@ -51,6 +51,15 @@ const missingApexZoneError = (dnsZone: string) =>
 const isDnsZoneMissing = (error: unknown) => isNotFound(error) || String((error as { message?: unknown })?.message ?? "").toLowerCase().includes("domain not found");
 const isZoneAlreadyExists = (error: unknown) => String((error as { message?: unknown })?.message ?? "").toLowerCase().includes("zone already exists");
 
+const exactZones = (zones: ScalewayDnsZoneRecord[], dnsZone: string) =>
+  zones.filter((zone) => dnsZoneName(zone.domain, subdomainOf(zone)) === dnsZone);
+
+const singleZoneOrAmbiguous = (zones: ScalewayDnsZoneRecord[], dnsZone: string) => {
+  if (zones.length <= 1) return Effect.succeed(zones[0]);
+  const projects = zones.map((zone) => zone.project_id ?? "unknown").join(", ");
+  return Effect.fail(new Error(`Scaleway DNS zone ${dnsZone} is visible in multiple projects (${projects}); pass the DNS authority project explicitly`));
+};
+
 const toAttributes = (zone: ScalewayDnsZoneRecord, managed?: boolean): DnsZone["Attributes"] =>
   omitUndefined({
     dnsZone: dnsZoneName(zone.domain, subdomainOf(zone)),
@@ -80,15 +89,19 @@ export const DnsZoneProvider = () =>
       const clients = yield* makeScalewayClients;
       const findZoneInProject = (dnsZone: string, explicitProjectId?: string) =>
         clients.dns.listZones({ dnsZone, projectId: explicitProjectId }).pipe(
-          Effect.map((zones) =>
-            zones.find((zone) => dnsZoneName(zone.domain, subdomainOf(zone)) === dnsZone),
-          ),
+          Effect.map((zones) => exactZones(zones, dnsZone)[0]),
+          Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+        );
+      const findUnambiguousZone = (dnsZone: string) =>
+        clients.dns.listZones({ dnsZone }).pipe(
+          Effect.map((zones) => exactZones(zones, dnsZone)),
+          Effect.flatMap((zones) => singleZoneOrAmbiguous(zones, dnsZone)),
           Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
         );
       const findZone = (dnsZone: string, preferredProjectId?: string) =>
         Effect.gen(function* () {
           const preferred = preferredProjectId ? yield* findZoneInProject(dnsZone, preferredProjectId) : undefined;
-          return preferred ?? (yield* findZoneInProject(dnsZone));
+          return preferred ?? (yield* findUnambiguousZone(dnsZone));
         });
 
       return DnsZone.Provider.of({
