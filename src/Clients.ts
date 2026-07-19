@@ -1004,10 +1004,9 @@ export function buildScalewayClients(credentials: ScalewayCredentialsService): S
     },
     dns: {
       listZones: ({ domain, dnsZone, projectId }) =>
-        request<{ dns_zones?: ScalewayDnsZoneRecord[] }>(
-          "GET",
-          `${dnsBase}/dns-zones${query({ domain, dns_zone: dnsZone, project_id: projectId })}`,
-        ).pipe(Effect.map((response) => response.dns_zones ?? [])),
+        listAllPages<ScalewayDnsZoneRecord, "dns_zones">("dns_zones", (page, pageSize) =>
+          `${dnsBase}/dns-zones${query({ domain, dns_zone: dnsZone, project_id: projectId, page, page_size: pageSize })}`
+        ),
       createZone: (input) =>
         request("POST", `${dnsBase}/dns-zones`, input).pipe(Effect.map(decodeDnsZone)),
       updateZone: ({ dnsZone, ...input }) =>
@@ -1020,10 +1019,9 @@ export function buildScalewayClients(credentials: ScalewayCredentialsService): S
           `${dnsBase}/dns-zones/${encodeURIComponent(dnsZone)}${query({ project_id: projectId })}`,
         ),
       listRecords: ({ dnsZone, name, type, id, projectId }) =>
-        request<{ records?: ScalewayDnsRecord[] }>(
-          "GET",
-          `${dnsBase}/dns-zones/${encodeURIComponent(dnsZone)}/records${query({ name, type, id, project_id: projectId })}`,
-        ).pipe(Effect.map((response) => response.records ?? [])),
+        listAllPages<ScalewayDnsRecord, "records">("records", (page, pageSize) =>
+          `${dnsBase}/dns-zones/${encodeURIComponent(dnsZone)}/records${query({ name, type, id, project_id: projectId, page, page_size: pageSize })}`
+        ),
       updateRecords: ({ dnsZone, projectId, ...input }) =>
         request<{ records?: ScalewayDnsRecord[] }>(
           "PATCH",

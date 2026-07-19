@@ -4181,6 +4181,22 @@ describe("DnsZone", () => {
       expect(read?.managed).toBe(false);
     }),
   );
+
+  test.provider("fails ambiguous DNS zone discovery across projects", (stack) =>
+    Effect.gen(function* () {
+      mock.seedDnsZone("ambiguous.example.test", "proj-one");
+      mock.seedDnsZone("ambiguous.example.test", "proj-two");
+
+      yield* Effect.flip(
+        stack.deploy(Scaleway.DnsZone("AmbiguousZone", { domain: "ambiguous.example.test" })),
+      ).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("visible in multiple projects");
+          expect(String(error)).toContain("pass the DNS authority project explicitly");
+        }),
+      );
+    }),
+  );
 });
 
 describe("DnsRecord", () => {
@@ -4249,6 +4265,7 @@ describe("DnsRecord", () => {
       expect(created.name).toBe("www");
       expect(created.type).toBe("A");
       expect(created.records.map((record) => record.data).sort()).toEqual(["192.0.2.10", "192.0.2.11"]);
+      expect(created.ownership).toBe("created");
 
       const updated = yield* stack.deploy(
         Effect.gen(function* () {
@@ -4400,23 +4417,84 @@ describe("DnsRecord", () => {
       } as any);
 
       yield* Effect.flip(create).pipe(
-        Effect.map((error) => expect(String((error as Error).message)).toContain("set overwriteExisting: true")),
+        Effect.map((error) => expect(String((error as Error).message)).toContain("set takeoverExisting: true")),
       );
     }),
   );
 
-  test.provider("overwrites an existing DNS record when explicitly allowed", (stack) =>
+  test.provider("engine cold read fails existing DNS records without explicit takeover", (stack) =>
     Effect.gen(function* () {
-      mock.seedDnsZone("overwrite.example.test", "proj-domain");
+      mock.seedDnsZone("cold-conflict.example.test", "proj-domain");
+      mock.seedDnsRecord({
+        dnsZone: "cold-conflict.example.test",
+        projectId: "proj-domain",
+        name: "api",
+        type: "A",
+        data: "192.0.2.82",
+      });
+
+      yield* Effect.flip(
+        stack.deploy(
+          Scaleway.DnsRecord("ColdConflict", {
+            zone: "cold-conflict.example.test",
+            project: "proj-domain",
+            name: "api",
+            type: "A",
+            records: ["192.0.2.83"],
+          }),
+        ),
+      ).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("OwnedBySomeoneElse");
+          expect(requests("PATCH", "/dns-zones/cold-conflict.example.test/records")).toHaveLength(0);
+        }),
+      );
+    }),
+  );
+
+  test.provider("engine explicit takeover persists taken-over ownership and destroy retains", (stack) =>
+    Effect.gen(function* () {
+      mock.seedDnsZone("cold-takeover.example.test", "proj-domain");
+      mock.seedDnsRecord({
+        dnsZone: "cold-takeover.example.test",
+        projectId: "proj-domain",
+        name: "api",
+        type: "A",
+        data: "192.0.2.84",
+      });
+
+      const record = yield* stack.deploy(
+        Scaleway.DnsRecord("ColdTakeover", {
+          zone: "cold-takeover.example.test",
+          project: "proj-domain",
+          name: "api",
+          type: "A",
+          records: ["192.0.2.85"],
+          takeoverExisting: true,
+        }),
+      );
+
+      expect(record.ownership).toBe("taken-over");
+      expect(record.records.map((item) => item.data)).toEqual(["192.0.2.85"]);
+      expect(requests("PATCH", "/dns-zones/cold-takeover.example.test/records")).toHaveLength(1);
+
+      yield* stack.destroy();
+      expect(requests("PATCH", "/dns-zones/cold-takeover.example.test/records")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("takes over an existing DNS record when explicitly allowed", (stack) =>
+    Effect.gen(function* () {
+      mock.seedDnsZone("takeover.example.test", "proj-domain");
       yield* stack.deploy(
         Scaleway.DnsZone("Zone", {
-          domain: "overwrite.example.test",
+          domain: "takeover.example.test",
           project: "proj-domain",
         }).pipe(adoptResource()),
       );
       yield* stack.deploy(
         Scaleway.DnsRecord("ExistingRecord", {
-          zone: "overwrite.example.test",
+          zone: "takeover.example.test",
           project: "proj-domain",
           name: "api",
           type: "A",
@@ -4431,18 +4509,183 @@ describe("DnsRecord", () => {
         instanceId: "test",
         olds: undefined,
         news: {
-          zone: "overwrite.example.test",
+          zone: "takeover.example.test",
           project: "proj-domain",
           name: "api",
           type: "A",
           records: ["192.0.2.91"],
-          overwriteExisting: true,
+          takeoverExisting: true,
         },
         output: undefined,
         session: { note: () => Effect.void },
       } as any);
 
       expect(created.records.map((record) => record.data)).toEqual(["192.0.2.91"]);
+      expect(created.ownership).toBe("taken-over");
+    }),
+  );
+
+  test.provider("keeps overwriteExisting as a deprecated takeover alias", () =>
+    Effect.gen(function* () {
+      mock.seedDnsZone("overwrite.example.test", "proj-domain");
+      const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      yield* provider.reconcile!({
+        id: "SeedRecord",
+        fqn: "SeedRecord",
+        instanceId: "test",
+        olds: undefined,
+        news: {
+          zone: "overwrite.example.test",
+          project: "proj-domain",
+          name: "api",
+          type: "A",
+          records: ["192.0.2.90"],
+        },
+        output: undefined,
+        session: { note: () => Effect.void },
+      } as any);
+
+      const created = yield* provider.reconcile!({
+        id: "AliasRecord",
+        fqn: "AliasRecord",
+        instanceId: "test",
+        olds: undefined,
+        news: {
+          zone: "overwrite.example.test",
+          project: "proj-domain",
+          name: "api",
+          type: "A",
+          records: ["192.0.2.92"],
+          overwriteExisting: true,
+        },
+        output: undefined,
+        session: { note: () => Effect.void },
+      } as any);
+
+      expect(created.ownership).toBe("taken-over");
+      expect(created.records.map((record) => record.data)).toEqual(["192.0.2.92"]);
+    }),
+  );
+
+  test.provider("retains taken-over DNS records on destroy unless deletion is explicit", () =>
+    Effect.gen(function* () {
+      mock.seedDnsZone("retain-taken.example.test", "proj-domain");
+      const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const output = {
+        dnsZone: "retain-taken.example.test",
+        projectId: "proj-domain",
+        name: "api",
+        type: "A" as const,
+        records: [{ name: "api", type: "A" as const, data: "192.0.2.93", ttl: 300, priority: 0 }],
+        ownership: "taken-over" as const,
+      };
+
+      yield* provider.delete!({
+        id: "TakenRecord",
+        fqn: "TakenRecord",
+        instanceId: "test",
+        olds: { zone: "retain-taken.example.test", project: "proj-domain", name: "api", type: "A", records: ["192.0.2.93"] },
+        output,
+        session: { note: () => Effect.void },
+      } as any);
+      expect(requests("PATCH", "/dns-zones/retain-taken.example.test/records")).toHaveLength(0);
+
+      yield* provider.delete!({
+        id: "TakenRecord",
+        fqn: "TakenRecord",
+        instanceId: "test",
+        olds: { zone: "retain-taken.example.test", project: "proj-domain", name: "api", type: "A", records: ["192.0.2.93"], deleteTakenOver: true },
+        output,
+        session: { note: () => Effect.void },
+      } as any);
+      expect(requests("PATCH", "/dns-zones/retain-taken.example.test/records")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("deletes legacy DNS record outputs without ownership for compatibility", () =>
+    Effect.gen(function* () {
+      mock.seedDnsZone("legacy-delete.example.test", "proj-domain");
+      const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+
+      yield* provider.delete!({
+        id: "LegacyRecord",
+        fqn: "LegacyRecord",
+        instanceId: "test",
+        olds: { zone: "legacy-delete.example.test", project: "proj-domain", name: "api", type: "A", records: ["192.0.2.94"] },
+        output: {
+          dnsZone: "legacy-delete.example.test",
+          projectId: "proj-domain",
+          name: "api",
+          type: "A" as const,
+          records: [{ name: "api", type: "A" as const, data: "192.0.2.94", ttl: 300, priority: 0 }],
+        },
+        session: { note: () => Effect.void },
+      } as any);
+
+      expect(requests("PATCH", "/dns-zones/legacy-delete.example.test/records")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("deletes legacy DNS record outputs using old DNS authority project", () =>
+    Effect.gen(function* () {
+      mock.seedDnsZone("legacy-authority-delete.example.test", "proj-test");
+      mock.seedDnsZone("legacy-authority-delete.example.test", "proj-domain");
+      mock.seedDnsRecord({
+        dnsZone: "legacy-authority-delete.example.test",
+        projectId: "proj-domain",
+        name: "api",
+        type: "A",
+        data: "192.0.2.96",
+      });
+      const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const legacyZone = {
+        dnsZone: "legacy-authority-delete.example.test",
+        domain: "legacy-authority-delete.example.test",
+        projectId: "proj-domain",
+        managed: false,
+      } as unknown as Scaleway.DnsZone;
+
+      yield* provider.delete!({
+        id: "LegacyAuthorityRecord",
+        fqn: "LegacyAuthorityRecord",
+        instanceId: "test",
+        olds: { zone: legacyZone, name: "api", type: "A", records: ["192.0.2.96"] },
+        output: {
+          dnsZone: "legacy-authority-delete.example.test",
+          name: "api",
+          type: "A" as const,
+          records: [{ name: "api", type: "A" as const, data: "192.0.2.96", ttl: 300, priority: 0 }],
+        },
+        session: { note: () => Effect.void },
+      } as any);
+
+      const patch = requests("PATCH", "/dns-zones/legacy-authority-delete.example.test/records").at(-1);
+      expect(patch?.url).toContain("project_id=proj-domain");
+      expect(patch?.url).not.toContain("project_id=proj-test");
+    }),
+  );
+
+  test.provider("fails unsafe DNS authority project changes", () =>
+    Effect.gen(function* () {
+      const provider = yield* Scaleway.DnsRecord.Provider.pipe(Effect.provide(vpcLifecycleLayer));
+      const diff = provider.diff!({
+        id: "ProjectMoveRecord",
+        fqn: "ProjectMoveRecord",
+        instanceId: "test",
+        olds: { zone: "project-move.example.test", project: "proj-old", name: "api", type: "A", records: ["192.0.2.95"] },
+        news: { zone: "project-move.example.test", project: "proj-new", name: "api", type: "A", records: ["192.0.2.95"] },
+        output: {
+          dnsZone: "project-move.example.test",
+          name: "api",
+          type: "A" as const,
+          records: [{ name: "api", type: "A" as const, data: "192.0.2.95", ttl: 300, priority: 0 }],
+          ownership: "created" as const,
+        },
+      } as any);
+
+      yield* Effect.flip(diff).pipe(
+        Effect.map((error) => expect(String(error)).toContain("Refusing to move Scaleway DNS record")),
+      );
     }),
   );
 

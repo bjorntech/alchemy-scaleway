@@ -1,4 +1,5 @@
 import { Resource } from "alchemy";
+import { Unowned } from "alchemy/AdoptPolicy";
 import { isResolved } from "alchemy/Diff";
 import * as Provider from "alchemy/Provider";
 import * as Effect from "effect/Effect";
@@ -41,8 +42,18 @@ export interface DnsRecordProps {
   target?: DnsRecordTarget;
   priority?: number;
   comment?: string;
+  /**
+   * Explicitly take over an existing record set on first create.
+   * Taken-over records are retained on destroy unless deleteTakenOver is true.
+   */
+  takeoverExisting?: boolean;
+  /** @deprecated Use takeoverExisting. Kept as a compatibility alias. */
   overwriteExisting?: boolean;
+  /** Delete a record set that was explicitly taken over. Created records are always deleted. */
+  deleteTakenOver?: boolean;
 }
+
+export type DnsRecordOwnership = "created" | "taken-over";
 
 export type DnsRecord = Resource<
   "Scaleway.DnsRecord",
@@ -54,6 +65,7 @@ export type DnsRecord = Resource<
     type: DnsRecordType;
     ttl?: number;
     records: ScalewayDnsRecord[];
+    ownership?: DnsRecordOwnership;
   },
   never,
   Providers
@@ -167,7 +179,15 @@ const recordsEqual = (left: ScalewayDnsRecord[], right: ScalewayDnsRecord[]) => 
 };
 
 const failExistingRecord = (dnsZone: string, name: string, type: DnsRecordType) =>
-  Effect.fail(new Error(`Scaleway DNS ${type} ${name || "@"} already exists in ${dnsZone}; set overwriteExisting: true to replace it`));
+  Effect.fail(new Error(`Scaleway DNS ${type} ${name || "@"} already exists in ${dnsZone}; set takeoverExisting: true to replace it (overwriteExisting is a deprecated alias)`));
+
+const wantsTakeover = (props: DnsRecordProps | undefined) => props?.takeoverExisting === true || props?.overwriteExisting === true;
+
+const unsafeProjectChange = (from: string | undefined, to: string | undefined) =>
+  from !== undefined && to !== undefined && from !== to;
+
+const failProjectChange = (dnsZone: string, from: string, to: string) =>
+  Effect.fail(new Error(`Refusing to move Scaleway DNS record ${dnsZone} from DNS project ${from} to ${to}; create a separate DnsRecord or destroy the old state intentionally`));
 
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const DnsRecordProvider = () =>
@@ -183,13 +203,15 @@ export const DnsRecordProvider = () =>
       return DnsRecord.Provider.of({
         stables: ["dnsZone", "projectId", "name", "type"],
         list: () => Effect.succeed([]),
-        diff: Effect.fnUntraced(function* ({ news, output }) {
+        diff: Effect.fnUntraced(function* ({ news, olds, output }) {
           if (!isResolved(news) || !output) return undefined;
           const zone = yield* zoneIdentity(news);
+          const oldZone = olds && hasZone(olds) ? yield* zoneIdentity(olds, true) : undefined;
+          const previousProjectId = output.projectId ?? oldZone?.projectId;
           const desired = yield* desiredRecords(news);
+          if (unsafeProjectChange(previousProjectId, zone.projectId)) return yield* failProjectChange(output.dnsZone, previousProjectId as string, zone.projectId as string);
           if (
             output.dnsZone !== zone.dnsZone ||
-            (output.projectId ?? zone.projectId) !== zone.projectId ||
             output.name !== recordName(news.name) ||
             output.type !== desired[0].type
           ) return { action: "replace" } as const;
@@ -209,22 +231,30 @@ export const DnsRecordProvider = () =>
           if (name === undefined) return undefined;
           const records = yield* readRecords(zone.dnsZone, name, type, zone.projectId);
           if (records.length === 0) return undefined;
-          return {
+          const attrs = {
             dnsZone: zone.dnsZone,
             projectId: zone.projectId,
             name,
             type,
             ttl: records[0].ttl,
             records,
+            ownership: output ? output.ownership : "taken-over",
           } satisfies DnsRecord["Attributes"];
+          if (output) return attrs;
+          return wantsTakeover(olds) ? attrs : Unowned(attrs);
         }),
-        reconcile: Effect.fnUntraced(function* ({ news, output, session }) {
-          const zone = yield* zoneIdentity(news);
+        reconcile: Effect.fnUntraced(function* ({ news, olds, output, session }) {
+          const desiredZone = yield* zoneIdentity(news);
+          const oldZone = olds && hasZone(olds) ? yield* zoneIdentity(olds, true) : undefined;
+          const previousProjectId = output?.projectId ?? oldZone?.projectId;
+          if (unsafeProjectChange(previousProjectId, desiredZone.projectId)) return yield* failProjectChange(output?.dnsZone ?? desiredZone.dnsZone, previousProjectId as string, desiredZone.projectId as string);
+          const zone = output?.dnsZone ? { dnsZone: output.dnsZone, projectId: previousProjectId ?? desiredZone.projectId } : desiredZone;
           const records = yield* desiredRecords(news);
           const type = records[0].type;
           const name = recordName(news.name);
           const existing = output?.dnsZone ? [] : yield* readRecords(zone.dnsZone, name, type, zone.projectId);
-          if (existing.length > 0 && !news.overwriteExisting) return yield* failExistingRecord(zone.dnsZone, name, type);
+          if (existing.length > 0 && !wantsTakeover(news)) return yield* failExistingRecord(zone.dnsZone, name, type);
+          const ownership = output?.ownership ?? (existing.length > 0 ? "taken-over" : "created");
           const updated = yield* clients.dns.updateRecords({
             dnsZone: zone.dnsZone,
             projectId: zone.projectId,
@@ -248,12 +278,19 @@ export const DnsRecordProvider = () =>
             type,
             ttl: records[0].ttl,
             records: current,
+            ownership,
           } satisfies DnsRecord["Attributes"];
         }),
-        delete: Effect.fnUntraced(function* ({ output, session }) {
+        delete: Effect.fnUntraced(function* ({ olds, output, session }) {
+          if (output.ownership === "taken-over" && olds?.deleteTakenOver !== true) {
+            yield* session.note(`Retained taken-over Scaleway DNS ${output.type} ${output.name || "@"} in ${output.dnsZone}`);
+            return;
+          }
+          const oldZone = olds && hasZone(olds) ? yield* zoneIdentity(olds, true) : undefined;
+          const projectId = output.projectId ?? oldZone?.projectId ?? (yield* credentialsProjectId());
           yield* clients.dns.updateRecords({
             dnsZone: output.dnsZone,
-            projectId: output.projectId ?? (yield* credentialsProjectId()),
+            projectId,
             return_all_records: false,
             disallow_new_zone_creation: true,
             changes: [{ delete: { id_fields: { name: output.name, type: output.type } } }],
