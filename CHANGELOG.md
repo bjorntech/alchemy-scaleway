@@ -4,6 +4,8 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.13-beta.62] - 2026-07-20
+
 ### Changed
 
 - `DnsRecord` now separates explicit cold-state takeover from ordinary updates
@@ -14,6 +16,8 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 - `DnsZone` discovery now fails when the same zone name is visible in multiple
   projects unless the DNS authority project is explicit, avoiding arbitrary
   cross-project selection.
+- Removed the legacy `alchemy-effect` package keyword after the repository
+  migration to Alchemy v2.
 
 ## [0.7.12-beta.62] - 2026-07-17
 

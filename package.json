@@ -1,10 +1,9 @@
 {
   "name": "@bjorntech/alchemy-scaleway",
-  "version": "0.7.12-beta.62",
+  "version": "0.7.13-beta.62",
   "description": "Scaleway providers for Alchemy v2",
   "keywords": [
     "alchemy",
-    "alchemy-effect",
     "effect",
     "iac",
     "infrastructure-as-code",
