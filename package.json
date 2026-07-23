@@ -60,7 +60,7 @@
     "@effect/platform-node-shared": "4.0.0-beta.98",
     "@types/bun": "latest",
     "alchemy": "2.0.0-beta.62",
-    "effect": "4.0.0-beta.98",
+    "effect": "4.0.0-beta.101",
     "oxfmt": "latest",
     "typescript": "latest"
   },
