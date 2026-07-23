@@ -55,7 +55,7 @@
     "jszip": "^3.10.1"
   },
   "devDependencies": {
-    "@effect/platform-bun": "4.0.0-beta.98",
+    "@effect/platform-bun": "4.0.0-beta.101",
     "@effect/platform-node": "4.0.0-beta.98",
     "@effect/platform-node-shared": "4.0.0-beta.98",
     "@types/bun": "latest",
