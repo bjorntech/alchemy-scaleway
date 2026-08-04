@@ -4,6 +4,12 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+### Fixed
+
+- Escaped historical Effect peer range pipes in Markdown code spans in the
+  README compatibility table so parsers keep the release notes in the Notes
+  column.
+
 ## [0.7.14-beta.67] - 2026-08-04
 
 ### Changed

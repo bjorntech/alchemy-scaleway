@@ -14,19 +14,19 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
-| `0.7.14-beta.67`            | `2.0.0-beta.67`  | `>=4.0.0-beta.100 || >=4.0.0` | Updates compatibility to Alchemy beta.67 and Effect beta.103. |
-| `0.7.13-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 || >=4.0.0` | Hardens DNS zone ambiguity handling, adds explicit DNS record takeover semantics, and removes legacy `alchemy-effect` package metadata. |
-| `0.7.12-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 || >=4.0.0` | Preserves existing `FlexibleIp` server attachment when `serverId` is omitted; use `serverId: null` to detach. |
-| `0.7.11-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 || >=4.0.0` | Updates compatibility to Alchemy beta.62 and Effect beta.98. |
-| `0.7.10-beta.59`            | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Reports exact same-name Container conflicts and resolves `ContainerImage.dockerfile` relative to `context` when no cwd-relative file exists. |
-| `0.7.9-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Recovers interrupted Instance creates, retries transient post-Project IAM propagation errors, and adds Bucket project scoping. |
-| `0.7.8-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Verifies mirrored tags are pull-visible before dependent container updates and retries transient image-pull visibility errors. |
-| `0.7.7-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Skips redundant mirror tag updates when the destination tag already points at the desired digest. |
-| `0.7.6-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Improves container deploy failure diagnostics and skips redundant mirror copies after interrupted deploy retries. |
-| `0.7.5-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | `ContainerImageMirror` emits registry-copy progress notes and accepts per-operation timeout budgets. |
-| `0.7.4-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Containers must reach `status: ready` (not just expose an endpoint) before companions deploy; failed deploys surface as `ContainerDeployFailed`. |
-| `0.7.3-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Waits for public DNS (`1.1.1.1`/`8.8.8.8`) CNAME propagation before creating Scaleway Serverless custom domains. |
-| `0.7.2-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 || >=4.0.0` | Updates compatibility to Alchemy beta.59 and Effect beta.84. |
+| `0.7.14-beta.67`            | `2.0.0-beta.67`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.67 and Effect beta.103. |
+| `0.7.13-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0` | Hardens DNS zone ambiguity handling, adds explicit DNS record takeover semantics, and removes legacy `alchemy-effect` package metadata. |
+| `0.7.12-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0` | Preserves existing `FlexibleIp` server attachment when `serverId` is omitted; use `serverId: null` to detach. |
+| `0.7.11-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.62 and Effect beta.98. |
+| `0.7.10-beta.59`            | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Reports exact same-name Container conflicts and resolves `ContainerImage.dockerfile` relative to `context` when no cwd-relative file exists. |
+| `0.7.9-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Recovers interrupted Instance creates, retries transient post-Project IAM propagation errors, and adds Bucket project scoping. |
+| `0.7.8-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Verifies mirrored tags are pull-visible before dependent container updates and retries transient image-pull visibility errors. |
+| `0.7.7-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Skips redundant mirror tag updates when the destination tag already points at the desired digest. |
+| `0.7.6-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Improves container deploy failure diagnostics and skips redundant mirror copies after interrupted deploy retries. |
+| `0.7.5-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | `ContainerImageMirror` emits registry-copy progress notes and accepts per-operation timeout budgets. |
+| `0.7.4-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Containers must reach `status: ready` (not just expose an endpoint) before companions deploy; failed deploys surface as `ContainerDeployFailed`. |
+| `0.7.3-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Waits for public DNS (`1.1.1.1`/`8.8.8.8`) CNAME propagation before creating Scaleway Serverless custom domains. |
+| `0.7.2-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.59 and Effect beta.84. |
 | `0.7.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Moves the package to `@bjorntech/alchemy-scaleway` and requires smoke-test DNS zones from environment variables. |
 | `0.7.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds `ContainerImageMirror` (pure-TypeScript registry copy, no external binary) and `Container.imageDigest` redeploy tracking. |
 | `0.6.4-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Retries transient `ContainerImage` registry failures during Docker login and push. |
