@@ -4,8 +4,22 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.15-beta.67] - 2026-08-06
+
 ### Fixed
 
+- `Instance` no longer detaches and moves any already-attached desired public IP
+  during a clean-state create. If the desired public IP is live on
+  another server and no Instance state or per-generation recovery tag identifies
+  the managed server, reconciliation now fails with an import/restore/detach
+  diagnostic before creating a duplicate VM.
+- Narrow behavioral breaking change: clean-state `Instance` creates no longer
+  implicitly transfer an attached desired public IP from another server. Existing
+  serialized `.alchemy` state remains compatible with no migration because
+  `Instance` props, attributes, and state shape do not change. Persisted-state
+  updates, interrupted-create recovery, and delete-first replacements with public
+  IPs remain supported; the guard runs only when neither a persisted `serverId`
+  nor matching generation recovery identifies the Instance.
 - Escaped historical Effect peer range pipes in Markdown code spans in the
   README compatibility table so parsers keep the release notes in the Notes
   column.
