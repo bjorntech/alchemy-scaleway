@@ -3287,6 +3287,42 @@ systemctl start docker
     }),
   );
 
+  test.provider("delete-first replacement detaches attached public IP before replacement guard and create", (stack) =>
+    Effect.gen(function* () {
+      mock.addFlexibleIp("ip-existing");
+      const first = yield* stack.deploy(
+        Scaleway.Instance("App", {
+          commercialType: "DEV1-S",
+          publicIps: ["ip-existing"],
+          cloudInit: "#!/bin/bash\necho first\n",
+        }),
+      );
+      // Simulate Scaleway's live IP attachment state for the old server; the
+      // replacement must delete/detach it before the clean-create guard runs.
+      mock.addFlexibleIp("ip-existing", { serverId: first.serverId });
+      const callsBeforeReplacement = mock.calls.length;
+
+      const second = yield* stack.deploy(
+        Scaleway.Instance("App", {
+          commercialType: "DEV1-S",
+          publicIps: ["ip-existing"],
+          cloudInit: "#!/bin/bash\necho second\n",
+        }),
+      );
+
+      expect(second.serverId).not.toBe(first.serverId);
+      expect(second.publicIpIds).toEqual(["ip-existing"]);
+      const replacementCalls = mock.calls.slice(callsBeforeReplacement);
+      const detachIndex = replacementCalls.findIndex((call) => call.method === "PATCH" && call.url.includes("/ips/ip-existing") && JSON.parse(call.body).server === null);
+      const guardIndex = replacementCalls.findIndex((call) => call.method === "GET" && call.url.includes("/ips/ip-existing"));
+      const createIndex = replacementCalls.findIndex((call) => call.method === "POST" && new URL(call.url).pathname.endsWith("/servers"));
+      expect(detachIndex).toBeGreaterThanOrEqual(0);
+      expect(guardIndex).toBeGreaterThan(detachIndex);
+      expect(createIndex).toBeGreaterThan(guardIndex);
+      expect(JSON.parse(replacementCalls[createIndex].body).public_ips).toEqual(["ip-existing"]);
+    }),
+  );
+
   test.provider("replaces attached public IP instances delete-first", () =>
     Effect.gen(function* () {
       const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
@@ -3342,11 +3378,11 @@ systemctl start docker
     }),
   );
 
-  test.provider("replacement create detaches reused flexible IP before server create", () =>
+  test.provider("clean-state create refuses to move attached public IP from another server", () =>
     Effect.gen(function* () {
       mock.addFlexibleIp("ip-managed", { serverId: "srv-old" });
       const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
-      yield* provider.reconcile!({
+      const create = provider.reconcile!({
         id: "App",
         fqn: "App",
         instanceId: "test",
@@ -3363,17 +3399,23 @@ systemctl start docker
         session: { note: () => Effect.void },
       } as any);
 
-      const detach = requests("PATCH", "/ips/ip-managed").at(0)!;
-      expect(JSON.parse(detach.body).server).toBeNull();
-      expect(requests("POST", "/servers")).toHaveLength(1);
+      yield* Effect.flip(create).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("Refusing to create Scaleway instance with public IP ip-managed");
+          expect(String(error)).toContain("already attached to server srv-old");
+          expect(String(error)).toContain("Restore/import the existing Instance state");
+        }),
+      );
+      expect(requests("PATCH", "/ips/ip-managed")).toHaveLength(0);
+      expect(requests("POST", "/servers")).toHaveLength(0);
     }),
   );
 
-  test.provider("replacement recovery detaches live flexible IP when persisted ref lacks serverId", () =>
+  test.provider("clean-state create checks live public IP attachment when persisted ref lacks serverId", () =>
     Effect.gen(function* () {
       mock.addFlexibleIp("ip-managed", { serverId: "srv-old" });
       const provider = yield* Scaleway.Instance.Provider.pipe(Effect.provide(vpcLifecycleLayer));
-      yield* provider.reconcile!({
+      const create = provider.reconcile!({
         id: "App",
         fqn: "App",
         instanceId: "test",
@@ -3390,10 +3432,15 @@ systemctl start docker
         session: { note: () => Effect.void },
       } as any);
 
-      const detach = requests("PATCH", "/ips/ip-managed").at(0)!;
+      yield* Effect.flip(create).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("already attached to server srv-old");
+          expect(String(error)).toContain("clean-state deploys must not move attached public IPs implicitly");
+        }),
+      );
       expect(requests("GET", "/ips/ip-managed")).toHaveLength(1);
-      expect(JSON.parse(detach.body).server).toBeNull();
-      expect(requests("POST", "/servers")).toHaveLength(1);
+      expect(requests("PATCH", "/ips/ip-managed")).toHaveLength(0);
+      expect(requests("POST", "/servers")).toHaveLength(0);
     }),
   );
 
@@ -3649,6 +3696,35 @@ systemctl start docker
       // The retry adopts the tagged server instead of creating an orphan duplicate.
       const creates = mock.calls.filter((call) => call.method === "POST" && new URL(call.url).pathname.endsWith("/servers"));
       expect(creates).toHaveLength(1);
+    }),
+  );
+
+  test.provider("interrupted create recovery with attached public IP bypasses guard without detach or duplicate create", (stack) =>
+    Effect.gen(function* () {
+      mock.addFlexibleIp("ip-existing");
+      mock.failNext("/user_data/cloud-init", 500, "post-create step failed");
+      const program = Scaleway.Instance("App", {
+        commercialType: "DEV1-S",
+        publicIps: ["ip-existing"],
+        cloudInit: "#!/bin/bash\necho hello\n",
+      });
+
+      yield* Effect.flip(stack.deploy(program)).pipe(
+        Effect.map((error) => {
+          expect(String(error)).toContain("post-create step failed");
+        }),
+      );
+      const callsBeforeRecovery = mock.calls.length;
+
+      const recovered = yield* stack.deploy(program);
+
+      expect(recovered.serverId).toMatch(/^srv-/);
+      expect(recovered.publicIpIds).toEqual(["ip-existing"]);
+      const creates = mock.calls.filter((call) => call.method === "POST" && new URL(call.url).pathname.endsWith("/servers"));
+      expect(creates).toHaveLength(1);
+      const recoveryCalls = mock.calls.slice(callsBeforeRecovery);
+      expect(recoveryCalls.filter((call) => call.method === "GET" && call.url.includes("/ips/ip-existing"))).toHaveLength(0);
+      expect(recoveryCalls.filter((call) => call.method === "PATCH" && call.url.includes("/ips/ip-existing"))).toHaveLength(0);
     }),
   );
 

@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.7.15-beta.67`            | `2.0.0-beta.67`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Refuses clean-state Instance creates that would implicitly move an already-attached public IP; existing `.alchemy` state remains compatible with no migration. |
 | `0.7.14-beta.67`            | `2.0.0-beta.67`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.67 and Effect beta.103. |
 | `0.7.13-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0` | Hardens DNS zone ambiguity handling, adds explicit DNS record takeover semantics, and removes legacy `alchemy-effect` package metadata. |
 | `0.7.12-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0` | Preserves existing `FlexibleIp` server attachment when `serverId` is omitted; use `serverId: null` to detach. |
@@ -256,7 +257,7 @@ Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJE
 - `VpcAcl` - Scaleway VPC ACL lifecycle for one VPC/IP version. This resource owns the full ACL rule set for that `vpc` plus `ipVersion` and resets it to `defaultPolicy: "accept"` with no rules on delete.
 - `VpcRoute` - Scaleway VPC route lifecycle with next hops expressed as a resource ID, Private Network, or VPC connector.
 - `VpcConnector` - Scaleway VPC connector lifecycle for connecting two VPCs, with name and tag updates in place.
-- `Instance` - Scaleway Instance lifecycle for virtual machines, with conservative replacement for image/type/volume/cloud-init identity changes and action-based power state convergence.
+- `Instance` - Scaleway Instance lifecycle for virtual machines, with conservative replacement for image/type/volume/cloud-init identity changes and action-based power state convergence. On a clean-state create, `Instance.publicIps` refuses to move any desired public IP that is already attached to another live server; restore/import Instance state or explicitly detach/move the IP before retrying.
 - `SecurityGroup` - Scaleway Instance security group lifecycle. This resource owns the complete security group rule set.
 - `FlexibleIp` - Scaleway Instance flexible IP reservation lifecycle, including tag, reverse DNS, and server attachment updates. Omit `serverId` to leave attachment unmanaged/preserved, set it to a server ID to attach, or set it to `null` to detach. Defaults to `retain()` on removal and uses `alchemy:logical-id` tags for later rediscovery.
 - `PrivateNic` - Scaleway Instance private NIC lifecycle for attaching one Instance to one Private Network.
@@ -285,6 +286,10 @@ const fn = yield* Scaleway.Function("ApiFn", {
 ```
 
 High-value resources that can hold data or scarce addresses default to `retain()` on stack removal: `Bucket`, `DatabaseInstance`, and `FlexibleIp`. Add `.pipe(destroy())` when you intentionally want Alchemy to delete them during stack removal. Replacement cleanup is still destructive when an identity change forces replacement, so treat replace-triggering changes such as database engine, volume, or flexible IP type changes as data/address migration operations.
+
+For production stacks, use durable/shared Alchemy state and avoid running deploys from a clean worktree or lost local state directory. Some retained resources can be rediscovered by ownership tags, but non-unique resources such as Instances and SecurityGroups still rely on persisted state for identity. The provider blocks the most dangerous partial-recovery case by refusing to create a duplicate Instance that would move an already-attached desired public IP; it does not implicitly adopt same-name servers.
+
+This public-IP guard is a behavioral breaking change only for clean-state callers that intentionally relied on implicit transfer of an attached public IP. Existing serialized `.alchemy` state is compatible with no migration because `Instance` props, attributes, and state shape do not change. Persisted-state updates, interrupted-create recovery, and delete-first replacements remain supported; the guard runs only when neither a persisted `serverId` nor matching `alchemy:instance-id` generation recovery identifies the Instance.
 
 `DnsRecord.target` chooses `A` or `AAAA` for IP addresses and `CNAME` for hostnames/endpoints. Use `records` plus an explicit `type` when you need full control over MX, TXT, SRV, CAA, or other record data:
 

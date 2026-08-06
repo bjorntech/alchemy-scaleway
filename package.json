@@ -1,6 +1,6 @@
 {
   "name": "@bjorntech/alchemy-scaleway",
-  "version": "0.7.14-beta.67",
+  "version": "0.7.15-beta.67",
   "description": "Scaleway providers for Alchemy v2",
   "keywords": [
     "alchemy",

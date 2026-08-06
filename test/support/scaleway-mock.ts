@@ -1359,6 +1359,10 @@ export function installScalewayMock(): ScalewayMock {
         };
         record.volumes = serverVolumes(record.id as string, input.name, input.volumes);
         servers.set(record.id as string, record);
+        for (const publicIpId of (input.public_ips as string[] | undefined) ?? []) {
+          const existingIp = flexibleIps.get(publicIpId);
+          if (existingIp) flexibleIps.set(publicIpId, { ...existingIp, server: { id: record.id } });
+        }
         return json({ server: record }, 201);
       }
       const existing = servers.get(id);

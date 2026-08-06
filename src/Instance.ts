@@ -135,14 +135,15 @@ const volumesNeedReplace = (desired: Record<string, InstanceVolume> | undefined,
 const targetState = (state: InstanceDesiredState | undefined) => (state === "stopped" ? "stopped" : state);
 const targetStateFor = (state: InstanceDesiredState | undefined, cloudInit: string | undefined) => targetState(state) ?? (cloudInit === undefined ? undefined : "running");
 const publicIpIdOf = (publicIp: InstancePublicIpRef) => resolveRef(typeof publicIp === "string" ? publicIp : publicIp.ipId);
-const publicIpAttachmentOf = (publicIp: InstancePublicIpRef) =>
-  typeof publicIp === "string" || !("serverId" in publicIp) || publicIp.serverId === undefined
-    ? Effect.succeed(undefined)
-    : resolveRef(publicIp.serverId).pipe(Effect.map((serverId) => serverId || undefined));
 const livePublicIpAttachment = (clients: ScalewayClientsShape, zone: string, publicIp: string) =>
   clients.instance.getFlexibleIp({ zone, ip: publicIp }).pipe(
     Effect.map((record) => record.server?.id),
     Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
+  );
+const attachedPublicIpCreateError = (publicIp: string, serverId: string) =>
+  new Error(
+    `Refusing to create Scaleway instance with public IP ${publicIp} because it is already attached to server ${serverId}. ` +
+    "Restore/import the existing Instance state or detach/move the public IP explicitly before retrying; clean-state deploys must not move attached public IPs implicitly.",
   );
 const securityGroupIdOf = (securityGroup: InstanceSecurityGroupRef) => {
   return resolveRef(typeof securityGroup === "string" ? securityGroup : securityGroup.securityGroupId);
@@ -339,12 +340,10 @@ export const InstanceProvider = () =>
           }
           const existingServerId = output?.serverId ?? adopted?.id;
           if (!existingServerId && publicIps !== undefined) {
-            for (const [index, publicIp] of publicIps.entries()) {
-              const attachedServerId = news.publicIps ? yield* publicIpAttachmentOf(news.publicIps[index]) : undefined;
-              const liveAttachedServerId = attachedServerId ?? (yield* livePublicIpAttachment(clients, zone, publicIp));
+            for (const publicIp of publicIps) {
+              const liveAttachedServerId = yield* livePublicIpAttachment(clients, zone, publicIp);
               if (liveAttachedServerId) {
-                yield* clients.instance.updateFlexibleIp({ zone, ip: publicIp, server: null }).pipe(Effect.catchIf(isNotFound, () => Effect.void));
-                yield* session.note(`detached public IP ${publicIp} from previous instance ${liveAttachedServerId}`);
+                return yield* Effect.fail(attachedPublicIpCreateError(publicIp, liveAttachedServerId));
               }
             }
           }
