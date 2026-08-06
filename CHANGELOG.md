@@ -12,7 +12,7 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
   during a clean-state create. If the desired public IP is live on
   another server and no Instance state or per-generation recovery tag identifies
   the managed server, reconciliation now fails with an import/restore/detach
-  diagnostic before creating a duplicate VM.
+  diagnostic before creating a duplicate VM (#118).
 - Narrow behavioral breaking change: clean-state `Instance` creates no longer
   implicitly transfer an attached desired public IP from another server. Existing
   serialized `.alchemy` state remains compatible with no migration because
