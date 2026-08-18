@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-export class ScalewayError extends Schema.TaggedErrorClass<ScalewayError>()("ScalewayError", {
+export class ScalewayError extends Schema.TaggedError<ScalewayError>()("ScalewayError", {
   message: Schema.String,
   operation: Schema.optional(Schema.String),
   resource: Schema.optional(Schema.String),

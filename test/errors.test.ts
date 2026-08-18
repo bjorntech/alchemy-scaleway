@@ -12,9 +12,12 @@ describe("ScalewayError", () => {
 
     expect(wrapped).toBeInstanceOf(ScalewayError);
     expect(wrapped._tag).toBe("ScalewayError");
+    expect(wrapped.message).toBe('Failed to create namespace "demo": conflict');
     expect(wrapped.statusCode).toBe(409);
     expect(wrapped.code).toBeUndefined();
     expect(wrapped.resource).toBe("demo");
+    expect(wrapped.operation).toBe("create namespace");
+    expect(wrapped.cause).toBeInstanceOf(Error);
   });
 
   test("recognizes not found", () => {
@@ -35,5 +38,25 @@ describe("ScalewayError", () => {
       ),
     );
     expect(result).toBe("test");
+  });
+
+  test("supports Effect.catchTags with runtime tag matching", async () => {
+    const result = await Effect.runPromise(
+      Effect.fail(new ScalewayError({
+        message: "Failed to read bucket: missing",
+        operation: "read bucket",
+        resource: "bucket",
+        statusCode: 404,
+        code: "NotFound",
+        retryable: false,
+        cause: new Error("missing"),
+      })).pipe(
+        Effect.catchTags({
+          ScalewayError: (error) => Effect.succeed(`${error._tag}:${error.statusCode}:${error.code}`),
+        }),
+      ),
+    );
+
+    expect(result).toBe("ScalewayError:404:NotFound");
   });
 });

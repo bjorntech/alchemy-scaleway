@@ -14,8 +14,8 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.7.16-beta.72`            | `2.0.0-beta.72`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.72 and Effect beta.107; `ScalewayError` now uses the beta.107 `Schema.TaggedError` pattern. |
 | `0.7.15-beta.67`            | `2.0.0-beta.67`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Refuses clean-state Instance creates that would implicitly move an already-attached public IP; existing `.alchemy` state remains compatible with no migration. |
-| `0.7.14-beta.67`            | `2.0.0-beta.67`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.67 and Effect beta.103. |
 | `0.7.13-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0` | Hardens DNS zone ambiguity handling, adds explicit DNS record takeover semantics, and removes legacy `alchemy-effect` package metadata. |
 | `0.7.12-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0` | Preserves existing `FlexibleIp` server attachment when `serverId` is omitted; use `serverId: null` to detach. |
 | `0.7.11-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.62 and Effect beta.98. |
@@ -54,7 +54,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 ## Install
 
 ```sh
-bun add alchemy@2.0.0-beta.67 effect@4.0.0-beta.103 @bjorntech/alchemy-scaleway
+bun add alchemy@2.0.0-beta.72 effect@4.0.0-beta.107 @bjorntech/alchemy-scaleway
 ```
 
 `@bjorntech/alchemy-scaleway` ships raw TypeScript and uses `.ts` import suffixes internally. Your `tsconfig.json` needs `"moduleResolution": "Bundler"` and `"allowImportingTsExtensions": true`.

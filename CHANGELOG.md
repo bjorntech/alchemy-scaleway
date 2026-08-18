@@ -4,9 +4,17 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+### Changed
+
+- Updated compatibility target to `alchemy@2.0.0-beta.72` and Effect `>=4.0.0-beta.100`, with development pins on Effect beta.107 and matching `@effect/platform-*` beta.107 packages.
+
 ### Added
 
 - `InstanceKnownHosts` verifies Scaleway Instance SSH host fingerprints against the live SSH handshake scanner and returns strict `knownHosts` / `knownHostsB64` output for SSH clients without shelling out to `ssh-keyscan`.
+
+### Fixed
+
+- `ScalewayError` now uses Effect beta.107's `Schema.TaggedError` constructor pattern, preserving `_tag`, constructor usability, typed error channels, and `catchTag` / `catchTags` matching while avoiding the removed `Schema.TaggedErrorClass` API.
 
 ## [0.7.15-beta.67] - 2026-08-06
 
