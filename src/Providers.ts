@@ -14,6 +14,7 @@ import { Domain, DomainProvider } from "./Domain.ts";
 import { DnsRecord, DnsRecordProvider } from "./DnsRecord.ts";
 import { DnsZone, DnsZoneProvider } from "./DnsZone.ts";
 import { FlexibleIp, FlexibleIpProvider } from "./FlexibleIp.ts";
+import { InstanceKnownHosts, InstanceKnownHostsProvider } from "./InstanceKnownHosts.ts";
 import { Function as ScalewayFunction, FunctionProvider } from "./Function.ts";
 import { FunctionCron, FunctionCronProvider } from "./FunctionCron.ts";
 import { FunctionDomain, FunctionDomainProvider } from "./FunctionDomain.ts";
@@ -70,6 +71,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
       Instance,
       SecurityGroup,
       FlexibleIp,
+      InstanceKnownHosts,
       PrivateNic,
     ]),
   ).pipe(
@@ -100,6 +102,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
         InstanceProvider(),
         SecurityGroupProvider(),
         FlexibleIpProvider(),
+        InstanceKnownHostsProvider(),
         PrivateNicProvider(),
       ),
     ),

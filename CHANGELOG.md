@@ -4,6 +4,10 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+### Added
+
+- `InstanceKnownHosts` verifies Scaleway Instance SSH host fingerprints against the live SSH handshake scanner and returns strict `knownHosts` / `knownHostsB64` output for SSH clients without shelling out to `ssh-keyscan`.
+
 ## [0.7.15-beta.67] - 2026-08-06
 
 ### Fixed

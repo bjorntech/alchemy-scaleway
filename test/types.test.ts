@@ -13,6 +13,8 @@ describe("alchemy-scaleway", () => {
     expect(typeof Scaleway.Domain).toBe("function");
     expect(typeof Scaleway.RegistryNamespace).toBe("function");
     expect(typeof Scaleway.Secret).toBe("function");
+    expect(typeof Scaleway.InstanceKnownHosts).toBe("function");
+    expect(typeof Scaleway.setInstanceKnownHostsScanner).toBe("function");
     expect(typeof Scaleway.Bucket).toBe("function");
   });
 

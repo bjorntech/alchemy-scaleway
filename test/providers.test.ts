@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import { createHash } from "node:crypto";
@@ -84,6 +85,7 @@ const projectLifecycleLayer = Layer.mergeAll(
 
 let mock: ScalewayMock;
 let imageCommands: Scaleway.ContainerImageCommand[];
+let knownHostsRequests: Scaleway.InstanceKnownHostsScanRequest[];
 let mirrorCopies: Scaleway.ImageCopyRequest[];
 let mirrorDigest: string;
 let mirrorPlatforms: number;
@@ -92,6 +94,7 @@ let mirrorCopyImpl: ((request: Scaleway.ImageCopyRequest) => void) | undefined;
 beforeEach(() => {
   mock = installScalewayMock();
   imageCommands = [];
+  knownHostsRequests = [];
   mirrorCopies = [];
   mirrorPlatforms = 1;
   mirrorCopyImpl = undefined;
@@ -99,6 +102,12 @@ beforeEach(() => {
   Scaleway.setContainerImageCommandRunner((command) =>
     Effect.sync(() => {
       imageCommands.push(command);
+    }),
+  );
+  Scaleway.setInstanceKnownHostsScanner((request) =>
+    Effect.gen(function* () {
+      knownHostsRequests.push(request);
+      return yield* Effect.fail(new Error("InstanceKnownHosts scanner not configured for this test"));
     }),
   );
   Scaleway.setContainerImageMirrorEngine({
@@ -113,6 +122,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   Scaleway.resetContainerImageCommandRunner();
+  Scaleway.resetInstanceKnownHostsScanner();
   Scaleway.resetContainerImageMirrorEngine();
   mock.restore();
 });
@@ -3738,6 +3748,177 @@ systemctl start docker
       // The 403 list call was retried instead of failing the deploy.
       const lists = mock.calls.filter((call) => call.method === "GET" && call.url.includes("/servers?"));
       expect(lists.length).toBeGreaterThanOrEqual(2);
+    }),
+  );
+});
+
+describe("InstanceKnownHosts", () => {
+  const fingerprintText = `
+256 SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU root@example (ED25519)
+256 SHA256:p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM root@example (ECDSA)
+3072 SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s root@example (RSA)
+`;
+
+  const keyData = {
+    ed25519: "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+    ecdsa: "AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=",
+    rsa: "AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=",
+  } as const;
+
+  const fingerprint = (base64: string) => `SHA256:${createHash("sha256").update(Buffer.from(base64, "base64")).digest("base64").replace(/=+$/, "")}`;
+
+  const scanResult = (algorithm: string, keyType: string, keyData: string) => ({
+    host: "ssh.example",
+    algorithm,
+    keyType,
+    keyData,
+    fingerprint: fingerprint(keyData),
+  });
+
+  test.provider("verifies host fingerprints and emits known_hosts content", (stack) =>
+    Effect.gen(function* () {
+      const instance = yield* stack.deploy(Scaleway.Instance("Host", {
+        commercialType: "DEV1-S",
+        image: "ubuntu_jammy",
+      }));
+      mock.seedServerUserData(instance.serverId, "ssh-host-fingerprints", fingerprintText);
+
+      Scaleway.setInstanceKnownHostsScanner((request) =>
+        Effect.sync(() => {
+          knownHostsRequests.push(request);
+          switch (request.algorithms[0]) {
+            case "ssh-ed25519":
+              return scanResult("ssh-ed25519", "ED25519", keyData.ed25519);
+            case "ecdsa-sha2-nistp256":
+              return scanResult("ecdsa-sha2-nistp256", "ECDSA", keyData.ecdsa);
+            case "rsa-sha2-512":
+              return scanResult("ssh-rsa", "RSA", keyData.rsa);
+            default:
+              return undefined;
+          }
+        }),
+      );
+
+      const verified = yield* stack.deploy(
+        Scaleway.InstanceKnownHosts("HostKnownHosts", {
+          instance: instance.serverId,
+          zone: instance.zone,
+          preferredAddress: "ssh.example",
+          addresses: ["1.2.3.4"],
+          timeout: "5 seconds",
+        }),
+      );
+
+      expect(verified.verified).toBe(true);
+      expect(verified.serverId).toBe(instance.serverId);
+      expect(verified.zone).toBe(instance.zone);
+      expect(verified.addresses).toEqual(["ssh.example", "1.2.3.4"]);
+      expect(verified.fingerprints).toEqual([
+        "ECDSA SHA256:p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM",
+        "ED25519 SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU",
+        "RSA SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s",
+      ]);
+      expect(verified.knownHosts).toBe([
+        "ssh.example,1.2.3.4 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+        "ssh.example,1.2.3.4 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=",
+        "ssh.example,1.2.3.4 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=",
+      ].join("\n"));
+      expect(verified.knownHostsB64).toBe(Buffer.from(verified.knownHosts, "utf8").toString("base64"));
+      expect(knownHostsRequests).toHaveLength(3);
+      expect(knownHostsRequests.map((request) => request.address)).toEqual(["ssh.example", "ssh.example", "ssh.example"]);
+      expect(knownHostsRequests.map((request) => request.algorithms[0])).toEqual(["ssh-ed25519", "ecdsa-sha2-nistp256", "rsa-sha2-512"]);
+    }),
+  );
+
+  test.provider("fails closed on fingerprint mismatch", (stack) =>
+    Effect.gen(function* () {
+      const instance = yield* stack.deploy(Scaleway.Instance("HostMismatch", {
+        commercialType: "DEV1-S",
+        image: "ubuntu_jammy",
+      }));
+      mock.seedServerUserData(instance.serverId, "ssh-host-fingerprints", fingerprintText);
+
+      Scaleway.setInstanceKnownHostsScanner((request) =>
+        Effect.sync(() => {
+          knownHostsRequests.push(request);
+          return request.algorithms[0] === "ssh-ed25519"
+            ? scanResult("ssh-ed25519", "ED25519", "AAAAC3NzaC1lZDI1NTE5AAAAAWRONGKEYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")
+            : undefined;
+        }),
+      );
+
+      const result = yield* Effect.exit(
+        stack.deploy(
+          Scaleway.InstanceKnownHosts("HostKnownHostsMismatch", {
+            instance: instance.serverId,
+            zone: instance.zone,
+            preferredAddress: "ssh.example",
+            addresses: ["1.2.3.4"],
+          }),
+        ),
+      );
+
+      expect(result._tag).toBe("Failure");
+      if (Exit.isFailure(result)) {
+        expect(String(result.cause)).toContain("fingerprints do not match");
+      }
+    }),
+  );
+
+  test.provider("rejects malformed server fingerprint data", (stack) =>
+    Effect.gen(function* () {
+      const instance = yield* stack.deploy(Scaleway.Instance("HostInvalidAddress", {
+        commercialType: "DEV1-S",
+        image: "ubuntu_jammy",
+      }));
+
+      mock.seedServerUserData(instance.serverId, "ssh-host-fingerprints", "definitely-not-a-fingerprint");
+
+      const result = yield* Effect.exit(
+        stack.deploy(
+          Scaleway.InstanceKnownHosts("HostKnownHostsInvalidAddress", {
+            instance: instance.serverId,
+            zone: instance.zone,
+            preferredAddress: "ssh.example",
+          }),
+        ),
+      );
+
+      expect(result._tag).toBe("Failure");
+      if (Exit.isFailure(result)) {
+        expect(String(result.cause)).toContain("Invalid SSH fingerprint line");
+      }
+    }),
+  );
+
+  test.provider("times out while waiting for host keys", (stack) =>
+    Effect.gen(function* () {
+      const instance = yield* stack.deploy(Scaleway.Instance("HostTimeout", {
+        commercialType: "DEV1-S",
+        image: "ubuntu_jammy",
+      }));
+      mock.seedServerUserData(instance.serverId, "ssh-host-fingerprints", fingerprintText);
+
+      Scaleway.setInstanceKnownHostsScanner((request) => {
+        knownHostsRequests.push(request);
+        return Effect.map(Effect.sleep("10 seconds"), () => undefined);
+      });
+
+      const result = yield* Effect.exit(
+        stack.deploy(
+          Scaleway.InstanceKnownHosts("HostKnownHostsTimeout", {
+            instance: instance.serverId,
+            zone: instance.zone,
+            preferredAddress: "ssh.example",
+            timeout: "10 millis",
+          }),
+        ),
+      );
+
+      expect(result._tag).toBe("Failure");
+      if (Exit.isFailure(result)) {
+        expect(String(result.cause)).toMatch(/Timeout|timed out|suspended/i);
+      }
     }),
   );
 });

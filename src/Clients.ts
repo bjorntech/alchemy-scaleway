@@ -777,6 +777,7 @@ export interface ScalewayClientsShape {
     createInstance(input: { zone: string } & Record<string, unknown>): Effect.Effect<ScalewayInstanceRecord, ScalewayError>;
     listInstances(input: { zone: string; project?: string }): Effect.Effect<ScalewayInstanceRecord[], ScalewayError>;
     getInstance(input: { zone: string; serverId: string }): Effect.Effect<ScalewayInstanceRecord, ScalewayError>;
+    getInstanceUserData(input: { zone: string; serverId: string; key: string }): Effect.Effect<string, ScalewayError>;
     updateInstance(input: { zone: string; serverId: string } & Record<string, unknown>): Effect.Effect<ScalewayInstanceRecord, ScalewayError>;
     deleteInstance(input: { zone: string; serverId: string }): Effect.Effect<void, ScalewayError>;
     instanceAction(input: { zone: string; serverId: string; action: string }): Effect.Effect<void, ScalewayError>;
@@ -1176,6 +1177,47 @@ export function buildScalewayClients(credentials: ScalewayCredentialsService): S
         request<{ servers?: unknown[] }>("GET", `/instance/v1/zones/${zone}/servers${query({ project })}`).pipe(Effect.map((page) => (page.servers ?? []).map(decodeInstance))),
       getInstance: ({ zone, serverId }) =>
         request("GET", `/instance/v1/zones/${zone}/servers/${serverId}`).pipe(Effect.map(decodeInstance)),
+      getInstanceUserData: ({ zone, serverId, key }) =>
+        Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(`${apiUrl}/instance/v1/zones/${zone}/servers/${serverId}/user_data/${encodeURIComponent(key)}`, {
+              method: "GET",
+              headers: {
+                Accept: "application/json, text/plain;q=0.9, */*;q=0.8",
+                "X-Auth-Token": secretKey,
+              },
+            });
+            const text = await response.text();
+            if (!response.ok) {
+              let decoded: unknown;
+              try {
+                decoded = text.length === 0 ? undefined : JSON.parse(text);
+              } catch {
+                decoded = text;
+              }
+              throw scalewayError({
+                operation: `GET /instance/v1/zones/${zone}/servers/${serverId}/user_data/${key}`,
+                cause: new Error(messageFromBody(decoded) ?? `Scaleway request failed with status ${response.status}`),
+                statusCode: response.status,
+                retryable: response.status >= 500 || response.status === 429,
+              });
+            }
+            return text;
+          },
+          catch: (cause) => cause instanceof ScalewayError
+            ? cause
+            : scalewayError({ operation: `GET /instance/v1/zones/${zone}/servers/${serverId}/user_data/${key}`, cause }),
+        }).pipe(
+          Effect.map((value) => {
+            try {
+              const decoded = JSON.parse(value) as { content?: unknown };
+              if (typeof decoded.content === "string") return decoded.content;
+            } catch {
+              return value;
+            }
+            return value;
+          }),
+        ),
       updateInstance: ({ zone, serverId, ...input }) =>
         request("PATCH", `/instance/v1/zones/${zone}/servers/${serverId}`, input).pipe(Effect.map(decodeInstance)),
       deleteInstance: ({ zone, serverId }) => request<void>("DELETE", `/instance/v1/zones/${zone}/servers/${serverId}`),
