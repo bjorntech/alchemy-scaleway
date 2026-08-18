@@ -88,6 +88,7 @@ let imageCommands: Scaleway.ContainerImageCommand[];
 let knownHostsRequests: Scaleway.InstanceKnownHostsScanRequest[];
 let mirrorCopies: Scaleway.ImageCopyRequest[];
 let mirrorDigest: string;
+let mirrorSelectedDigest: string;
 let mirrorPlatforms: number;
 let mirrorCopyImpl: ((request: Scaleway.ImageCopyRequest) => void) | undefined;
 
@@ -99,6 +100,7 @@ beforeEach(() => {
   mirrorPlatforms = 1;
   mirrorCopyImpl = undefined;
   mirrorDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+  mirrorSelectedDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
   Scaleway.setContainerImageCommandRunner((command) =>
     Effect.sync(() => {
       imageCommands.push(command);
@@ -111,12 +113,13 @@ beforeEach(() => {
     }),
   );
   Scaleway.setContainerImageMirrorEngine({
-    resolveSourceDigest: () => Effect.sync(() => mirrorDigest),
+    resolveSourceDigest: (_source, _auth, allPlatforms) =>
+      Effect.sync(() => (allPlatforms ?? true ? mirrorDigest : mirrorSelectedDigest)),
     copy: (request) =>
       Effect.sync(() => {
         mirrorCopies.push(request);
         mirrorCopyImpl?.(request);
-        return { digest: mirrorDigest, platforms: mirrorPlatforms };
+        return { digest: request.allPlatforms ? mirrorDigest : mirrorSelectedDigest, platforms: mirrorPlatforms };
       }),
   });
 });
@@ -1203,6 +1206,47 @@ describe("ContainerImageMirror", () => {
       expect(updated.ref).not.toBe(first.ref);
       expect(updated.stableRef).toBe(first.stableRef);
       expect(updated.digest).toBe(mirrorDigest);
+      expect(mirrorCopies).toHaveLength(1);
+    }),
+  );
+
+  test.provider("uses the selected platform digest for single-platform mirrors and stays stable across repeat deploys", (stack) =>
+    Effect.gen(function* () {
+      const program = Scaleway.ContainerImageMirror("ApiImage", {
+        registry: "rg.fr-par.scw.cloud/demo-registry",
+        source: "ghcr.io/acme/api:edge",
+        repository: "api",
+        allPlatforms: false,
+      });
+
+      const first = yield* stack.deploy(program);
+      const selectedShort = mirrorSelectedDigest.replace(/^sha256:/, "").slice(0, 12);
+      expect(first.digest).toBe(mirrorSelectedDigest);
+      expect(first.ref).toBe(`rg.fr-par.scw.cloud/demo-registry/api:edge-${selectedShort}`);
+      expect(first.stableRef).toBe("rg.fr-par.scw.cloud/demo-registry/api:edge");
+      expect(mirrorCopies).toHaveLength(1);
+      expect(mirrorCopies[0]?.allPlatforms).toBe(false);
+      expect(mirrorCopies[0]?.platform).toEqual({ os: "linux", architecture: "amd64" });
+      expect(mirrorCopies[0]?.destTags).toEqual([`edge-${selectedShort}`, "edge"]);
+
+      mirrorCopies = [];
+      const same = yield* stack.deploy(program);
+      expect(same.digest).toBe(first.digest);
+      expect(same.ref).toBe(first.ref);
+      expect(mirrorCopies).toHaveLength(0);
+
+      mirrorDigest = "sha256:3333333333333333333333333333333333333333333333333333333333333333";
+      const stillSame = yield* stack.deploy(program);
+      expect(stillSame.digest).toBe(first.digest);
+      expect(stillSame.ref).toBe(first.ref);
+      expect(mirrorCopies).toHaveLength(0);
+
+      mirrorSelectedDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444";
+      const updated = yield* stack.deploy(program);
+      expect(updated.digest).toBe(mirrorSelectedDigest);
+      expect(updated.ref).toBe(
+        `rg.fr-par.scw.cloud/demo-registry/api:edge-${mirrorSelectedDigest.replace(/^sha256:/, "").slice(0, 12)}`,
+      );
       expect(mirrorCopies).toHaveLength(1);
     }),
   );

@@ -45,6 +45,11 @@ export interface ImageCopyResult {
   platforms: number;
 }
 
+export interface SourceDigestResolution {
+  allPlatforms: boolean;
+  platform?: { os: string; architecture: string };
+}
+
 const MANIFEST_MEDIA_TYPES = [
   "application/vnd.oci.image.index.v1+json",
   "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -329,6 +334,18 @@ const waitForManifestVisible = async (
   throw new Error(`tag ${repo}:${reference} was not pull-visible as ${expectedDigest}`);
 };
 
+const selectMirroredDigest = (manifest: FetchedManifest, options: SourceDigestResolution) => {
+  if (options.allPlatforms || !INDEX_TYPES.has(manifest.mediaType)) return manifest.digest;
+  const child = manifest.parsed.manifests?.find(
+    (entry) => entry.platform?.os === options.platform?.os && entry.platform?.architecture === options.platform?.architecture,
+  );
+  if (!child) {
+    const platform = options.platform ?? { os: "linux", architecture: "amd64" };
+    throw new Error(`source has no ${platform.os}/${platform.architecture} manifest`);
+  }
+  return child.digest;
+};
+
 const blobExists = (client: RegistryClient, repo: string, digest: string, signal?: AbortSignal): Promise<boolean> =>
   withRetry(async () => {
     const res = await client.request("HEAD", `/v2/${repo}/blobs/${digest}`, pushScope(repo), { signal });
@@ -444,11 +461,18 @@ async function copyManifestTree(
   return manifest;
 }
 
-/** Resolves the source top-level manifest digest without copying. */
-export const resolveSourceDigest = (source: string, auth?: RegistryAuth, signal?: AbortSignal): Promise<string> => {
+/** Resolves the mirrored source digest without copying. */
+export const resolveSourceDigest = (
+  source: string,
+  auth?: RegistryAuth,
+  signal?: AbortSignal,
+  options: SourceDigestResolution = { allPlatforms: true },
+): Promise<string> => {
   const parsed = parseImageReference(source);
   const client = new RegistryClient(parsed.apiHost, auth);
-  return getManifest(client, parsed.repository, parsed.reference, signal).then((manifest) => manifest.digest);
+  return getManifest(client, parsed.repository, parsed.reference, signal).then((manifest) =>
+    selectMirroredDigest(manifest, options),
+  );
 };
 
 /** Copies an image (single- or multi-arch) from a source registry into the destination. */

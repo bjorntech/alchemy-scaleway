@@ -439,9 +439,20 @@ describe("copyImage", () => {
 });
 
 describe("resolveSourceDigest", () => {
-  test("returns the top manifest digest without copying", async () => {
+  test("returns the top manifest digest for a multi-arch image when copying all platforms", async () => {
     const src = track(startRegistry());
     const seeded = seedIndex(src, "app/api", "1.0");
     expect(await resolveSourceDigest(`${src.host}/app/api:1.0`)).toBe(seeded.digest);
+  });
+
+  test("returns the selected platform digest for a multi-arch image when mirroring one platform", async () => {
+    const src = track(startRegistry());
+    const seeded = seedIndex(src, "app/api", "1.0");
+    expect(
+      await resolveSourceDigest(`${src.host}/app/api:1.0`, undefined, undefined, {
+        allPlatforms: false,
+        platform: { os: "linux", architecture: "amd64" },
+      }),
+    ).toBe(seeded.amd64.digest);
   });
 });

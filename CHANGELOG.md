@@ -4,6 +4,12 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.17-beta.72] - 2026-08-18
+
+### Fixed
+
+- `ContainerImageMirror` now resolves and persists the digest that it actually mirrors: full multi-arch copies keep the source index digest, while `allPlatforms: false` mirrors use the selected platform manifest digest. This keeps repeat plans noop after a successful mirror and still updates when the selected platform image changes.
+
 ## [0.7.16-beta.72] - 2026-08-18
 
 ### Changed
