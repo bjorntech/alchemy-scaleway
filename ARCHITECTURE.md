@@ -34,8 +34,9 @@ src/
   VpcAcl.ts         VPC ACL rule-set resource
   VpcRoute.ts       VPC route resource
   VpcConnector.ts   VPC connector resource
-  Instance.ts       Instance virtual machine resource
-  SecurityGroup.ts  Instance security group resource
+   Instance.ts       Instance virtual machine resource
+   InstanceKnownHosts.ts Verified SSH known_hosts resource
+   SecurityGroup.ts  Instance security group resource
   FlexibleIp.ts     Instance flexible IP resource
   PrivateNic.ts     Instance private NIC resource
 
@@ -88,6 +89,7 @@ Apply the same rule to Scaleway:
 - `VpcRoute` provisions routes inside one VPC. VPC changes replace the route; destination, description, tags, and next-hop changes update it in place. Next hops can be resource IDs, Private Networks, or VPC connectors.
 - `VpcConnector` provisions connectors between two VPCs. Either VPC identity changing replaces the connector; name and tags update in place.
 - `Instance` provisions Scaleway Instance virtual machines. Zone, project, image, commercial type, and initial volume identity changes replace the resource; metadata, public IP attachments, security group attachment, placement group attachment, protection, and desired power state update in place.
+- `InstanceKnownHosts` reads the Scaleway `ssh-host-fingerprints` user-data for an Instance or raw server ID, waits for SSH to answer, verifies the live host key handshake with the embedded SSH client scanner, compares both sets, and returns `knownHosts`/`knownHostsB64` for strict host-key checking.
 - `SecurityGroup` provisions Scaleway Instance security groups and owns the complete rule set. Zone changes replace the resource; metadata and rule changes update in place.
 - `FlexibleIp` provisions Scaleway Instance flexible IPs. It defaults to retain-on-removal and uses `alchemy:logical-id` tags for rediscovery. Zone or IP type changes replace the reservation; tags, reverse DNS, and explicit server attachment changes update in place. Omitted `serverId` leaves attachment unmanaged/preserved; `serverId: null` detaches.
 - `PrivateNic` provisions Scaleway Instance private NICs that attach one Instance to one Private Network. Zone, server, Private Network, or IPAM IP identity changes replace the NIC; tags update in place.

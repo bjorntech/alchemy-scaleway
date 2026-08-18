@@ -51,6 +51,8 @@ export interface ScalewayMock {
   delayNextContainerImagePulls(reads: number): void;
   /** Seed a live custom domain for recovery tests. */
   seedDomain(input: { id: string; containerId: string; hostname: string; status?: string; errorMessage?: string }): void;
+  /** Seed server user-data for Instance API tests. */
+  seedServerUserData(serverId: string, key: string, value: string): void;
   /** Seed live Function companions for recovery tests. */
   seedFunctionDomain(input: { id: string; functionId: string; hostname: string; status?: string }): void;
   seedFunctionCron(input: { id: string; functionId: string; schedule: string; args?: Record<string, unknown>; name?: string; status?: string }): void;
@@ -1704,6 +1706,11 @@ export function installScalewayMock(): ScalewayMock {
         status,
         error_message: errorMessage,
       });
+    },
+    seedServerUserData: (serverId, key, value) => {
+      const values = serverUserData.get(serverId) ?? new Map<string, string>();
+      values.set(key, value);
+      serverUserData.set(serverId, values);
     },
     seedFunctionDomain: ({ id, functionId, hostname, status = "ready" }) => {
       functionDomains.set(id, { id, function_id: functionId, hostname, status, url: `https://${hostname}` });

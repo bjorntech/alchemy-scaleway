@@ -20,6 +20,7 @@ import { FunctionCron, FunctionCronProvider } from "../../src/FunctionCron.ts";
 import { FunctionDomain, FunctionDomainProvider } from "../../src/FunctionDomain.ts";
 import { FunctionNamespace, FunctionNamespaceProvider } from "../../src/FunctionNamespace.ts";
 import { Instance, InstanceProvider } from "../../src/Instance.ts";
+import { InstanceKnownHosts, InstanceKnownHostsProvider } from "../../src/InstanceKnownHosts.ts";
 import { ScalewayProviderConfig, type ProjectRef } from "../../src/Internal.ts";
 import { Namespace, NamespaceProvider } from "../../src/Namespace.ts";
 import { PrivateNic, PrivateNicProvider } from "../../src/PrivateNic.ts";
@@ -73,6 +74,7 @@ export const testProviders = (options: { project?: ProjectRef } = {}) =>
       VpcRoute,
       VpcConnector,
       Instance,
+      InstanceKnownHosts,
       SecurityGroup,
       FlexibleIp,
       PrivateNic,
@@ -103,6 +105,7 @@ export const testProviders = (options: { project?: ProjectRef } = {}) =>
         VpcRouteProvider(),
         VpcConnectorProvider(),
         InstanceProvider(),
+        InstanceKnownHostsProvider(),
         SecurityGroupProvider(),
         FlexibleIpProvider(),
         PrivateNicProvider(),

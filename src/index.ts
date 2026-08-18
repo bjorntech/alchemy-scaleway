@@ -122,6 +122,19 @@ export {
   type InstanceSecurityGroupRef,
   type InstanceVolume,
 } from "./Instance.ts";
+export {
+  InstanceKnownHosts,
+  InstanceKnownHostsProvider,
+  resetInstanceKnownHostsScanner,
+  resetInstanceKnownHostsCommandRunner,
+  setInstanceKnownHostsScanner,
+  setInstanceKnownHostsCommandRunner,
+  type InstanceKnownHostsScanRequest,
+  type InstanceKnownHostsCommand,
+  type InstanceKnownHostsCommandRunner,
+  type InstanceKnownHostsProps,
+  type InstanceKnownHostsScanner,
+} from "./InstanceKnownHosts.ts";
 export { isNotFound, ScalewayError, scalewayError } from "./Errors.ts";
 export { Namespace, NamespaceProvider, type NamespaceProps } from "./Namespace.ts";
 export {
