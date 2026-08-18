@@ -14,6 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
+| `0.7.17-beta.72`            | `2.0.0-beta.72`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Fixes `ContainerImageMirror` digest semantics for single-platform mirrors so repeat plans go noop after a successful mirror. |
 | `0.7.16-beta.72`            | `2.0.0-beta.72`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.72 and Effect beta.107; `ScalewayError` now uses the beta.107 `Schema.TaggedError` pattern. |
 | `0.7.15-beta.67`            | `2.0.0-beta.67`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Refuses clean-state Instance creates that would implicitly move an already-attached public IP; existing `.alchemy` state remains compatible with no migration. |
 | `0.7.13-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0` | Hardens DNS zone ambiguity handling, adds explicit DNS record takeover semantics, and removes legacy `alchemy-effect` package metadata. |

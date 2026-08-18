@@ -64,15 +64,22 @@ export const ContainerImageMirror = Resource<ContainerImageMirror>("Scaleway.Con
  * pure-TypeScript Registry v2 client; tests can substitute a fake.
  */
 export interface ContainerImageMirrorEngine {
-  resolveSourceDigest(source: string, auth?: RegistryAuth): Effect.Effect<string, Error, never>;
+  resolveSourceDigest(
+    source: string,
+    auth?: RegistryAuth,
+    allPlatforms?: boolean,
+  ): Effect.Effect<string, Error, never>;
   copy(request: ImageCopyRequest): Effect.Effect<ImageCopyResult, Error, never>;
 }
 
 const toError = (cause: unknown) => (cause instanceof Error ? cause : new Error(String(cause)));
 
 const defaultEngine: ContainerImageMirrorEngine = {
-  resolveSourceDigest: (source, auth) =>
-    Effect.tryPromise({ try: (signal) => resolveSourceDigest(source, auth, signal), catch: toError }),
+  resolveSourceDigest: (source, auth, allPlatforms) =>
+    Effect.tryPromise({
+      try: (signal) => resolveSourceDigest(source, auth, signal, { allPlatforms: allPlatforms ?? true }),
+      catch: toError,
+    }),
   copy: (request) => Effect.tryPromise({ try: (signal) => copyImage({ ...request, signal }), catch: toError }),
 };
 
@@ -150,6 +157,8 @@ const destinationAuth = (
   return undefined;
 };
 
+const mirrorPlatform = { os: "linux", architecture: "amd64" } as const;
+
 // @crap-ignore: provider factory wraps lifecycle closures scored separately.
 export const ContainerImageMirrorProvider = () =>
   Provider.effect(
@@ -167,9 +176,11 @@ export const ContainerImageMirrorProvider = () =>
           return { registry, repository, requestedTag };
         });
       const digestCache = new Map<string, string>();
-      const cacheKey = (id: string, news: ContainerImageMirrorProps) => `${id}\0${news.source}`;
+      const cacheKey = (id: string, news: ContainerImageMirrorProps) => `${id}\0${news.source}\0${news.allPlatforms ?? true}`;
       const withMirrorTimeout = <A, E, R>(news: ContainerImageMirrorProps, effect: Effect.Effect<A, E, R>) =>
         news.timeout ? effect.pipe(Effect.timeout(timeoutDuration(news.timeout))) : effect;
+      const desiredDigest = (news: ContainerImageMirrorProps) =>
+        engine.resolveSourceDigest(news.source, resolveAuth(news.sourceAuth), news.allPlatforms ?? true);
 
       return ContainerImageMirror.Provider.of({
         stables: ["ref", "stableRef", "registry", "repository", "tag", "source", "digest"],
@@ -177,7 +188,7 @@ export const ContainerImageMirrorProvider = () =>
         diff: Effect.fnUntraced(function* ({ id, news, output }) {
           if (!isResolved(news) || !output) return undefined;
           const { registry, repository, requestedTag } = yield* resolved(id, news);
-          const digest = yield* withMirrorTimeout(news, engine.resolveSourceDigest(news.source, resolveAuth(news.sourceAuth)));
+          const digest = yield* withMirrorTimeout(news, desiredDigest(news));
           const tag = contentTag(requestedTag, digest);
           const nextRef = imageRef(registry, repository, tag);
           const nextStableRef = imageRef(registry, repository, requestedTag);
@@ -203,7 +214,7 @@ export const ContainerImageMirrorProvider = () =>
           const key = cacheKey(id, news);
           const cachedDigest = digestCache.get(key);
           digestCache.delete(key);
-          const digest = cachedDigest ?? (yield* withMirrorTimeout(news, engine.resolveSourceDigest(news.source, resolveAuth(news.sourceAuth))));
+          const digest = cachedDigest ?? (yield* withMirrorTimeout(news, desiredDigest(news)));
           const tag = contentTag(requestedTag, digest);
           const ref = imageRef(registry, repository, tag);
           const stableRef = imageRef(registry, repository, requestedTag);
@@ -218,6 +229,7 @@ export const ContainerImageMirrorProvider = () =>
               destAuth: destinationAuth(registry, news.auth, scalewayCredentials.secretKey),
               destTags: [tag, requestedTag],
               allPlatforms: news.allPlatforms ?? true,
+              platform: mirrorPlatform,
               onProgress: (message) => Effect.runPromise(session.note(message)),
             }),
           );
