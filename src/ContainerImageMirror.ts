@@ -68,6 +68,7 @@ export interface ContainerImageMirrorEngine {
     source: string,
     auth?: RegistryAuth,
     allPlatforms?: boolean,
+    platform?: { os: string; architecture: string },
   ): Effect.Effect<string, Error, never>;
   copy(request: ImageCopyRequest): Effect.Effect<ImageCopyResult, Error, never>;
 }
@@ -75,9 +76,13 @@ export interface ContainerImageMirrorEngine {
 const toError = (cause: unknown) => (cause instanceof Error ? cause : new Error(String(cause)));
 
 const defaultEngine: ContainerImageMirrorEngine = {
-  resolveSourceDigest: (source, auth, allPlatforms) =>
+  resolveSourceDigest: (source, auth, allPlatforms, platform) =>
     Effect.tryPromise({
-      try: (signal) => resolveSourceDigest(source, auth, signal, { allPlatforms: allPlatforms ?? true }),
+      try: (signal) =>
+        resolveSourceDigest(source, auth, signal, {
+          allPlatforms: allPlatforms ?? true,
+          platform,
+        }),
       catch: toError,
     }),
   copy: (request) => Effect.tryPromise({ try: (signal) => copyImage({ ...request, signal }), catch: toError }),
@@ -180,7 +185,12 @@ export const ContainerImageMirrorProvider = () =>
       const withMirrorTimeout = <A, E, R>(news: ContainerImageMirrorProps, effect: Effect.Effect<A, E, R>) =>
         news.timeout ? effect.pipe(Effect.timeout(timeoutDuration(news.timeout))) : effect;
       const desiredDigest = (news: ContainerImageMirrorProps) =>
-        engine.resolveSourceDigest(news.source, resolveAuth(news.sourceAuth), news.allPlatforms ?? true);
+        engine.resolveSourceDigest(
+          news.source,
+          resolveAuth(news.sourceAuth),
+          news.allPlatforms ?? true,
+          news.allPlatforms === false ? mirrorPlatform : undefined,
+        );
 
       return ContainerImageMirror.Provider.of({
         stables: ["ref", "stableRef", "registry", "repository", "tag", "source", "digest"],

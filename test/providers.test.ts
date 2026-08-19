@@ -87,6 +87,10 @@ let mock: ScalewayMock;
 let imageCommands: Scaleway.ContainerImageCommand[];
 let knownHostsRequests: Scaleway.InstanceKnownHostsScanRequest[];
 let mirrorCopies: Scaleway.ImageCopyRequest[];
+let mirrorDigestResolutions: Array<{
+  allPlatforms?: boolean;
+  platform?: { os: string; architecture: string };
+}>;
 let mirrorDigest: string;
 let mirrorSelectedDigest: string;
 let mirrorPlatforms: number;
@@ -97,6 +101,7 @@ beforeEach(() => {
   imageCommands = [];
   knownHostsRequests = [];
   mirrorCopies = [];
+  mirrorDigestResolutions = [];
   mirrorPlatforms = 1;
   mirrorCopyImpl = undefined;
   mirrorDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
@@ -113,8 +118,16 @@ beforeEach(() => {
     }),
   );
   Scaleway.setContainerImageMirrorEngine({
-    resolveSourceDigest: (_source, _auth, allPlatforms) =>
-      Effect.sync(() => (allPlatforms ?? true ? mirrorDigest : mirrorSelectedDigest)),
+    resolveSourceDigest: (_source, _auth, allPlatforms, platform) =>
+      Effect.sync(() => {
+        mirrorDigestResolutions.push({ allPlatforms, platform });
+        if (allPlatforms ?? true) return mirrorDigest;
+        if (!platform) throw new Error("source has no linux/amd64 manifest");
+        if (platform.os !== "linux" || platform.architecture !== "amd64") {
+          throw new Error(`source has no ${platform.os}/${platform.architecture} manifest`);
+        }
+        return mirrorSelectedDigest;
+      }),
     copy: (request) =>
       Effect.sync(() => {
         mirrorCopies.push(request);
@@ -1168,7 +1181,12 @@ describe("ContainerImageMirror", () => {
         }),
       );
 
+      expect(mirrorDigestResolutions[0]).toEqual({
+        allPlatforms: false,
+        platform: { os: "linux", architecture: "amd64" },
+      });
       expect(mirrorCopies[0]?.allPlatforms).toBe(false);
+      expect(mirrorCopies[0]?.platform).toEqual({ os: "linux", architecture: "amd64" });
     }),
   );
 

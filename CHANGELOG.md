@@ -4,6 +4,12 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.18-beta.72] - 2026-08-19
+
+### Fixed
+
+- `ContainerImageMirror({ allPlatforms: false })` now defaults source digest resolution to `linux/amd64`, so multi-arch sources mirror cleanly without the `source has no linux/amd64 manifest` regression and keep the selected-platform no-op/update behavior.
+
 ## [0.7.17-beta.72] - 2026-08-18
 
 ### Fixed
