@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "@bjorntech/alchemy-scaleway",
@@ -11,7 +12,7 @@
       "devDependencies": {
         "@effect/platform-bun": "4.0.0-beta.107",
         "@effect/platform-node": "4.0.0-beta.107",
-        "@effect/platform-node-shared": "4.0.0-beta.107",
+        "@effect/platform-node-shared": "4.0.0-rc.109",
         "@types/bun": "latest",
         "@types/ssh2": "^1.15.5",
         "alchemy": "2.0.0-beta.72",
@@ -20,7 +21,7 @@
         "typescript": "latest",
       },
       "peerDependencies": {
-        "alchemy": "2.0.0-beta.67",
+        "alchemy": "2.0.0-beta.72",
         "effect": ">=4.0.0-beta.100 || >=4.0.0",
       },
     },
@@ -122,7 +123,7 @@
 
     "@effect/platform-node": ["@effect/platform-node@4.0.0-beta.107", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-beta.107", "mime": "^4.1.0", "undici": "^8.7.0" }, "peerDependencies": { "effect": "^4.0.0-beta.107", "ioredis": ">=5.7.0 <6.0.0" } }, "sha512-k+6YNbV4Ck0L6YXtlgkvEnuP5tlxWD8EeWOrpn46PDqbGEwt4ONpRltTwm3tn2cyBXD0i+2P11cUH/6sdFagTA=="],
 
-    "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-beta.107", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.21.0" }, "peerDependencies": { "effect": "^4.0.0-beta.107" } }, "sha512-y6BqcRi86BfTJv+tvDrob4ozYVHxxlHYcn/zIQqZjXI9CvKnkgD6ng+38G1o45c4f2ucU+6HRI9POCmFdMoVGA=="],
+    "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-rc.109", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.21.0" }, "peerDependencies": { "effect": "^4.0.0-rc.109" } }, "sha512-jhZJnf81N7Z5+Z41Qr0cKT75WzGu6M1W05xrSdu/V8PK0kSFtU5hJMBxSGDWNlgWhBwK0WRZtnMHY8HLdONg1w=="],
 
     "@effect/sql-d1": ["@effect/sql-d1@4.0.0-rc.110", "", { "dependencies": { "@cloudflare/workers-types": "^5.20260708.1" }, "peerDependencies": { "effect": "^4.0.0-rc.110" } }, "sha512-QSOJVPW9x9f5+x5GIfznBwz1UL81GfGX3sEtFgHJ4Ub6zsredVfv14Eex7SNxDM6nf/7zwSbh5YWQMTHV6oNmQ=="],
 
@@ -913,6 +914,10 @@
     "zeptomatch": ["zeptomatch@2.1.0", "", { "dependencies": { "grammex": "^3.1.11", "graphmatch": "^1.1.0" } }, "sha512-KiGErG2J0G82LSpniV0CtIzjlJ10E04j02VOudJsPyPwNZgGnRKQy7I1R7GMyg/QswnE4l7ohSGrQbQbjXPPDA=="],
 
     "@aws-sdk/xml-builder/fast-xml-parser": ["fast-xml-parser@5.7.3", "", { "dependencies": { "@nodable/entities": "^2.1.0", "fast-xml-builder": "^1.1.7", "path-expression-matcher": "^1.5.0", "strnum": "^2.2.3" }, "bin": { "fxparser": "src/cli/cli.js" } }, "sha512-C0AaNuC+mscy6vrAQKAc/rMq+zAPHodfHGZu4sGVehvAQt/JLG1O5zEcYcXSY5zSqr4YVgxsB+pHXTq0i7eDlg=="],
+
+    "@effect/platform-bun/@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-beta.107", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.21.0" }, "peerDependencies": { "effect": "^4.0.0-beta.107" } }, "sha512-y6BqcRi86BfTJv+tvDrob4ozYVHxxlHYcn/zIQqZjXI9CvKnkgD6ng+38G1o45c4f2ucU+6HRI9POCmFdMoVGA=="],
+
+    "@effect/platform-node/@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-beta.107", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.21.0" }, "peerDependencies": { "effect": "^4.0.0-beta.107" } }, "sha512-y6BqcRi86BfTJv+tvDrob4ozYVHxxlHYcn/zIQqZjXI9CvKnkgD6ng+38G1o45c4f2ucU+6HRI9POCmFdMoVGA=="],
 
     "@types/ws/@types/node": ["@types/node@25.9.1", "", { "dependencies": { "undici-types": ">=7.24.0 <7.24.7" } }, "sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg=="],
 
