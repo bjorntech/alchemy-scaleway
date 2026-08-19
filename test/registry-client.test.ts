@@ -455,4 +455,12 @@ describe("resolveSourceDigest", () => {
       }),
     ).toBe(seeded.amd64.digest);
   });
+
+  test("defaults to linux/amd64 when mirroring one platform without an explicit selector", async () => {
+    const src = track(startRegistry());
+    const seeded = seedIndex(src, "app/api", "1.0");
+    expect(await resolveSourceDigest(`${src.host}/app/api:1.0`, undefined, undefined, { allPlatforms: false })).toBe(
+      seeded.amd64.digest,
+    );
+  });
 });

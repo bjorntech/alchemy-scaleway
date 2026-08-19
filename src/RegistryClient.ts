@@ -336,11 +336,11 @@ const waitForManifestVisible = async (
 
 const selectMirroredDigest = (manifest: FetchedManifest, options: SourceDigestResolution) => {
   if (options.allPlatforms || !INDEX_TYPES.has(manifest.mediaType)) return manifest.digest;
+  const platform = options.platform ?? { os: "linux", architecture: "amd64" };
   const child = manifest.parsed.manifests?.find(
-    (entry) => entry.platform?.os === options.platform?.os && entry.platform?.architecture === options.platform?.architecture,
+    (entry) => entry.platform?.os === platform.os && entry.platform?.architecture === platform.architecture,
   );
   if (!child) {
-    const platform = options.platform ?? { os: "linux", architecture: "amd64" };
     throw new Error(`source has no ${platform.os}/${platform.architecture} manifest`);
   }
   return child.digest;
