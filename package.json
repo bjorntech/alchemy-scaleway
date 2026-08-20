@@ -56,7 +56,7 @@
     "ssh2": "^1.17.0"
   },
   "devDependencies": {
-    "@effect/platform-bun": "4.0.0-beta.107",
+    "@effect/platform-bun": "4.0.0-rc.110",
     "@effect/platform-node": "4.0.0-beta.107",
     "@effect/platform-node-shared": "4.0.0-beta.107",
     "@types/bun": "latest",
