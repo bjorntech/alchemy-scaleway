@@ -16,8 +16,8 @@ The package should keep a flat Alchemy v2 provider layout and avoid nested provi
 
 ## Dependency Policy
 
-- Use `alchemy@2.0.0-beta.72` until a newer Alchemy v2 beta is published to npm.
-- Test with `effect@4.0.0-beta.107` and accept `effect >=4.0.0-beta.100 || >=4.0.0` as the peer range.
+- Use `alchemy@2.0.0-beta.74` until a newer Alchemy v2 beta is published to npm.
+- Test with `effect@4.0.0-rc.112` and accept `effect >=4.0.0-rc.110 || >=4.0.0` as the peer range.
 - When a newer Alchemy v2 beta is published, bump `alchemy`, `effect`, `@effect/platform-*`, `package.json` version, README compatibility table, and `CHANGELOG.md` together.
 
 ## Architecture Rules
