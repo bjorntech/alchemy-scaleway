@@ -4,6 +4,12 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.7.19-beta.74] - 2026-08-27
+
+### Changed
+
+- Updated compatibility target to `alchemy@2.0.0-beta.74` and Effect `>=4.0.0-rc.110`, with development pins on Effect rc.112 and matching `@effect/platform-*` rc.112 packages.
+
 ## [0.7.18-beta.72] - 2026-08-19
 
 ### Fixed
