@@ -23,7 +23,7 @@ export const objectStorageState = (props: ObjectStorageStateProps = {}) =>
   Layer.effect(
     State,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const make = makeObjectStorageStateWithClients(props, clients);
       return yield* Effect.cached(make);
     }),
@@ -31,7 +31,7 @@ export const objectStorageState = (props: ObjectStorageStateProps = {}) =>
 
 export const makeObjectStorageState = ({ bucket, region, prefix }: ObjectStorageStateProps = {}) =>
   Effect.gen(function* () {
-    const clients = yield* makeScalewayClients;
+    const clients = yield* (yield* makeScalewayClients);
     return yield* makeObjectStorageStateWithClients({ bucket, region, prefix }, clients);
   });
 

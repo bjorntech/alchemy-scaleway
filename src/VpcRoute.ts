@@ -74,7 +74,7 @@ export const VpcRouteProvider = () =>
   Provider.effect(
     VpcRoute,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const toAttributes = (record: ScalewayVpcRouteRecord): VpcRoute["Attributes"] =>
         omitUndefined({
           routeId: record.id,

@@ -200,7 +200,7 @@ export const DomainProvider = () =>
   Provider.effect(
     Domain,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const toAttributes = (record: ScalewayDomainRecord): Domain["Attributes"] =>
         omitUndefined({
           domainId: record.id,

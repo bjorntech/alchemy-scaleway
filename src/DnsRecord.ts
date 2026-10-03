@@ -194,7 +194,7 @@ export const DnsRecordProvider = () =>
   Provider.effect(
     DnsRecord,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const readRecords = (dnsZone: string, name: string, type: DnsRecordType, projectId?: string) =>
         clients.dns.listRecords({ dnsZone, name: recordName(name), type, projectId }).pipe(
           Effect.catchIf(isNotFound, () => Effect.succeed([])),

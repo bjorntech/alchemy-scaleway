@@ -316,7 +316,7 @@ export const ContainerProvider = () =>
   Provider.effect(
     Container,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const nameOf = (id: string, name?: string) =>
         Effect.gen(function* () {
           if (name && [...name].length > CONTAINER_NAME_MAX_LENGTH) {

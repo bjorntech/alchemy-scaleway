@@ -4,7 +4,23 @@ This package uses a flat Alchemy v2 provider structure with direct Scaleway API 
 
 ## Compatibility And Toolchain
 
-The compatibility target is `alchemy@2.0.0-beta.76`, with an Effect peer range of `>=4.0.0-rc.112 || >=4.0.0`. Development pins `effect` and all three `@effect/platform-*` packages to `4.0.0-rc.112`.
+The compatibility target is `alchemy@2.0.0-beta.80`, with an Effect peer range of `^4.0.0`. Development pins `effect`, `@effect/platform-bun`, `@effect/platform-node`, and `@effect/platform-node-shared` to `4.0.0`.
+
+The beta.80 migration changes Alchemy's authentication and stage conventions.
+Profiles are managed with `alchemy profile` commands, and
+existing Scaleway stored credentials may require explicit reconfiguration with
+`alchemy profile edit --profile <name> --reconfigure Scaleway`; automatic
+migration must not be assumed. A bare deploy now defaults to `live_$USER`
+rather than `dev_$USER`; callers preserving an existing stage must use
+`--stage` or `ALCHEMY_STAGE`. Alchemy no longer reads `STAGE`. The provider's
+`SCW_*` credential contract and resource APIs remain unchanged. The public
+low-level integration surface is `ScalewayCredentials` and `ScalewayClients`,
+both Effect services whose values are effects. Consumers must use the nested
+service access pattern `yield* (yield* ScalewayCredentials)` and
+`yield* (yield* ScalewayClients)`. `ScalewayClientsLive` builds clients from
+resolved credentials, and `fromAuthProvider()` supplies credentials when a
+custom layer composition is needed. The concrete client factory remains
+available as `buildScalewayClients()`.
 
 Development uses Bun `1.4.2`, TypeScript `7.0.2`, and oxfmt `0.66.0`. The Bun version is declared in `package.json#packageManager` and read by both CI and release workflows. Tooling versions are explicit, and `bun.lock` records the resolved dependency graph.
 

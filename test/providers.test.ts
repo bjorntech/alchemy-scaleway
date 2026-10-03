@@ -33,13 +33,13 @@ const vpcLifecycleLayer = Layer.mergeAll(
   Layer.provideMerge(
     Layer.succeed(
       Scaleway.ScalewayCredentials,
-      Scaleway.ScalewayCredentials.of({
+      Scaleway.ScalewayCredentials.of(Effect.succeed({
         secretKey: Redacted.make("test-secret"),
         accessKey: "test-access",
         region: "fr-par",
         apiUrl: "https://api.scaleway.com",
         projectId: "proj-test",
-      }),
+      })),
     ),
   ),
   Layer.orDie,
@@ -52,13 +52,13 @@ const retainMigrationLayer = Layer.mergeAll(
   Layer.provideMerge(
     Layer.succeed(
       Scaleway.ScalewayCredentials,
-      Scaleway.ScalewayCredentials.of({
+      Scaleway.ScalewayCredentials.of(Effect.succeed({
         secretKey: Redacted.make("test-secret"),
         accessKey: "test-access",
         region: "fr-par",
         apiUrl: "https://api.scaleway.com",
         projectId: "proj-test",
-      }),
+      })),
     ),
   ),
   Layer.orDie,
@@ -71,13 +71,13 @@ const projectLifecycleLayer = Layer.mergeAll(
   Layer.provideMerge(
     Layer.succeed(
       Scaleway.ScalewayCredentials,
-      Scaleway.ScalewayCredentials.of({
+      Scaleway.ScalewayCredentials.of(Effect.succeed({
         secretKey: Redacted.make("test-secret"),
         accessKey: "test-access",
         region: "fr-par",
         apiUrl: "https://api.scaleway.com",
         projectId: "proj-test",
-      }),
+      })),
     ),
   ),
   Layer.orDie,
@@ -3889,6 +3889,32 @@ describe("InstanceKnownHosts", () => {
       expect(knownHostsRequests).toHaveLength(3);
       expect(knownHostsRequests.map((request) => request.address)).toEqual(["ssh.example", "ssh.example", "ssh.example"]);
       expect(knownHostsRequests.map((request) => request.algorithms[0])).toEqual(["ssh-ed25519", "ecdsa-sha2-nistp256", "rsa-sha2-512"]);
+    }),
+  );
+
+  test.provider("retries pending metadata and a refused SSH connection on a new VM", (stack) =>
+    Effect.gen(function* () {
+      const instance = yield* stack.deploy(Scaleway.Instance("HostPending", {
+        commercialType: "DEV1-S",
+        image: "ubuntu_jammy",
+      }));
+      mock.seedServerUserData(instance.serverId, "ssh-host-fingerprints", fingerprintText.trim().split("\n")[0]!);
+      mock.failNext(`/servers/${instance.serverId}/user_data/ssh-host-fingerprints`, 404, "not ready");
+      let scans = 0;
+      Scaleway.setInstanceKnownHostsScanner(() => Effect.suspend(() => {
+        scans++;
+        return scans === 1
+          ? Effect.fail(new Error("connect ECONNREFUSED"))
+          : Effect.succeed(scanResult("ssh-ed25519", "ED25519", keyData.ed25519));
+      }));
+      const verified = yield* stack.deploy(Scaleway.InstanceKnownHosts("HostKnownHostsPending", {
+        instance: instance.serverId,
+        zone: instance.zone,
+        preferredAddress: "ssh.example",
+        timeout: "5 seconds",
+      }));
+      expect(verified.verified).toBe(true);
+      expect(scans).toBe(2);
     }),
   );
 

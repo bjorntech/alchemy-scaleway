@@ -169,7 +169,7 @@ export const ContainerImageMirrorProvider = () =>
   Provider.effect(
     ContainerImageMirror,
     Effect.gen(function* () {
-      const scalewayCredentials = yield* ScalewayCredentials;
+      const scalewayCredentials = yield* (yield* ScalewayCredentials);
 
       const resolved = (id: string, news: ContainerImageMirrorProps) =>
         Effect.gen(function* () {

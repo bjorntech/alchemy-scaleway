@@ -4,6 +4,7 @@ import * as Provider from "alchemy/Provider";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
+import * as Schedule from "effect/Schedule";
 import { createHash } from "node:crypto";
 import { Client, type ServerHostKeyAlgorithm, utils as ssh2Utils } from "ssh2";
 import { makeScalewayClients, type ScalewayClientsShape } from "./Clients.ts";
@@ -278,7 +279,7 @@ const buildKnownHosts = (keys: readonly ScannedKey[], addresses: readonly string
   return knownHostsFromKeys(keys, renderedAddresses);
 };
 
-const retryableScanErrorPattern = /(connection refused|timed out|timeout|waiting for ssh|no route|unreachable|no matching host key|unable to negotiate|handshake failed)/;
+const retryableScanErrorPattern = /(connection refused|econnrefused|timed out|timeout|waiting for ssh|no route|unreachable|no matching host key|unable to negotiate|handshake failed)/;
 
 export const isRetryableScanError = (error: unknown) => retryableScanErrorPattern.test(
   String((error as { message?: unknown })?.message ?? error).toLowerCase(),
@@ -393,26 +394,17 @@ export const InstanceKnownHostsProvider = () =>
   Provider.effect(
     InstanceKnownHosts,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const verify = (props: InstanceKnownHostsProps) =>
         resolveKnownHostsRequest(props).pipe(Effect.flatMap((input) => verifyKnownHostsOnce(input, clients)));
 
-      const reconcile = (props: InstanceKnownHostsProps, session: { note(message: string): Effect.Effect<void> }): Effect.Effect<InstanceKnownHosts["Attributes"], never> => {
-        const effect = Effect.gen(function* () {
-          while (true) {
-            try {
-              return yield* verify(props);
-            } catch (error) {
-              if (error instanceof InstanceKnownHostsPending) {
-                yield* session.note(error.message);
-                yield* Effect.sleep("1 second");
-                continue;
-              }
-              throw error;
-            }
-          }
-        }) as Effect.Effect<InstanceKnownHosts["Attributes"], never>;
-        return props.timeout ? (effect.pipe(Effect.timeout(timeoutDuration(props.timeout))) as Effect.Effect<InstanceKnownHosts["Attributes"], never>) : effect;
+      const reconcile = (props: InstanceKnownHostsProps, session: { note(message: string): Effect.Effect<void> }) => {
+        const retryable = (error: Error) => error instanceof InstanceKnownHostsPending || isRetryableScanError(error);
+        return verify(props).pipe(
+          Effect.tapError((error) => retryable(error) ? session.note(error.message) : Effect.void),
+          Effect.retry({ while: retryable, schedule: Schedule.spaced("1 second") }),
+          Effect.timeout(timeoutDuration(props.timeout ?? "2 minutes")),
+        );
       };
 
       return InstanceKnownHosts.Provider.of({

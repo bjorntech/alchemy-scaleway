@@ -93,7 +93,7 @@ export const VpcAclProvider = () =>
   Provider.effect(
     VpcAcl,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
 
       return VpcAcl.Provider.of({
         stables: ["vpcId", "ipVersion"],

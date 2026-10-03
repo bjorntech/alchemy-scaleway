@@ -2,6 +2,7 @@
 // provider lifecycle tests skip the interactive auth flow but still exercise
 // the real `makeScalewayClients` / resource reconcilers.
 import * as Layer from "effect/Layer";
+import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Provider from "alchemy/Provider";
 import { Bucket, BucketProvider } from "../../src/Bucket.ts";
@@ -38,13 +39,13 @@ import { VpcRoute, VpcRouteProvider } from "../../src/VpcRoute.ts";
 
 const credentialsLayer = Layer.succeed(
   ScalewayCredentials,
-  ScalewayCredentials.of({
+  ScalewayCredentials.of(Effect.succeed({
     secretKey: Redacted.make("test-secret"),
     accessKey: "test-access",
     region: "fr-par",
     apiUrl: "https://api.scaleway.com",
     projectId: "proj-test",
-  }),
+  })),
 );
 
 export const testProviders = (options: { project?: ProjectRef } = {}) =>

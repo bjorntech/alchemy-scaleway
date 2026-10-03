@@ -101,7 +101,7 @@ export const SecurityGroupProvider = () =>
   Provider.effect(
     SecurityGroup,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 255 });
       const toAttributes = (record: ScalewaySecurityGroupRecord, rules: ScalewaySecurityGroupRuleRecord[] = []): SecurityGroup["Attributes"] =>
         omitUndefined({

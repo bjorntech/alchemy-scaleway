@@ -60,7 +60,7 @@ export const FlexibleIpProvider = () =>
   Provider.effect(
     FlexibleIp,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const toAttributes = (record: ScalewayFlexibleIpRecord): FlexibleIp["Attributes"] =>
         omitUndefined({
           ipId: record.id,

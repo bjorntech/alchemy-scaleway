@@ -7,12 +7,12 @@ import { parentReadiness, projectId } from "../src/Internal.ts";
 
 const credentialsLayer = Layer.succeed(
   ScalewayCredentials,
-  ScalewayCredentials.of({
+  ScalewayCredentials.of(Effect.succeed({
     secretKey: Redacted.make("secret"),
     region: "fr-par",
     apiUrl: "https://api.scaleway.com",
     projectId: "from-credentials",
-  }),
+  })),
 );
 
 describe("projectId", () => {

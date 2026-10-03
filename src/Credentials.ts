@@ -1,10 +1,14 @@
-import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
-import { getAuthProvider } from "alchemy/Auth/AuthProvider";
-import { ALCHEMY_PROFILE, AlchemyProfile } from "alchemy/Auth/Profile";
+import { AuthError, AuthProviders } from "alchemy/Auth/AuthProvider";
+import { ProfileStore } from "alchemy/Auth/Profile";
+import {
+  deferUntilFirstUse,
+  orDieCredentialsUnavailable,
+  resolveProviderConfig,
+} from "alchemy/Auth/Resolve";
 import {
   SCALEWAY_AUTH_PROVIDER_NAME,
   type ScalewayAuthConfig,
@@ -21,23 +25,47 @@ export interface ScalewayCredentialsService {
 
 export class ScalewayCredentials extends Context.Service<
   ScalewayCredentials,
-  ScalewayCredentialsService
+  Effect.Effect<ScalewayCredentialsService>
 >()("Scaleway.Credentials") {}
+
+const resolveScalewayCredentials: Effect.Effect<
+  ScalewayCredentialsService,
+  AuthError,
+  AuthProviders | ProfileStore
+> = resolveProviderConfig<
+  ScalewayAuthConfig,
+  ScalewayResolvedCredentials
+>(SCALEWAY_AUTH_PROVIDER_NAME).pipe(
+  Effect.flatMap(({ profileName, resolve }) =>
+    resolve.pipe(
+      Effect.map(createScalewayCredentials),
+      Effect.mapError(
+        (error) =>
+          new AuthError({
+            message: `Failed to resolve Scaleway credentials from ${profileName === undefined ? "the CI environment" : `profile '${profileName}'`}: ${error.message}`,
+            cause: error,
+          }),
+      ),
+    ),
+  ),
+  Effect.mapError(
+    (error) =>
+      new AuthError({
+        message: `Failed to resolve Scaleway credentials: ${error.message}`,
+        cause: error,
+      }),
+  ),
+);
 
 export const fromAuthProvider = () =>
   Layer.effect(
     ScalewayCredentials,
     Effect.gen(function* () {
-      const profile = yield* AlchemyProfile;
-      const auth = yield* getAuthProvider<ScalewayAuthConfig, ScalewayResolvedCredentials>(
-        SCALEWAY_AUTH_PROVIDER_NAME,
+      const resolve = yield* deferUntilFirstUse(resolveScalewayCredentials);
+      return yield* resolve.pipe(
+        orDieCredentialsUnavailable(SCALEWAY_AUTH_PROVIDER_NAME),
+        Effect.cached,
       );
-      const profileName = yield* ALCHEMY_PROFILE;
-      const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
-      const resolved = yield* profile
-        .loadOrConfigure<ScalewayAuthConfig>(auth, profileName, { ci })
-        .pipe(Effect.flatMap((config) => auth.read(profileName, config)));
-      return createScalewayCredentials(resolved);
     }),
   );
 

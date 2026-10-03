@@ -59,7 +59,7 @@ export const PrivateNetworkProvider = () =>
   Provider.effect(
     PrivateNetwork,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 255 });
       const toAttributes = (record: ScalewayPrivateNetworkRecord): PrivateNetwork["Attributes"] =>
         omitUndefined({
