@@ -16,8 +16,8 @@ The package should keep a flat Alchemy v2 provider layout and avoid nested provi
 
 ## Dependency Policy
 
-- Use `alchemy@2.0.0-beta.76` until a newer Alchemy v2 beta is published to npm.
-- Test with `effect@4.0.0-rc.112` and accept `effect >=4.0.0-rc.112 || >=4.0.0` as the peer range.
+- Use `alchemy@2.0.0-beta.80` and `effect@4.0.0` with matching `@effect/platform-bun`, `@effect/platform-node`, and `@effect/platform-node-shared` versions.
+- Accept `^4.0.0` as the public Effect peer range, matching Alchemy beta.80's published peer requirements.
 - When a newer Alchemy v2 beta is published, bump `alchemy`, `effect`, `@effect/platform-*`, `package.json` version, README compatibility table, and `CHANGELOG.md` together.
 - Use Bun `1.4.2` from `package.json#packageManager`, TypeScript `7.0.2`, and oxfmt `0.66.0` for development. Keep toolchain versions explicit; CI and release workflows read the Bun version from `package.json`.
 

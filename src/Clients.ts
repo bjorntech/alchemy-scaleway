@@ -823,7 +823,7 @@ export interface ScalewayClientsShape {
   };
 }
 
-export class ScalewayClients extends Context.Service<ScalewayClients, ScalewayClientsShape>()(
+export class ScalewayClients extends Context.Service<ScalewayClients, Effect.Effect<ScalewayClientsShape>>()(
   "Scaleway.Clients",
 ) {}
 
@@ -833,7 +833,10 @@ export const ScalewayClientsLive = Layer.effect(
   ScalewayClients,
   Effect.gen(function* () {
     const credentials = yield* ScalewayCredentials;
-    return buildScalewayClients(credentials);
+    return yield* credentials.pipe(
+      Effect.map(buildScalewayClients),
+      Effect.cached,
+    );
   }),
 );
 

@@ -36,7 +36,7 @@ export const ProjectProvider = () =>
   Provider.effect(
     Project,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 64 });
       const isPreconditionError = (error: unknown) => String((error as { message?: unknown })?.message ?? "").toLowerCase().includes("precondition is not respected");
       const hasAlchemyOwnedFlexibleIp = (projectId: string) =>

@@ -375,7 +375,7 @@ export const ContainerImageProvider = () =>
   Provider.effect(
     ContainerImage,
     Effect.gen(function* () {
-      const credentials = yield* ScalewayCredentials;
+      const credentials = yield* (yield* ScalewayCredentials);
       const repositoryName = (id: string, repository?: string) => physicalName(id, repository, { maxLength: 63 });
 
       return ContainerImage.Provider.of({

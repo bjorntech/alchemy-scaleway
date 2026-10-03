@@ -52,7 +52,7 @@ export const VpcConnectorProvider = () =>
   Provider.effect(
     VpcConnector,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 255 });
       const toAttributes = (record: ScalewayVpcConnectorRecord): VpcConnector["Attributes"] =>
         omitUndefined({

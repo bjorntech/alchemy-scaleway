@@ -106,7 +106,7 @@ export const parentReadiness = (ref: unknown): unknown =>
 
 const defaultProjectId = () =>
   Effect.gen(function* () {
-    const credentials = yield* ScalewayCredentials;
+    const credentials = yield* (yield* ScalewayCredentials);
     if (!credentials.projectId)
       throw new Error("Scaleway projectId is required for this resource.");
     return credentials.projectId;

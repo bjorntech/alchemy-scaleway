@@ -189,7 +189,7 @@ export const InstanceProvider = () =>
   Provider.effect(
     Instance,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 255 });
       const publicIpIdsOf = (refs: InstancePublicIpRef[] | undefined) => Effect.all((refs ?? []).map(publicIpIdOf));
       const retryPermissionPropagation = <A, E>(

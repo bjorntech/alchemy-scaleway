@@ -1,6 +1,6 @@
 import * as Layer from "effect/Layer";
 import { CredentialsStoreLive } from "alchemy/Auth/Credentials";
-import { ProfileLive } from "alchemy/Auth/Profile";
+import { ProfileStoreLive } from "alchemy/Auth/Profile";
 import * as Provider from "alchemy/Provider";
 import { ScalewayAuth } from "./AuthProvider.ts";
 import { Bucket, BucketProvider } from "./Bucket.ts";
@@ -115,7 +115,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
       ),
     ),
     Layer.provideMerge(ScalewayAuth),
-    Layer.provideMerge(ProfileLive),
+    Layer.provideMerge(ProfileStoreLive),
     Layer.provideMerge(CredentialsStoreLive),
     Layer.orDie,
   );

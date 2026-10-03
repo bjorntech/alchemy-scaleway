@@ -14,8 +14,7 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 | `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
 | --------------------------- | ---------------- | --------------- | ------------- |
-| `0.7.20-beta.76`            | `2.0.0-beta.76`  | `>=4.0.0-rc.112 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.76 and raises the Effect peer minimum to rc.112, matching the pinned `effect` and `@effect/platform-*` development versions. |
-| `0.7.19-beta.74`            | `2.0.0-beta.74`  | `>=4.0.0-rc.110 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.74 and Effect rc.112; development pins move to the rc.112 `effect` and `@effect/platform-*` line. |
+| `0.8.0-beta.80`             | `2.0.0-beta.80`  | `^4.0.0`        | Updates the provider to Alchemy beta.80 and the published Effect 4.0.0 line, including synchronized Effect platform packages and the beta.80 profile/auth workflow. |
 | `0.7.18-beta.72`            | `2.0.0-beta.72`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Fixes `ContainerImageMirror({ allPlatforms: false })` digest selection for multi-arch sources by defaulting to `linux/amd64`, so repeat plans go noop after a successful mirror. |
 | `0.7.16-beta.72`            | `2.0.0-beta.72`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.72 and Effect beta.107; `ScalewayError` now uses the beta.107 `Schema.TaggedError` pattern. |
 | `0.7.15-beta.67`            | `2.0.0-beta.67`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Refuses clean-state Instance creates that would implicitly move an already-attached public IP; existing `.alchemy` state remains compatible with no migration. |
@@ -57,10 +56,65 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 ## Install
 
 ```sh
-bun add alchemy@2.0.0-beta.76 effect@4.0.0-rc.112 @bjorntech/alchemy-scaleway
+bun add alchemy@2.0.0-beta.80 effect@4.0.0 @effect/platform-bun@4.0.0 @effect/platform-node@4.0.0 @effect/platform-node-shared@4.0.0 @bjorntech/alchemy-scaleway
 ```
 
-`@bjorntech/alchemy-scaleway` ships raw TypeScript and uses `.ts` import suffixes internally. Your `tsconfig.json` needs `"moduleResolution": "Bundler"` and `"allowImportingTsExtensions": true`.
+### Beta.80 migration
+
+Beta.80 requires published Effect `4.0.0` and synchronized
+`@effect/platform-bun`, `@effect/platform-node`, and
+`@effect/platform-node-shared` `4.0.0` packages.
+
+Beta.80 replaces the older login flow with named profiles. For an existing
+Scaleway account, inspect the selected profile and explicitly reconfigure it:
+
+```sh
+bun alchemy profile show --profile default
+bun alchemy profile edit --profile default --reconfigure Scaleway
+```
+
+Create and configure a separate profile with
+`bun alchemy profile create <name>` followed by
+`bun alchemy profile edit --profile <name> --add Scaleway`. Existing Scaleway
+stored credentials may require this explicit reconfiguration; do not assume an
+older stored configuration migrates automatically. Use `--profile <name>` or
+`ALCHEMY_PROFILE` to select a profile. The existing `SCW_*` environment
+credential contract remains unchanged. `ScalewayAuth`, `ScalewayCredentials`,
+`ScalewayClients`, `ScalewayClientsLive`, `fromAuthProvider()`, and
+`buildScalewayClients()` are exported for custom integrations.
+
+Beta.80 changes the implicit stage used by a bare deploy from `dev_$USER` to
+`live_$USER`. Do not run a bare deploy expecting it to reuse an existing
+development stage. Preserve an existing stage explicitly with `--stage <name>`
+or `ALCHEMY_STAGE=<name>`. The old `STAGE` environment variable is no longer
+read. The smoke scripts' `SCW_*_STAGE` controls are provider-specific and remain
+unchanged.
+
+The migration also updates the public low-level auth/client services. Direct
+Effect consumers now retrieve the service effects before using them:
+
+```ts
+import * as Effect from "effect/Effect";
+import {
+  ScalewayClients,
+  ScalewayCredentials,
+  providers,
+} from "@bjorntech/alchemy-scaleway";
+
+const program = Effect.gen(function* () {
+  const credentials = yield* (yield* ScalewayCredentials);
+  const clients = yield* (yield* ScalewayClients);
+  return yield* clients.containers.getContainer("container-id");
+}).pipe(Effect.provide(providers()));
+```
+
+`ScalewayCredentials` and `ScalewayClients` are Effect services whose values
+are effects. `ScalewayClientsLive` builds the client service from resolved
+credentials, while `fromAuthProvider()` supplies the credential service for a
+custom layer composition. Resource declarations and their resource props are
+unchanged. The package ships raw TypeScript and uses `.ts` import suffixes
+internally. Your `tsconfig.json` needs `"moduleResolution": "Bundler"` and
+`"allowImportingTsExtensions": true`.
 
 ## Credentials
 
@@ -74,7 +128,7 @@ SCW_DEFAULT_REGION=fr-par       # optional, defaults to fr-par
 SCW_API_URL=https://api.scaleway.com # optional, defaults to https://api.scaleway.com
 ```
 
-The `stored` auth method is configured through `alchemy login` and writes credentials under `~/.alchemy/credentials/{profile}/scaleway-stored.json`.
+The `stored` auth method is configured through `alchemy profile edit --add Scaleway` and writes credentials under `~/.alchemy/credentials/{profile}/scaleway-stored.json`. Use `--reconfigure Scaleway` to refresh an existing stored account.
 
 `Project` requires an explicit `organizationId` prop. The API key must have Account/Organization-level permissions to create, update, or delete Scaleway projects.
 

@@ -50,7 +50,7 @@ export const PrivateNicProvider = () =>
   Provider.effect(
     PrivateNic,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const toAttributes = (record: ScalewayPrivateNicRecord, fallback: { zone: string; serverId?: string; privateNetworkId?: string }): PrivateNic["Attributes"] =>
         omitUndefined({
           privateNicId: record.id,

@@ -50,7 +50,7 @@ export const FunctionNamespaceProvider = () =>
   Provider.effect(
     FunctionNamespace,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 63 });
       const toAttributes = (record: ScalewayFunctionNamespaceRecord): FunctionNamespace["Attributes"] =>
         omitUndefined({

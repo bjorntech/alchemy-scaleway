@@ -286,7 +286,7 @@ export const FunctionProvider = () =>
   Provider.effect(
     Function,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 63 });
       const toAttributes = (record: ScalewayFunctionRecord, hash: string): Function["Attributes"] =>
         omitUndefined({

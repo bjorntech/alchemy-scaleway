@@ -46,7 +46,7 @@ export const VpcProvider = () =>
   Provider.effect(
     Vpc,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const nameOf = (id: string, name?: string) => physicalName(id, name, { maxLength: 255 });
       const toAttributes = (record: ScalewayVpcRecord): Vpc["Attributes"] =>
         omitUndefined({

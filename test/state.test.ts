@@ -8,13 +8,13 @@ import { installScalewayMock, type ScalewayMock } from "./support/scaleway-mock.
 
 const credentialsLayer = Layer.succeed(
   Scaleway.ScalewayCredentials,
-  Scaleway.ScalewayCredentials.of({
+  Scaleway.ScalewayCredentials.of(Effect.succeed({
     secretKey: Redacted.make("test-secret"),
     accessKey: "test-access",
     region: "fr-par",
     apiUrl: "https://api.scaleway.com",
     projectId: "proj-test",
-  }),
+  })),
 );
 
 let mock: ScalewayMock;

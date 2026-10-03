@@ -86,7 +86,7 @@ export const DnsZoneProvider = () =>
   Provider.effect(
     DnsZone,
     Effect.gen(function* () {
-      const clients = yield* makeScalewayClients;
+      const clients = yield* (yield* makeScalewayClients);
       const findZoneInProject = (dnsZone: string, explicitProjectId?: string) =>
         clients.dns.listZones({ dnsZone, projectId: explicitProjectId }).pipe(
           Effect.map((zones) => exactZones(zones, dnsZone)[0]),

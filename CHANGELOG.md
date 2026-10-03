@@ -4,6 +4,26 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.8.0-beta.80] - 2026-10-03
+
+### Changed
+
+- Updated the compatibility target to Alchemy `2.0.0-beta.80` and published
+  Effect `4.0.0`, including synchronized `@effect/platform-*` packages and
+  the `^4.0.0` Effect peer range. Beta.80 migration uses `alchemy profile`
+  commands, may require explicit Scaleway stored-credential reconfiguration,
+  and changes the bare deploy default from `dev_$USER` to `live_$USER`; use
+  `--stage` or `ALCHEMY_STAGE` to preserve an existing stage. The native
+  auth/client services are now exposed through the beta.80 Effect service
+  model, so direct consumers must retrieve `ScalewayCredentials` and
+  `ScalewayClients` with the nested `yield* (yield* Service)` pattern.
+
+### Fixed
+
+- `InstanceKnownHosts` now retries pending fingerprint metadata and transient SSH
+  connection failures through Effect's error channel, with a two-minute default
+  deadline. Fingerprint mismatches still fail immediately.
+
 ## [0.7.20-beta.76] - 2026-09-06
 
 ### Changed
