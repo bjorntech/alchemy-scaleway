@@ -4,6 +4,19 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+### Changed
+
+- The package now ships compiled JavaScript and declarations in `dist/`
+  (built on `prepack`), with a `bun` export condition for the raw sources.
+  Node consumers can import it, and consumers with stricter compiler options
+  no longer typecheck the package's sources.
+
+### Fixed
+
+- `InstanceKnownHosts` imports `ssh2` through its default export so the
+  package loads under Node's ESM loader, which cannot name `utils` or
+  `Client` from the CommonJS module.
+
 ## [0.8.0-beta.80] - 2026-10-03
 
 ### Changed

@@ -19,3 +19,5 @@ jobs:
       - run: bun test
       - run: bun run coverage
       - run: bun run crap
+      - run: bun run build
+      - run: node --input-type=module -e "await import('./dist/index.js')"

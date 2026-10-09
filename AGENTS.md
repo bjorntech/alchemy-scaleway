@@ -8,7 +8,7 @@ The package should keep a flat Alchemy v2 provider layout and avoid nested provi
 
 ## Current Package Shape
 
-- Runtime package: raw TypeScript ESM.
+- Runtime package: TypeScript ESM sources in `src/`, compiled to `dist/` (JavaScript plus declarations) on pack. Bun resolves `src/` through the `bun` export condition; Node and type consumers use `dist/`.
 - Public entrypoint: `src/index.ts`.
 - Provider bundle: `Scaleway.providers()` from `src/Providers.ts`.
 - Tests: Bun test runner.
