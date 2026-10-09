@@ -112,9 +112,10 @@ const program = Effect.gen(function* () {
 are effects. `ScalewayClientsLive` builds the client service from resolved
 credentials, while `fromAuthProvider()` supplies the credential service for a
 custom layer composition. Resource declarations and their resource props are
-unchanged. The package ships raw TypeScript and uses `.ts` import suffixes
-internally. Your `tsconfig.json` needs `"moduleResolution": "Bundler"` and
-`"allowImportingTsExtensions": true`.
+unchanged. The package ships compiled JavaScript with declarations in `dist/`;
+Bun resolves the raw TypeScript in `src/` through the `bun` export condition.
+Consumers no longer need `"allowImportingTsExtensions"` or to typecheck the
+package's sources under their own compiler settings.
 
 ## Credentials
 

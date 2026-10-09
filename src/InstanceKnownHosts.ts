@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
 import * as Schedule from "effect/Schedule";
 import { createHash } from "node:crypto";
-import { Client, type ServerHostKeyAlgorithm, utils as ssh2Utils } from "ssh2";
+import ssh2, { type ServerHostKeyAlgorithm } from "ssh2";
 import { makeScalewayClients, type ScalewayClientsShape } from "./Clients.ts";
 import { isNotFound } from "./Errors.ts";
 import { parentReadiness, resolveRef } from "./Internal.ts";
@@ -139,7 +139,7 @@ export const parseFingerprintSummaries = (value: string): FingerprintSummary[] =
     .sort((left, right) => fingerprintKey(left).localeCompare(fingerprintKey(right)));
 
 const parseScannedKey = (keyData: Buffer, host: string): ScannedKey => {
-  const parsed = ssh2Utils.parseKey(keyData);
+  const parsed = ssh2.utils.parseKey(keyData);
   const key = Array.isArray(parsed) ? parsed[0] : parsed;
   if (!key) throw new Error("Invalid SSH host key data.");
   return {
@@ -155,7 +155,7 @@ const defaultScanInstanceKnownHosts: InstanceKnownHostsScanner = ({ address, por
   Effect.tryPromise({
     try: () =>
       new Promise<ScannedKey | undefined>((resolve, reject) => {
-        const client = new Client();
+        const client = new ssh2.Client();
         let captured: ScannedKey | undefined;
         let settled = false;
         const timeoutMs = 5000;
