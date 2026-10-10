@@ -5,7 +5,11 @@ import { encodeState, reviveState } from "alchemy/State/StateEncoding";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { ScalewayError } from "./Errors.ts";
-import { makeScalewayClients, type ScalewayClientsShape } from "./Clients.ts";
+import { CredentialsStoreLive } from "alchemy/Auth/Credentials";
+import { ProfileStoreLive } from "alchemy/Auth/Profile";
+import { ScalewayAuth } from "./AuthProvider.ts";
+import { makeScalewayClients, ScalewayClientsLive, type ScalewayClientsShape } from "./Clients.ts";
+import { fromAuthProvider } from "./Credentials.ts";
 import { isNotFound } from "./Errors.ts";
 
 export interface ObjectStorageStateProps {
@@ -17,15 +21,29 @@ export interface ObjectStorageStateProps {
   prefix?: string;
 }
 
-export const state = (props: ObjectStorageStateProps = {}) => objectStorageState(props);
+/**
+ * Object Storage state with its own Scaleway API foundation (clients,
+ * credentials, auth provider, profile and credential stores), like
+ * `Cloudflare.state()`, so `state: Scaleway.state()` works on its own.
+ */
+export const state = (props: ObjectStorageStateProps = {}) =>
+  objectStorageState(props).pipe(
+    Layer.provide(ScalewayClientsLive),
+    Layer.provide(fromAuthProvider()),
+    Layer.provide(ScalewayAuth),
+    Layer.provide(ProfileStoreLive),
+    Layer.provide(CredentialsStoreLive),
+    Layer.orDie,
+  );
 
 export const objectStorageState = (props: ObjectStorageStateProps = {}) =>
   Layer.effect(
     State,
     Effect.gen(function* () {
-      const clients = yield* (yield* makeScalewayClients);
-      const make = makeObjectStorageStateWithClients(props, clients);
-      return yield* Effect.cached(make);
+      const clients = yield* makeScalewayClients;
+      return yield* Effect.cached(
+        Effect.flatMap(clients, (resolved) => makeObjectStorageStateWithClients(props, resolved)),
+      );
     }),
   );
 

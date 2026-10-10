@@ -288,6 +288,8 @@ export default Alchemy.Stack(
 );
 ```
 
+`Scaleway.state()` brings its own Scaleway credentials, clients and auth provider, like `Cloudflare.state()`, and resolves credentials on first use. Use `objectStorageState()` to compose those layers yourself.
+
 Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJECT_ID` is used only to derive the default bucket name; the Object Storage credentials decide which project/account owns the bucket. Bucket names are globally unique, so pass `bucket` explicitly if the derived name is unavailable or if you want a shared state bucket. For multiple Scaleway projects, either use separate buckets or separate prefixes such as `alchemy/project-a` and `alchemy/project-b`. Do not run concurrent deploys against the same `bucket + prefix + stack + stage`; the Object Storage backend does not provide a distributed lock.
 
 ## Resources
