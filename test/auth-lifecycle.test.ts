@@ -12,6 +12,12 @@ import * as Interaction from "alchemy/Interaction";
 import { AuthProviders, type AuthProvider } from "alchemy/Auth/AuthProvider";
 import { CredentialsStore, type CredentialsStoreService } from "alchemy/Auth/Credentials";
 import { CredentialsUnavailable } from "alchemy/Auth/Resolve";
+import {
+  MissingProviderConfig,
+  ProfileStore,
+  SuppressMissingProviderConfig,
+  type ProfileStoreService,
+} from "alchemy/Auth/Profile";
 import { ScalewayAuth, type ScalewayResolvedCredentials } from "../src/AuthProvider.ts";
 import { fromAuthProvider, ScalewayCredentials } from "../src/Credentials.ts";
 
@@ -216,6 +222,124 @@ describe("Scaleway beta80 credential lifecycle", () => {
     expect(Exit.isFailure(result)).toBe(true);
     if (Exit.isFailure(result)) {
       expect(defects(result.cause)[0]).toBeInstanceOf(CredentialsUnavailable);
+    }
+  });
+});
+
+describe("Scaleway non-interactive profile configuration", () => {
+  const recordingStore = () => {
+    const writes: Array<{ profile: string; key: string; value: unknown }> = [];
+    const store = {
+      read: () => Effect.succeed(undefined),
+      write: (profile: string, key: string, _schema: unknown, value: unknown) =>
+        Effect.sync(() => {
+          writes.push({ profile, key, value });
+        }),
+      delete: () => Effect.void,
+      deleteProfile: () => Effect.void,
+    } as unknown as CredentialsStoreService;
+    return { store, writes };
+  };
+
+  const configureWith = (store: CredentialsStoreService, method: string, values: Record<string, string>) =>
+    Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const context = yield* build(makeLayer({ store }));
+        const provider = Context.get(context, AuthProviders).Scaleway!;
+        expect(provider.configureMethods?.map((entry) => entry.method)).toEqual(["stored", "env"]);
+        return yield* provider.configureWith!("ci", { method, values }).pipe(
+          Effect.provideService(Interaction.Interaction, makeInteraction({ prompts: 0 })),
+        );
+      }),
+    );
+
+  test("stores --set fields without prompting", async () => {
+    const { store, writes } = recordingStore();
+    const exit = await configureWith(store, "stored", {
+      secretKey: "secret",
+      accessKey: "access",
+      projectId: "project",
+      region: "nl-ams",
+    });
+
+    expect(exit).toEqual(Exit.succeed({ method: "stored" }));
+    expect(writes).toEqual([
+      {
+        profile: "ci",
+        key: "scaleway-stored",
+        value: { secretKey: "secret", accessKey: "access", projectId: "project", region: "nl-ams", apiUrl: undefined },
+      },
+    ]);
+  });
+
+  test("defaults the region and leaves optional fields unset", async () => {
+    const { store, writes } = recordingStore();
+    await configureWith(store, "stored", { secretKey: "secret" });
+
+    expect(writes[0]?.value).toEqual({
+      secretKey: "secret",
+      accessKey: undefined,
+      projectId: undefined,
+      region: "fr-par",
+      apiUrl: undefined,
+    });
+  });
+
+  test("rejects missing secrets, unknown fields, invalid regions and unknown methods before writing", async () => {
+    const cases: Array<[string, Record<string, string>, string]> = [
+      ["stored", { projectId: "project" }, "missing required field 'secretKey'"],
+      ["stored", { secretKey: "secret", token: "x" }, "unknown field 'token'"],
+      ["stored", { secretKey: "secret", region: "paris" }, "invalid 'region'"],
+      ["oauth", {}, "unknown method 'oauth'"],
+    ];
+    for (const [method, values, message] of cases) {
+      const { store, writes } = recordingStore();
+      const exit = await configureWith(store, method, values);
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(String(Exit.isFailure(exit) ? Cause.squash(exit.cause) : "")).toContain(message);
+      expect(writes).toEqual([]);
+    }
+  });
+
+  test("selects environment credentials without storing anything", async () => {
+    const { store, writes } = recordingStore();
+    const exit = await configureWith(store, "env", {});
+
+    expect(exit).toEqual(Exit.succeed({ method: "env" }));
+    expect(writes).toEqual([]);
+  });
+});
+
+describe("Scaleway credentials for an unconfigured profile", () => {
+  const unconfiguredProfiles = {
+    current: Effect.succeed({ name: "fresh", source: "default" }),
+    loadProviderConfig: (auth: AuthProvider) =>
+      Effect.fail(
+        new MissingProviderConfig({
+          provider: auth.name,
+          profileName: "fresh",
+          message: `Provider '${auth.name}' is not configured in profile 'fresh'.`,
+        }),
+      ),
+  } as unknown as ProfileStoreService;
+
+  test("surfaces MissingProviderConfig unwrapped so the CLI can load providers before configuring them", async () => {
+    const result = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const context = yield* build(
+          makeLayer({ store: makeStore({ reads: 0, prompts: 0 }), env: {} }).pipe(
+            Layer.provideMerge(Layer.succeed(ProfileStore, unconfiguredProfiles)),
+          ),
+        );
+        return yield* getCredentials(context).pipe(Effect.provideService(SuppressMissingProviderConfig, true));
+      }),
+    );
+
+    expect(Exit.isFailure(result)).toBe(true);
+    if (Exit.isFailure(result)) {
+      const [defect] = defects(result.cause);
+      expect(defect).toBeInstanceOf(MissingProviderConfig);
+      expect((defect as MissingProviderConfig).provider).toBe("Scaleway");
     }
   });
 });

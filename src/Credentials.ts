@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import { AuthError, AuthProviders } from "alchemy/Auth/AuthProvider";
-import { ProfileStore } from "alchemy/Auth/Profile";
+import { MissingProviderConfig, ProfileStore } from "alchemy/Auth/Profile";
 import {
   deferUntilFirstUse,
   orDieCredentialsUnavailable,
@@ -30,7 +30,7 @@ export class ScalewayCredentials extends Context.Service<
 
 const resolveScalewayCredentials: Effect.Effect<
   ScalewayCredentialsService,
-  AuthError,
+  AuthError | MissingProviderConfig,
   AuthProviders | ProfileStore
 > = resolveProviderConfig<
   ScalewayAuthConfig,
@@ -48,12 +48,13 @@ const resolveScalewayCredentials: Effect.Effect<
       ),
     ),
   ),
-  Effect.mapError(
-    (error) =>
-      new AuthError({
-        message: `Failed to resolve Scaleway credentials: ${error.message}`,
-        cause: error,
-      }),
+  Effect.mapError((error) =>
+    error instanceof MissingProviderConfig
+      ? error
+      : new AuthError({
+          message: `Failed to resolve Scaleway credentials: ${error.message}`,
+          cause: error,
+        }),
   ),
 );
 
@@ -63,6 +64,7 @@ export const fromAuthProvider = () =>
     Effect.gen(function* () {
       const resolve = yield* deferUntilFirstUse(resolveScalewayCredentials);
       return yield* resolve.pipe(
+        Effect.catchTag("MissingProviderConfig", (missing) => Effect.die(missing)),
         orDieCredentialsUnavailable(SCALEWAY_AUTH_PROVIDER_NAME),
         Effect.cached,
       );

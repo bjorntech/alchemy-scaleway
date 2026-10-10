@@ -5,10 +5,13 @@ import * as Schema from "effect/Schema";
 import {
   AuthError,
   AuthProviderLayer,
+  type ConfigureField,
+  type ConfigureMethod,
   type ProviderDetails,
 } from "alchemy/Auth/AuthProvider";
 import { CredentialsStore, displayRedacted } from "alchemy/Auth/Credentials";
 import { getEnv, getEnvRedacted, mapPromptCancellation } from "alchemy/Auth/Env";
+import { storedSecret, storedValueText, validateFieldValues } from "alchemy/Auth/StoredAuthProvider";
 import * as Interaction from "alchemy/Interaction";
 
 export const SCALEWAY_AUTH_PROVIDER_NAME = "Scaleway";
@@ -63,6 +66,43 @@ const validateRegion = (region: string) =>
             "Invalid Scaleway region. Use a region slug like fr-par, nl-ams, pl-waw, or it-mil.",
         }),
       );
+
+/**
+ * `--set` fields for `alchemy profile edit --add Scaleway --method stored`.
+ * Each maps to the stored credential property of the same name.
+ */
+export const scalewayStoredFields: ReadonlyArray<ConfigureField> = [
+  { name: "secretKey", label: "Scaleway Secret Key", secret: true },
+  {
+    name: "accessKey",
+    label: "Scaleway Access Key",
+    description: "Required for Object Storage.",
+    secret: true,
+    optional: true,
+  },
+  {
+    name: "projectId",
+    label: "Scaleway Project ID",
+    description: "Required for Containers unless passed per resource.",
+    optional: true,
+  },
+  {
+    name: "region",
+    label: "Scaleway Region",
+    defaultValue: DEFAULT_REGION,
+    validate: (value) => (isRegion(value) ? undefined : "Expected a region slug like fr-par"),
+  },
+  { name: "apiUrl", label: "Scaleway API URL", placeholder: DEFAULT_API_URL, optional: true },
+];
+
+/**
+ * Flag-driven configuration: `stored` persists the `--set` fields to the
+ * profile's credentials file; `env` reads the `SCW_*` variables at use time.
+ */
+export const scalewayConfigureMethods: ReadonlyArray<ConfigureMethod> = [
+  { method: "stored", fields: scalewayStoredFields },
+  { method: "env", fields: [] },
+];
 
 const toAuthError = (message: string) => (cause: unknown) =>
   new AuthError({ message, cause });
@@ -232,6 +272,36 @@ export const ScalewayAuth = AuthProviderLayer<
           ),
         );
 
+    const configureWith = (
+      profileName: string,
+      input: { readonly method: string; readonly values: Record<string, string> },
+    ): Effect.Effect<ScalewayAuthConfig, AuthError, Interaction.Interaction> => {
+      if (input.method === "env") return Effect.succeed({ method: "env" as const });
+      if (input.method !== "stored") {
+        return Effect.fail(
+          new AuthError({
+            message: `Scaleway: unknown method '${input.method}'. Valid methods: stored, env.`,
+          }),
+        );
+      }
+      return validateFieldValues(SCALEWAY_AUTH_PROVIDER_NAME, scalewayStoredFields, input.values).pipe(
+        Effect.map((values) => ({
+          secretKey: Redacted.value(storedSecret(values.secretKey) ?? Redacted.make("")),
+          accessKey: storedValueText(values.accessKey),
+          projectId: storedValueText(values.projectId),
+          region: storedValueText(values.region),
+          apiUrl: storedValueText(values.apiUrl),
+        })),
+        Effect.flatMap((credentials) =>
+          store
+            .write(profileName, SCALEWAY_AUTH_STORAGE_KEY, ScalewayStoredCredentialsSchema, credentials)
+            .pipe(Effect.mapError(toAuthError("Failed to save Scaleway stored credentials"))),
+        ),
+        Effect.andThen(interaction.output.success("Scaleway: credentials saved.")),
+        Effect.as({ method: "stored" as const }),
+      );
+    };
+
     const read = (profileName: string, config: ScalewayAuthConfig) =>
       Match.value(config).pipe(
         Match.when({ method: "env" }, () => resolveFromEnv()),
@@ -286,6 +356,8 @@ export const ScalewayAuth = AuthProviderLayer<
     return {
       configSchema: ScalewayAuthConfigSchema,
       configure,
+      configureWith,
+      configureMethods: scalewayConfigureMethods,
       login,
       logout,
       details,

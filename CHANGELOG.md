@@ -4,6 +4,19 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+### Added
+
+- Non-interactive profile configuration: `alchemy profile edit --add Scaleway
+  --method stored --set secretKey=env:SCW_SECRET_KEY ...` (and `--method env`),
+  with field validation before anything is written.
+
+### Fixed
+
+- Loading a stack's providers for a profile without Scaleway credentials no
+  longer fails with `Could not load auth providers`. Credential resolution now
+  surfaces Alchemy's `MissingProviderConfig` unwrapped, so `alchemy profile
+  edit --add Scaleway` works for a fresh profile.
+
 ## [0.8.0-beta.80] - 2026-10-03
 
 ### Changed
