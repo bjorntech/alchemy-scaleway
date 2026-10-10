@@ -130,6 +130,17 @@ SCW_API_URL=https://api.scaleway.com # optional, defaults to https://api.scalewa
 
 The `stored` auth method is configured through `alchemy profile edit --add Scaleway` and writes credentials under `~/.alchemy/credentials/{profile}/scaleway-stored.json`. Use `--reconfigure Scaleway` to refresh an existing stored account.
 
+Scripts and agents can configure a profile without prompts. `--set` takes `name=value`, `name=env:VAR` or `name=-` (stdin), so the secret stays out of shell history:
+
+```sh
+bun alchemy profile create ci-deploy
+bun alchemy profile edit --profile ci-deploy --add Scaleway --method stored \
+  --set secretKey=env:SCW_SECRET_KEY --set accessKey=env:SCW_ACCESS_KEY \
+  --set projectId=<project-id> --set region=fr-par
+```
+
+`--method stored` accepts `secretKey` (required), `accessKey`, `projectId`, `region` (defaults to `fr-par`) and `apiUrl`. `--method env` takes no fields and reads the `SCW_*` variables above at use time. With `CI=true`, Alchemy skips profiles and reads the environment directly.
+
 `Project` requires an explicit `organizationId` prop. The API key must have Account/Organization-level permissions to create, update, or delete Scaleway projects.
 
 When a stack declares exactly one `Scaleway.Project`, new project-scoped application resources in the same deploy use that managed project unless the resource or `Scaleway.providers({ project })` sets a project explicitly. In that case, deploying the stack creates the project and then creates those resources in it. Existing beta stacks that should keep creating resources in `SCW_DEFAULT_PROJECT_ID` can set `providers: Scaleway.providers({ project: process.env.SCW_DEFAULT_PROJECT_ID })`. Resources that already exist in state keep their persisted project for backward compatibility. Remote state still uses `SCW_DEFAULT_PROJECT_ID` for its default bucket name, and DNS resources (`DnsZone`/`DnsRecord`) default to `SCW_DEFAULT_PROJECT_ID` unless `project` is set explicitly.
