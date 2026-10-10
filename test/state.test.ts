@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ResourceState } from "alchemy/State/ResourceState";
+import * as Alchemy from "alchemy";
+import { AuthProviders } from "alchemy/Auth/AuthProvider";
+import { State } from "alchemy/State/State";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Scaleway from "../src/index.ts";
@@ -156,5 +163,59 @@ describe("Scaleway Object Storage state", () => {
         });
       }),
     );
+  });
+});
+
+describe("Scaleway.state()", () => {
+  const stateLayer = (env: Record<string, string>) =>
+    Scaleway.state({ bucket: "alchemy-state", region: "fr-par" }).pipe(
+      Layer.provide(Layer.mergeAll(Layer.succeed(AuthProviders, {}),
+        Path.layer,
+        FileSystem.layerNoop({ makeDirectory: () => Effect.void, chmod: () => Effect.void }),
+      )),
+      Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
+    );
+
+  test("brings its own Scaleway credentials, clients and auth provider", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const state = yield* (yield* State);
+        yield* state.set({ stack: "app", stage: "prod", fqn: "Api", value: resourceState("Api", { created: true }) });
+        expect(yield* state.listStacks()).toEqual(["app"]);
+      }).pipe(
+        Effect.provide(stateLayer({ CI: "true", SCW_SECRET_KEY: "secret", SCW_ACCESS_KEY: "access", SCW_DEFAULT_PROJECT_ID: "project" })),
+        Effect.scoped,
+      ),
+    );
+
+    const writes = mock.calls.filter(
+      (call) => call.method === "PUT" && new URL(call.url).pathname === "/alchemy-state/alchemy/state/app/prod/Api.json",
+    );
+    expect(writes).toHaveLength(1);
+  });
+
+  test("builds without credentials and resolves them only on first use", async () => {
+    const progress = { built: false };
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const resolve = yield* State;
+        progress.built = true;
+        return yield* resolve;
+      }).pipe(Effect.provide(stateLayer({ CI: "true" })), Effect.scoped),
+    );
+
+    expect(progress.built).toBe(true);
+    expect(mock.calls).toHaveLength(0);
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(String(exit)).toContain("SCW_SECRET_KEY");
+  });
+
+  test("works as a Stack's state on its own", () => {
+    const stack = Alchemy.Stack(
+      "state-only",
+      { providers: Scaleway.providers(), state: Scaleway.state() },
+      Effect.succeed({}),
+    );
+    expect(stack).toBeDefined();
   });
 });

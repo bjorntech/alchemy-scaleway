@@ -4,6 +4,13 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+### Fixed
+
+- `Scaleway.state()` now provides its own Scaleway API foundation
+  (credentials, clients, auth provider, profile and credential stores), so
+  `state: Scaleway.state()` works as documented, and it resolves credentials
+  on first use instead of while the stack loads.
+
 ## [0.8.0-beta.80] - 2026-10-03
 
 ### Changed
