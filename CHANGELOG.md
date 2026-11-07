@@ -4,6 +4,23 @@ All notable changes to `@bjorntech/alchemy-scaleway` are documented here. The pa
 
 ## Unreleased
 
+## [0.8.1-beta.85] - 2026-11-07
+
+### Changed
+
+- Updated the compatibility target to Alchemy `2.0.0-beta.85`, Effect `4.1.2`,
+  synchronized `@effect/platform-*` packages, and the `^4.1.0` Effect peer
+  range.
+- Added the serializable `Scaleway.DNS.Adapter({ zone?, project? })` for
+  shared Alchemy DNS integrations. The adapter supports hostname CNAMEs,
+  address A/AAAA records, bindable alias sets, and shared records; it rejects
+  apex CNAMEs and Route 53 alias targets and does not perform unsafe cold
+  takeover.
+- Shared adapter record lists now resolve deferred Inputs, persist and reconcile
+  every zone/name/type group, reject unsafe authority changes, and fail closed
+  after interrupted multi-group writes because Scaleway exposes no ownership
+  marker for distinguishing partial writes from unrelated record sets.
+
 ## [0.8.0-beta.80] - 2026-10-03
 
 ### Changed
