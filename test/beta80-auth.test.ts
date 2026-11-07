@@ -25,22 +25,23 @@ const makeStore = (
         region?: string;
       }
     | undefined,
-) =>
+): CredentialsStoreService =>
   ({
     read: (() => Effect.succeed(credentials)) as CredentialsStoreService["read"],
     write: () => Effect.void,
     delete: () => Effect.void,
     deleteProfile: () => Effect.void,
+    scoped: () => makeStore(credentials),
   }) satisfies CredentialsStoreService;
 
 const makeInteraction = () => {
   const messages: string[] = [];
   const interaction = Interaction.Interaction.of({
     output: {
-      info: (message) => Effect.sync(() => messages.push(String(message))),
-      success: (message) => Effect.sync(() => messages.push(String(message))),
-      warning: (message) => Effect.sync(() => messages.push(String(message))),
-      error: (message) => Effect.sync(() => messages.push(String(message))),
+      info: (message: unknown) => Effect.sync(() => messages.push(String(message))),
+      success: (message: unknown) => Effect.sync(() => messages.push(String(message))),
+      warning: (message: unknown) => Effect.sync(() => messages.push(String(message))),
+      error: (message: unknown) => Effect.sync(() => messages.push(String(message))),
     },
     prompt: {
       password: () => Effect.succeed("stored-secret"),
@@ -55,10 +56,9 @@ const makeInteraction = () => {
       confirm: () => Effect.succeed(true),
       select: (() => Effect.succeed("stored")) as Interaction.Interaction["Service"]["prompt"]["select"],
       multiSelect: () => Effect.succeed([]),
-      awaitExternal: () => Effect.succeed("done"),
     },
-    task: (_options, effect) => effect,
-  });
+    task: (_options: unknown, effect: Effect.Effect<any, any, any>) => effect,
+  } as unknown as Interaction.Interaction["Service"]);
   return { interaction, messages };
 };
 

@@ -144,30 +144,25 @@ export const ScalewayAuth = AuthProviderLayer<
   SCALEWAY_AUTH_PROVIDER_NAME,
   Effect.gen(function* () {
     const store = yield* CredentialsStore;
-    const interaction = Interaction.accessors;
 
     const promptStoredFields = Effect.gen(function* () {
-      const secretKey = yield* interaction.prompt
-          .password({
+      const secretKey = yield* Interaction.password({
             message: "Scaleway Secret Key",
             validate: (value) => (value.length === 0 ? "Required" : undefined),
           })
           .pipe(mapPromptCancellation);
-      const accessKey = yield* interaction.prompt
-          .text({
+      const accessKey = yield* Interaction.text({
             message: "Scaleway Access Key (optional, for Object Storage)",
             placeholder: (yield* getEnv("SCW_ACCESS_KEY")) ?? "",
           })
           .pipe(mapPromptCancellation);
-      const projectId = yield* interaction.prompt
-          .text({
+      const projectId = yield* Interaction.text({
             message:
               "Scaleway Project ID (optional, required for Containers unless passed per resource)",
             placeholder: (yield* getEnv("SCW_DEFAULT_PROJECT_ID")) ?? "",
           })
           .pipe(mapPromptCancellation);
-      const region = yield* interaction.prompt
-          .text({
+      const region = yield* Interaction.text({
             message: "Scaleway Region",
             placeholder: (yield* getEnv("SCW_DEFAULT_REGION")) ?? DEFAULT_REGION,
             validate: (value) =>
@@ -194,15 +189,14 @@ export const ScalewayAuth = AuthProviderLayer<
           ScalewayStoredCredentialsSchema,
           credentials,
         );
-        yield* interaction.output.success("Scaleway: credentials saved.");
+        yield* Interaction.success("Scaleway: credentials saved.");
         return { method: "stored" as const };
       });
 
     const configure = (
       _profileName: string,
     ): Effect.Effect<ScalewayAuthConfig, AuthError, Interaction.Interaction> =>
-      interaction.prompt
-        .select({
+      Interaction.select({
           message: "Scaleway authentication method",
           options: [
             {
@@ -271,7 +265,7 @@ export const ScalewayAuth = AuthProviderLayer<
         Match.when({ method: "stored" }, () =>
           store.delete(profileName, SCALEWAY_AUTH_STORAGE_KEY).pipe(
             Effect.mapError(toAuthError("Failed to delete Scaleway stored credentials")),
-            Effect.andThen(interaction.output.success("Scaleway: stored credentials removed")),
+            Effect.andThen(Interaction.success("Scaleway: stored credentials removed")),
           ),
         ),
         Match.exhaustive,

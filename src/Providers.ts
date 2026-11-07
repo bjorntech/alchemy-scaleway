@@ -13,6 +13,7 @@ import { DatabaseInstance, DatabaseInstanceProvider } from "./DatabaseInstance.t
 import { Domain, DomainProvider } from "./Domain.ts";
 import { DnsRecord, DnsRecordProvider } from "./DnsRecord.ts";
 import { DnsZone, DnsZoneProvider } from "./DnsZone.ts";
+import { DnsRecordList, DnsRecordListProvider, ScalewayDnsAdapterLayer } from "./DnsAdapter.ts";
 import { FlexibleIp, FlexibleIpProvider } from "./FlexibleIp.ts";
 import { InstanceKnownHosts, InstanceKnownHostsProvider } from "./InstanceKnownHosts.ts";
 import { Function as ScalewayFunction, FunctionProvider } from "./Function.ts";
@@ -59,6 +60,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
       FunctionDomain,
       DnsZone,
       DnsRecord,
+      DnsRecordList,
       RegistryNamespace,
       Secret,
       DatabaseInstance,
@@ -90,6 +92,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
         FunctionDomainProvider(),
         DnsZoneProvider(),
         DnsRecordProvider(),
+        DnsRecordListProvider(),
         RegistryNamespaceProvider(),
         SecretProvider(),
         DatabaseInstanceProvider(),
@@ -107,6 +110,7 @@ export const providers = (options: ScalewayProviderOptions = {}) =>
       ),
     ),
     Layer.provide(ScalewayClientsLive),
+    Layer.provideMerge(ScalewayDnsAdapterLayer),
     Layer.provideMerge(Credentials.fromAuthProvider()),
     Layer.provideMerge(
       Layer.succeed(

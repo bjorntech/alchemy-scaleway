@@ -72,14 +72,19 @@ export const BucketProvider = () =>
             return { action: "update" } as const;
           return undefined;
         }),
-        read: Effect.fnUntraced(function* ({ id, olds, output }) {
+        read: Effect.fnUntraced(function* ({ id, olds, output, previous }) {
           const name = output?.bucketName ?? (yield* nameOf(id, olds?.name));
           const region = output?.region ?? olds?.region ?? clients.region;
           const project = yield* optionalProjectId(olds === undefined ? undefined : projectInput(olds), output?.projectId);
           const bucket = yield* clients.objectStorage
             .getBucket({ name, region, project })
             .pipe(Effect.catchIf(isNotFound, () => Effect.succeed(undefined)));
-          if (!bucket) return undefined;
+          // Look up the desired project/region before considering `previous`.
+          // On a beta.85 replacement retry, `previous` is the old generation
+          // while this scoped lookup may already find the newly-created one.
+          // HEAD does not return the project, so the project-scoped request and
+          // returned region are the identity checks available here.
+          if (!bucket || bucket.region !== region) return undefined;
           const attrs = toAttributes(bucket, project);
           return output || hasAlchemyTags(id, bucket.tags) ? attrs : Unowned(attrs);
         }),

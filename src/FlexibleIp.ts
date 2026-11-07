@@ -90,7 +90,7 @@ export const FlexibleIpProvider = () =>
           ) return { action: "update" } as const;
           return { action: "noop" } as const;
         }),
-        read: Effect.fnUntraced(function* ({ id, olds, output }) {
+        read: Effect.fnUntraced(function* ({ id, olds, output, previous }) {
           if (output?.ipId) {
             return yield* clients.instance.getFlexibleIp({ zone: zoneOf(clients.region, output.zone), ip: output.ipId }).pipe(
               Effect.map(toAttributes),
@@ -100,7 +100,13 @@ export const FlexibleIpProvider = () =>
           const zone = zoneOf(clients.region, olds.zone);
           const resolvedProjectId = yield* projectId(projectInput(olds));
           const found = yield* clients.instance.listFlexibleIps({ zone, project: resolvedProjectId }).pipe(
-            Effect.map((ips) => ips.find((ip) => hasAlchemyTag(id, ip.tags))),
+            Effect.map((ips) => ips.find((ip) =>
+              hasAlchemyTag(id, ip.tags) &&
+              zoneOf(clients.region, ip.zone) === zone &&
+              ip.project === resolvedProjectId &&
+              ip.type === (olds.type ?? "routed_ipv4") &&
+              ip.id !== previous?.ipId
+            )),
             Effect.catchIf(isNotFound, () => Effect.succeed(undefined)),
           );
           if (!found) return undefined;

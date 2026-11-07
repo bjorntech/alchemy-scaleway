@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { adopt as adoptResource } from "alchemy/AdoptPolicy";
 import { destroy, retain } from "alchemy/RemovalPolicy";
-import * as Test from "alchemy/Test/Bun";
+import * as Test from "@alchemy.run/test/Bun";
 import * as Scaleway from "../src/index.ts";
 import { installScalewayMock, type ScalewayMock } from "./support/scaleway-mock.ts";
 import { testProviders } from "./support/test-providers.ts";
@@ -2789,14 +2789,94 @@ describe("Bucket", () => {
         Scaleway.Bucket("Data", { name: "alchemy-bucket-project-move-test", project: "proj-app" }),
       );
       const second = yield* stack.deploy(
-        Scaleway.Bucket("Data", { name: "alchemy-bucket-project-move-test", project: "proj-other" }),
+        Scaleway.Bucket("Data", { name: "alchemy-bucket-project-move-test-replacement", project: "proj-other" }),
       );
 
       expect(first.projectId).toBe("proj-app");
       expect(second.projectId).toBe("proj-other");
-      expect(bucketRootRequests("PUT", "alchemy-bucket-project-move-test")).toHaveLength(2);
+      // The mock has no project dimension, so use a distinct replacement name
+      // here to keep the old and desired generations distinguishable.
+      expect(bucketRootRequests("PUT", "alchemy-bucket-project-move-test")).toHaveLength(1);
+      expect(bucketRootRequests("PUT", "alchemy-bucket-project-move-test-replacement")).toHaveLength(1);
       // Replaced bucket is retained, not deleted.
       expect(bucketRootRequests("DELETE", "alchemy-bucket-project-move-test")).toHaveLength(0);
+
+      // A retry after the replacement has been created must recover the
+      // desired generation rather than create it again.
+      const recovered = yield* stack.deploy(
+        Scaleway.Bucket("Data", { name: "alchemy-bucket-project-move-test-replacement", project: "proj-other" }),
+      );
+      expect(recovered.projectId).toBe("proj-other");
+      expect(bucketRootRequests("PUT", "alchemy-bucket-project-move-test-replacement")).toHaveLength(1);
+    }),
+  );
+
+  test.provider("replacement read admits an already-created desired project bucket", () =>
+    Effect.gen(function* () {
+      const name = "alchemy-bucket-replacement-recovery-test";
+      mock.seedBucket(name, "fr-par", { "alchemy:logical-id": "Data" });
+      const provider = yield* Scaleway.Bucket.Provider.pipe(Effect.provide(retainMigrationLayer));
+
+      const recovered = yield* provider.read!({
+        id: "Data",
+        fqn: "Data",
+        instanceId: "replacement",
+        olds: { name, region: "fr-par", project: "proj-new" },
+        output: undefined,
+        previous: {
+          bucketName: name,
+          region: "fr-par",
+          endpoint: `https://${name}.s3.fr-par.scw.cloud`,
+          projectId: "proj-old",
+          tags: { "alchemy:logical-id": "Data" },
+        },
+      });
+
+      expect(recovered?.bucketName).toBe(name);
+      expect(recovered?.projectId).toBe("proj-new");
+      expect(bucketRootRequests("HEAD", name).at(-1)?.headers.get("authorization")).toContain(
+        "Credential=test-access@proj-new/",
+      );
+
+      mock.removeBucket(name);
+      const missing = yield* provider.read!({
+        id: "Data",
+        fqn: "Data",
+        instanceId: "replacement",
+        olds: { name, region: "fr-par", project: "proj-new" },
+        output: undefined,
+        previous: {
+          bucketName: name,
+          region: "fr-par",
+          endpoint: `https://${name}.s3.fr-par.scw.cloud`,
+          projectId: "proj-old",
+        },
+      });
+      expect(missing).toBeUndefined();
+    }),
+  );
+
+  test.provider("replacement read does not admit the previous-region bucket", () =>
+    Effect.gen(function* () {
+      const name = "alchemy-bucket-replacement-region-test";
+      mock.seedBucket(name, "fr-par", { "alchemy:logical-id": "Data" });
+      const provider = yield* Scaleway.Bucket.Provider.pipe(Effect.provide(retainMigrationLayer));
+
+      const read = yield* provider.read!({
+        id: "Data",
+        fqn: "Data",
+        instanceId: "replacement",
+        olds: { name, region: "nl-ams", project: "proj-new" },
+        output: undefined,
+        previous: {
+          bucketName: name,
+          region: "fr-par",
+          endpoint: `https://${name}.s3.fr-par.scw.cloud`,
+          projectId: "proj-old",
+        },
+      });
+
+      expect(read).toBeUndefined();
     }),
   );
 
@@ -4249,8 +4329,10 @@ describe("FlexibleIp", () => {
     Effect.gen(function* () {
       const first = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { type: "routed_ipv4" }));
       const second = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { type: "routed_ipv6" }));
+      const recovered = yield* stack.deploy(Scaleway.FlexibleIp("PublicIp", { type: "routed_ipv6" }));
       expect(second.ipId).not.toBe(first.ipId);
       expect(second.type).toBe("routed_ipv6");
+      expect(recovered.ipId).toBe(second.ipId);
     }),
   );
 
