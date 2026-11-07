@@ -15,6 +15,7 @@ import { DatabaseInstance, DatabaseInstanceProvider } from "../../src/DatabaseIn
 import { Domain, DomainProvider } from "../../src/Domain.ts";
 import { DnsRecord, DnsRecordProvider } from "../../src/DnsRecord.ts";
 import { DnsZone, DnsZoneProvider } from "../../src/DnsZone.ts";
+import { DnsRecordList, DnsRecordListProvider, ScalewayDnsAdapterLayer } from "../../src/DnsAdapter.ts";
 import { FlexibleIp, FlexibleIpProvider } from "../../src/FlexibleIp.ts";
 import { Function as ScalewayFunction, FunctionProvider } from "../../src/Function.ts";
 import { FunctionCron, FunctionCronProvider } from "../../src/FunctionCron.ts";
@@ -65,6 +66,7 @@ export const testProviders = (options: { project?: ProjectRef } = {}) =>
       FunctionDomain,
       DnsZone,
       DnsRecord,
+      DnsRecordList,
       RegistryNamespace,
       Secret,
       DatabaseInstance,
@@ -96,6 +98,7 @@ export const testProviders = (options: { project?: ProjectRef } = {}) =>
         FunctionDomainProvider(),
         DnsZoneProvider(),
         DnsRecordProvider(),
+        DnsRecordListProvider(),
         RegistryNamespaceProvider(),
         SecretProvider(),
         DatabaseInstanceProvider(),
@@ -113,6 +116,7 @@ export const testProviders = (options: { project?: ProjectRef } = {}) =>
       ),
     ),
     Layer.provide(ScalewayClientsLive),
+    Layer.provideMerge(ScalewayDnsAdapterLayer),
     Layer.provideMerge(credentialsLayer),
     Layer.provideMerge(
       Layer.succeed(

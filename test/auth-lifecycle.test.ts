@@ -22,7 +22,7 @@ const credentials = {
   region: "fr-par",
 };
 
-const makeStore = (counts: { reads: number; prompts: number }) =>
+const makeStore = (counts: { reads: number; prompts: number }): CredentialsStoreService =>
   ({
     read: <A, _E>() =>
       Effect.sync(() => {
@@ -32,6 +32,7 @@ const makeStore = (counts: { reads: number; prompts: number }) =>
     write: () => Effect.void,
     delete: () => Effect.void,
     deleteProfile: () => Effect.void,
+    scoped: () => makeStore(counts),
   }) satisfies CredentialsStoreService;
 
 const makeInteraction = (counts: { prompts: number }) =>
@@ -57,10 +58,9 @@ const makeInteraction = (counts: { prompts: number }) =>
       select: (() =>
         Effect.succeed("env")) as Interaction.Interaction["Service"]["prompt"]["select"],
       multiSelect: () => Effect.succeed([]),
-      awaitExternal: () => Effect.succeed("done"),
     },
-    task: (_options, effect) => effect,
-  });
+    task: (_options: unknown, effect: Effect.Effect<any, any, any>) => effect,
+  } as unknown as Interaction.Interaction["Service"]);
 
 const makeLayer = (options: {
   store: CredentialsStoreService;

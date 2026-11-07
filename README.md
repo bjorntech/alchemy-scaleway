@@ -12,60 +12,62 @@ Resources are designed around useful deployment workflows rather than raw Scalew
 
 ## Compatibility
 
-| `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer) | Notes         |
-| --------------------------- | ---------------- | --------------- | ------------- |
-| `0.8.0-beta.80`             | `2.0.0-beta.80`  | `^4.0.0`        | Updates the provider to Alchemy beta.80 and the published Effect 4.0.0 line, including synchronized Effect platform packages and the beta.80 profile/auth workflow. |
-| `0.7.18-beta.72`            | `2.0.0-beta.72`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Fixes `ContainerImageMirror({ allPlatforms: false })` digest selection for multi-arch sources by defaulting to `linux/amd64`, so repeat plans go noop after a successful mirror. |
-| `0.7.16-beta.72`            | `2.0.0-beta.72`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.72 and Effect beta.107; `ScalewayError` now uses the beta.107 `Schema.TaggedError` pattern. |
-| `0.7.15-beta.67`            | `2.0.0-beta.67`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Refuses clean-state Instance creates that would implicitly move an already-attached public IP; existing `.alchemy` state remains compatible with no migration. |
-| `0.7.13-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0` | Hardens DNS zone ambiguity handling, adds explicit DNS record takeover semantics, and removes legacy `alchemy-effect` package metadata. |
-| `0.7.12-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0` | Preserves existing `FlexibleIp` server attachment when `serverId` is omitted; use `serverId: null` to detach. |
-| `0.7.11-beta.62`            | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.62 and Effect beta.98. |
-| `0.7.10-beta.59`            | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Reports exact same-name Container conflicts and resolves `ContainerImage.dockerfile` relative to `context` when no cwd-relative file exists. |
-| `0.7.9-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Recovers interrupted Instance creates, retries transient post-Project IAM propagation errors, and adds Bucket project scoping. |
-| `0.7.8-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Verifies mirrored tags are pull-visible before dependent container updates and retries transient image-pull visibility errors. |
-| `0.7.7-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Skips redundant mirror tag updates when the destination tag already points at the desired digest. |
-| `0.7.6-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Improves container deploy failure diagnostics and skips redundant mirror copies after interrupted deploy retries. |
-| `0.7.5-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | `ContainerImageMirror` emits registry-copy progress notes and accepts per-operation timeout budgets. |
-| `0.7.4-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Containers must reach `status: ready` (not just expose an endpoint) before companions deploy; failed deploys surface as `ContainerDeployFailed`. |
-| `0.7.3-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Waits for public DNS (`1.1.1.1`/`8.8.8.8`) CNAME propagation before creating Scaleway Serverless custom domains. |
-| `0.7.2-beta.59`             | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.59 and Effect beta.84. |
-| `0.7.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Moves the package to `@bjorntech/alchemy-scaleway` and requires smoke-test DNS zones from environment variables. |
-| `0.7.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds `ContainerImageMirror` (pure-TypeScript registry copy, no external binary) and `Container.imageDigest` redeploy tracking. |
-| `0.6.4-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Retries transient `ContainerImage` registry failures during Docker login and push. |
-| `0.6.3-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Serializes same-registry `ContainerImage` pushes and cleans up Docker login locks reliably. |
-| `0.6.2-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Retries transient Docker login failures for more reliable parallel `ContainerImage` deploys. |
-| `0.6.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes shared DNS zone references across projects and adds isolated DNS smoke coverage. |
-| `0.6.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds bundled Function source, managed Function domains/crons, and async Function deletion stabilization. |
-| `0.5.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes recovery from already-persisted Instance replacements with attached Flexible IPs. |
-| `0.5.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds Serverless Functions and fixes Instance replacement, Secret deletion, and smoke cleanup behavior. |
-| `0.4.4-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes retained managed-project recovery and custom-domain partial-create recovery. |
-| `0.4.3-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes custom-domain retry stabilization and same-registry Docker login concurrency. |
-| `0.4.2-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes `DatabaseInstance` deletion verification before state removal. |
-| `0.4.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Fixes Docker context hashing, DNS zone semantics, and interrupted cleanup recovery. |
-| `0.4.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds `ContainerImage`, public image helpers, and retained resource rediscovery. |
-| `0.3.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds Managed Database `DatabaseInstance` and open-ended Scaleway readiness waits. |
-| `0.2.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds Project lifecycle, managed project defaults, and Scaleway Object Storage-backed state. |
-| `0.1.5-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds DNS resources, custom-domain smoke coverage, and detached Instance volume cleanup fixes. |
-| `0.1.4-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds Instance cloud-init support and managed SBS volume cleanup. |
-| `0.1.3-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Adds Scaleway networking and Instance resources; smoke test uses Alchemy CLI stack workflow. |
-| `0.1.2-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Public beta; pins Alchemy's Effect test helper dependency to beta.74. |
-| `0.1.1-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Public beta with live smoke coverage. |
-| `0.1.0-beta.51`             | `2.0.0-beta.51`  | `4.0.0-beta.74` | Private beta. |
+| `@bjorntech/alchemy-scaleway` | `alchemy` (peer) | `effect` (peer)                 | Notes                                                                                                                                                                            |
+| ----------------------------- | ---------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0.8.1-beta.85`               | `2.0.0-beta.85`  | `^4.1.0`                        | Updates the provider to Alchemy beta.85 and the published Effect 4.1.2 line, including synchronized Effect platform packages and the shared Scaleway DNS adapter.                |
+| `0.8.0-beta.80`               | `2.0.0-beta.80`  | `^4.0.0`                        | Updates the provider to Alchemy beta.80 and the published Effect 4.0.0 line, including synchronized Effect platform packages and the beta.80 profile/auth workflow.              |
+| `0.7.18-beta.72`              | `2.0.0-beta.72`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Fixes `ContainerImageMirror({ allPlatforms: false })` digest selection for multi-arch sources by defaulting to `linux/amd64`, so repeat plans go noop after a successful mirror. |
+| `0.7.16-beta.72`              | `2.0.0-beta.72`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Updates compatibility to Alchemy beta.72 and Effect beta.107; `ScalewayError` now uses the beta.107 `Schema.TaggedError` pattern.                                                |
+| `0.7.15-beta.67`              | `2.0.0-beta.67`  | `>=4.0.0-beta.100 \|\| >=4.0.0` | Refuses clean-state Instance creates that would implicitly move an already-attached public IP; existing `.alchemy` state remains compatible with no migration.                   |
+| `0.7.13-beta.62`              | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0`  | Hardens DNS zone ambiguity handling, adds explicit DNS record takeover semantics, and removes legacy `alchemy-effect` package metadata.                                          |
+| `0.7.12-beta.62`              | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0`  | Preserves existing `FlexibleIp` server attachment when `serverId` is omitted; use `serverId: null` to detach.                                                                    |
+| `0.7.11-beta.62`              | `2.0.0-beta.62`  | `>=4.0.0-beta.98 \|\| >=4.0.0`  | Updates compatibility to Alchemy beta.62 and Effect beta.98.                                                                                                                     |
+| `0.7.10-beta.59`              | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0`  | Reports exact same-name Container conflicts and resolves `ContainerImage.dockerfile` relative to `context` when no cwd-relative file exists.                                     |
+| `0.7.9-beta.59`               | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0`  | Recovers interrupted Instance creates, retries transient post-Project IAM propagation errors, and adds Bucket project scoping.                                                   |
+| `0.7.8-beta.59`               | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0`  | Verifies mirrored tags are pull-visible before dependent container updates and retries transient image-pull visibility errors.                                                   |
+| `0.7.7-beta.59`               | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0`  | Skips redundant mirror tag updates when the destination tag already points at the desired digest.                                                                                |
+| `0.7.6-beta.59`               | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0`  | Improves container deploy failure diagnostics and skips redundant mirror copies after interrupted deploy retries.                                                                |
+| `0.7.5-beta.59`               | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0`  | `ContainerImageMirror` emits registry-copy progress notes and accepts per-operation timeout budgets.                                                                             |
+| `0.7.4-beta.59`               | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0`  | Containers must reach `status: ready` (not just expose an endpoint) before companions deploy; failed deploys surface as `ContainerDeployFailed`.                                 |
+| `0.7.3-beta.59`               | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0`  | Waits for public DNS (`1.1.1.1`/`8.8.8.8`) CNAME propagation before creating Scaleway Serverless custom domains.                                                                 |
+| `0.7.2-beta.59`               | `2.0.0-beta.59`  | `>=4.0.0-beta.84 \|\| >=4.0.0`  | Updates compatibility to Alchemy beta.59 and Effect beta.84.                                                                                                                     |
+| `0.7.1-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Moves the package to `@bjorntech/alchemy-scaleway` and requires smoke-test DNS zones from environment variables.                                                                 |
+| `0.7.0-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Adds `ContainerImageMirror` (pure-TypeScript registry copy, no external binary) and `Container.imageDigest` redeploy tracking.                                                   |
+| `0.6.4-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Retries transient `ContainerImage` registry failures during Docker login and push.                                                                                               |
+| `0.6.3-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Serializes same-registry `ContainerImage` pushes and cleans up Docker login locks reliably.                                                                                      |
+| `0.6.2-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Retries transient Docker login failures for more reliable parallel `ContainerImage` deploys.                                                                                     |
+| `0.6.1-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Fixes shared DNS zone references across projects and adds isolated DNS smoke coverage.                                                                                           |
+| `0.6.0-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Adds bundled Function source, managed Function domains/crons, and async Function deletion stabilization.                                                                         |
+| `0.5.1-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Fixes recovery from already-persisted Instance replacements with attached Flexible IPs.                                                                                          |
+| `0.5.0-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Adds Serverless Functions and fixes Instance replacement, Secret deletion, and smoke cleanup behavior.                                                                           |
+| `0.4.4-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Fixes retained managed-project recovery and custom-domain partial-create recovery.                                                                                               |
+| `0.4.3-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Fixes custom-domain retry stabilization and same-registry Docker login concurrency.                                                                                              |
+| `0.4.2-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Fixes `DatabaseInstance` deletion verification before state removal.                                                                                                             |
+| `0.4.1-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Fixes Docker context hashing, DNS zone semantics, and interrupted cleanup recovery.                                                                                              |
+| `0.4.0-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Adds `ContainerImage`, public image helpers, and retained resource rediscovery.                                                                                                  |
+| `0.3.1-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Adds Managed Database `DatabaseInstance` and open-ended Scaleway readiness waits.                                                                                                |
+| `0.2.0-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Adds Project lifecycle, managed project defaults, and Scaleway Object Storage-backed state.                                                                                      |
+| `0.1.5-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Adds DNS resources, custom-domain smoke coverage, and detached Instance volume cleanup fixes.                                                                                    |
+| `0.1.4-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Adds Instance cloud-init support and managed SBS volume cleanup.                                                                                                                 |
+| `0.1.3-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Adds Scaleway networking and Instance resources; smoke test uses Alchemy CLI stack workflow.                                                                                     |
+| `0.1.2-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Public beta; pins Alchemy's Effect test helper dependency to beta.74.                                                                                                            |
+| `0.1.1-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Public beta with live smoke coverage.                                                                                                                                            |
+| `0.1.0-beta.51`               | `2.0.0-beta.51`  | `4.0.0-beta.74`                 | Private beta.                                                                                                                                                                    |
 
 ## Install
 
 ```sh
-bun add alchemy@2.0.0-beta.80 effect@4.0.0 @effect/platform-bun@4.0.0 @effect/platform-node@4.0.0 @effect/platform-node-shared@4.0.0 @bjorntech/alchemy-scaleway
+bun add alchemy@2.0.0-beta.85 effect@4.1.2 @effect/platform-bun@4.1.2 @effect/platform-node@4.1.2 @effect/platform-node-shared@4.1.2 @bjorntech/alchemy-scaleway
 ```
 
-### Beta.80 migration
+### Beta.85 migration
 
-Beta.80 requires published Effect `4.0.0` and synchronized
+Beta.85 requires published Effect `4.1.2` and synchronized
 `@effect/platform-bun`, `@effect/platform-node`, and
-`@effect/platform-node-shared` `4.0.0` packages.
+`@effect/platform-node-shared` `4.1.2` packages. The package keeps the
+beta.80 profile/auth and nested Effect service conventions described below.
 
-Beta.80 replaces the older login flow with named profiles. For an existing
+The beta.80 migration replaces the older login flow with named profiles. For an existing
 Scaleway account, inspect the selected profile and explicitly reconfigure it:
 
 ```sh
@@ -83,7 +85,7 @@ credential contract remains unchanged. `ScalewayAuth`, `ScalewayCredentials`,
 `ScalewayClients`, `ScalewayClientsLive`, `fromAuthProvider()`, and
 `buildScalewayClients()` are exported for custom integrations.
 
-Beta.80 changes the implicit stage used by a bare deploy from `dev_$USER` to
+The beta.80 migration changes the implicit stage used by a bare deploy from `dev_$USER` to
 `live_$USER`. Do not run a bare deploy expecting it to reuse an existing
 development stage. Preserve an existing stage explicitly with `--stage <name>`
 or `ALCHEMY_STAGE=<name>`. The old `STAGE` environment variable is no longer
@@ -95,15 +97,11 @@ Effect consumers now retrieve the service effects before using them:
 
 ```ts
 import * as Effect from "effect/Effect";
-import {
-  ScalewayClients,
-  ScalewayCredentials,
-  providers,
-} from "@bjorntech/alchemy-scaleway";
+import { ScalewayClients, ScalewayCredentials, providers } from "@bjorntech/alchemy-scaleway";
 
 const program = Effect.gen(function* () {
-  const credentials = yield* (yield* ScalewayCredentials);
-  const clients = yield* (yield* ScalewayClients);
+  const credentials = yield* yield* ScalewayCredentials;
+  const clients = yield* yield* ScalewayClients;
   return yield* clients.containers.getContainer("container-id");
 }).pipe(Effect.provide(providers()));
 ```
@@ -305,6 +303,7 @@ Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJE
 - `FunctionDomain` - Serverless Function custom domain lifecycle.
 - `DnsZone` - Scaleway Domains and DNS zone handle. Existing apex or child zones are discovered by zone name and returned with their live `projectId`; absent child zones (`domain` plus `subdomain`) are created in the requested DNS project. If the same zone name is visible in multiple projects, pass the DNS authority project explicitly. Referenced existing zones are retained on delete, while zones created by Alchemy can be deleted if you opt into `destroy()`.
 - `DnsRecord` - Scaleway Domains and DNS record-set lifecycle. Records are scoped through their `DnsZone`, including its DNS authority project, or through an explicit `project`; otherwise DNS operations use `SCW_DEFAULT_PROJECT_ID`. Records can use explicit values or infer a target from resources such as `Container`, `FlexibleIp`, `Instance`, `RegistryNamespace`, and `Bucket`. Initial creates refuse to replace an existing same-name/type record set unless `takeoverExisting: true` is set (`overwriteExisting` remains as a deprecated alias).
+- `DNS.Adapter` - Shared Alchemy DNS adapter configuration for Scaleway. `Scaleway.DNS.Adapter({ zone?, project? })` returns serializable configuration for a platform resource's DNS integration; pass `zone.dnsZone` and `zone.projectId` from a `DnsZone` resource rather than the resource object itself. `Scaleway.providers()` registers the adapter and the record resources it declares.
 - `RegistryNamespace` - Scaleway Container Registry namespace lifecycle with ready-to-use image prefix output.
 - `Secret` - Scaleway Secret Manager secret metadata and version lifecycle. Secret values are accepted as `Redacted<string>` and are never returned in outputs. Destroying a non-retained secret permanently deletes its versions before deleting the secret container.
 - `DatabaseInstance` - Scaleway Managed Database for PostgreSQL/MySQL instance lifecycle with readiness polling, project defaults, endpoint outputs, and redacted admin password input. Engine, node type, default user, password, HA mode, and volume shape changes replace the instance; name, tags, and backup schedule update in place. Defaults to `retain()` on removal and uses `alchemy:logical-id` tags for later rediscovery.
@@ -333,14 +332,16 @@ Remote state requires `SCW_ACCESS_KEY` plus `SCW_SECRET_KEY`. `SCW_DEFAULT_PROJE
 `Function.source` accepts either a bundled entrypoint or a prebuilt ZIP. Use `{ main: "src/handler.ts" }` for Worker-style local bundling into a deterministic Node ESM ZIP, or `{ zipPath: "dist/function.zip" }` when another build pipeline already produced the artifact. The provider hashes the ZIP contents, uploads only when the hash changes, calls Scaleway's deploy endpoint, and polls the Function until `ready`. If `handler` is omitted, bundled sources default to `index.handle` and prebuilt ZIPs default to `handler.handle`.
 
 ```ts
-const fn = yield* Scaleway.Function("ApiFn", {
-  namespace,
-  runtime: "node20",
-  source: { main: "src/handler.ts" },
-  environmentVariables: { APP: "api" },
-  crons: ["0 * * * *"],
-  domains: ["fn.example.com"],
-});
+const fn =
+  yield *
+  Scaleway.Function("ApiFn", {
+    namespace,
+    runtime: "node20",
+    source: { main: "src/handler.ts" },
+    environmentVariables: { APP: "api" },
+    crons: ["0 * * * *"],
+    domains: ["fn.example.com"],
+  });
 ```
 
 High-value resources that can hold data or scarce addresses default to `retain()` on stack removal: `Bucket`, `DatabaseInstance`, and `FlexibleIp`. Add `.pipe(destroy())` when you intentionally want Alchemy to delete them during stack removal. Replacement cleanup is still destructive when an identity change forces replacement, so treat replace-triggering changes such as database engine, volume, or flexible IP type changes as data/address migration operations.
@@ -353,57 +354,93 @@ This public-IP guard is a behavioral breaking change only for clean-state caller
 
 `DnsRecord` owns the complete record set for one zone/name/type. If the record set already exists outside Alchemy, initial creation fails by default to avoid replacing unmanaged DNS. Set `takeoverExisting: true` only when you intentionally want Alchemy to take over and replace that record set. Taken-over record sets are updated while the resource exists but are retained on destroy unless you also set `deleteTakenOver: true`; record sets created from scratch by `DnsRecord` are deleted normally. `overwriteExisting: true` is still accepted as a deprecated takeover alias for older stacks, but new code should use `takeoverExisting`.
 
+### Shared DNS adapter
+
+Alchemy beta.85 platform resources accept a serializable DNS configuration. The
+Scaleway adapter is constructed as `Scaleway.DNS.Adapter({ zone?, project? })`.
+It publishes hostname aliases as CNAME records and address targets as A and/or
+AAAA records. It also supports bindable alias sets and explicit shared record
+sets, including the adapter's retain option for records that must outlive a
+resource. Adapter declarations are made during stack construction, so multiple
+independent declarations can be planned concurrently.
+
+Record lists resolve deferred record values at reconcile time and persist every
+resolved `(project, zone, name, type)` group. A single list may therefore span
+multiple Scaleway zones. Names are normalized to lowercase; with an explicit
+zone, names without that zone suffix are interpreted as relative names (so
+multi-label relative names such as `api.internal` are supported). A name that
+is already fully qualified must belong to the selected zone.
+
+Scaleway does not implement Route 53 alias records, and the adapter rejects
+`route53Alias`. A CNAME at a zone apex is unsupported and fails rather than
+being flattened implicitly. The adapter does not perform an unsafe cold
+takeover of an existing record set; use the existing `DnsRecord` resource when
+you need its explicit takeover controls. If zone discovery is ambiguous across
+projects, or the requested zone/project cannot be resolved, deployment fails
+instead of selecting an arbitrary authority.
+
+If a reconcile is interrupted after one group is written, a retry fails closed
+when it encounters that unowned live group. Scaleway has no ownership marker,
+so the adapter cannot distinguish a partial write from a pre-existing record
+without risking an unsafe overwrite or delete. Re-run only after inspecting the
+record sets and restoring persisted Alchemy state; use `DnsRecord` with its
+explicit takeover controls when intentional adoption is required.
+
 DNS zones can live in a shared/default authority project while targets live in another application project. `DnsZone.project` is the preferred DNS authority project for lookup or child-zone creation, not the target application project. If the zone already exists in one other accessible project, `DnsZone` references that live zone and `DnsRecord` writes records using the zone's returned `projectId`; if multiple same-name zones are visible, pass the DNS authority project explicitly so Alchemy cannot choose the wrong zone. `Domain` remains scoped to the target container:
 
 For apex zones such as `example.com`, register, transfer, or validate the domain in Scaleway first, then use `DnsZone` as an existing-zone reference. To create a child zone such as `dev.example.com`, pass `{ domain: "example.com", subdomain: "dev" }`.
 
 ```ts
-const zone = yield* Scaleway.DnsZone("Zone", { domain: "example.com" });
-const namespace = yield* Scaleway.Namespace("ApiNs", { project: "app-project-id" });
-const api = yield* Scaleway.Container("Api", { namespace, image: "rg.fr-par.scw.cloud/app/api:latest" });
+const zone = yield * Scaleway.DnsZone("Zone", { domain: "example.com" });
+const namespace = yield * Scaleway.Namespace("ApiNs", { project: "app-project-id" });
+const api =
+  yield * Scaleway.Container("Api", { namespace, image: "rg.fr-par.scw.cloud/app/api:latest" });
 
-yield* Scaleway.DnsRecord("ApiDns", { zone, name: "api", target: api });
-yield* Scaleway.Domain("ApiDomain", { container: api, hostname: "api.example.com" });
+yield * Scaleway.DnsRecord("ApiDns", { zone, name: "api", target: api });
+yield * Scaleway.Domain("ApiDomain", { container: api, hostname: "api.example.com" });
 ```
 
 For existing child zones such as `sip.example.com`, pass the zone shape normally. If the zone already exists in your default/domain project, Alchemy references it and records are written there even if the rest of the stack uses a separate managed project:
 
 ```ts
-const appProject = yield* Scaleway.Project("AppProject", { organizationId });
-const sipZone = yield* Scaleway.DnsZone("SipZone", { domain: "example.com", subdomain: "sip" });
-const publicIp = yield* Scaleway.FlexibleIp("SipIp", { project: appProject });
+const appProject = yield * Scaleway.Project("AppProject", { organizationId });
+const sipZone = yield * Scaleway.DnsZone("SipZone", { domain: "example.com", subdomain: "sip" });
+const publicIp = yield * Scaleway.FlexibleIp("SipIp", { project: appProject });
 
-yield* Scaleway.DnsRecord("SipWildcard", {
-  zone: sipZone,
-  name: "*",
-  target: publicIp,
-  takeoverExisting: true,
-});
+yield *
+  Scaleway.DnsRecord("SipWildcard", {
+    zone: sipZone,
+    name: "*",
+    target: publicIp,
+    takeoverExisting: true,
+  });
 ```
 
 ```ts
-yield* Scaleway.DnsRecord("Verification", {
-  zone,
-  name: "_acme-challenge",
-  type: "TXT",
-  records: ["challenge-token"],
-  ttl: 60,
-});
+yield *
+  Scaleway.DnsRecord("Verification", {
+    zone,
+    name: "_acme-challenge",
+    type: "TXT",
+    records: ["challenge-token"],
+    ttl: 60,
+  });
 ```
 
 ```ts
-yield* Scaleway.Instance("DockerVm", {
-  commercialType: "DEV1-S",
-  image: "ubuntu_jammy",
-  desiredState: "running",
-  cloudInit: Redacted.make(`#!/bin/bash
+yield *
+  Scaleway.Instance("DockerVm", {
+    commercialType: "DEV1-S",
+    image: "ubuntu_jammy",
+    desiredState: "running",
+    cloudInit: Redacted.make(`#!/bin/bash
 set -e
 apt-get update
 apt-get install -y docker.io
 systemctl enable docker
 systemctl start docker
 `),
-});
+  });
 ```
 
 `Instance.securityGroup` can attach or switch to a security group by ID. Omitting it leaves the current attachment unchanged; Scaleway's Instance update API does not expose a documented raw security-group detach operation.

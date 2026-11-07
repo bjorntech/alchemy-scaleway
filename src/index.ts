@@ -78,6 +78,16 @@ export {
   type DnsZoneRef,
 } from "./DnsRecord.ts";
 export { DnsZone, DnsZoneProvider, dnsZoneName, type DnsZoneProps } from "./DnsZone.ts";
+export {
+  DnsRecordList,
+  type DnsRecordListResource,
+  DnsRecordListProvider,
+  ScalewayDnsAdapter,
+  ScalewayDnsAdapterLayer,
+  Scaleway,
+  DNS,
+  type ScalewayDnsAdapterOptions,
+} from "./DnsAdapter.ts";
 export { FlexibleIp, FlexibleIpProvider, type FlexibleIpProps, type FlexibleIpType } from "./FlexibleIp.ts";
 export {
   Function,
